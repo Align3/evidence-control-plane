@@ -261,8 +261,8 @@ Claim a number here before writing the migration (DM-001).
 
 | # | Story | Description | Status |
 |---|---|---|---|
-| 0001 | EV-06 | Tenants, collectors, keys | unclaimed |
-| 0002 | EV-06 | `evidence_records` + partitioning + role grants | unclaimed |
+| 0001 | EV-06 | Tenants, collectors, keys | claimed |
+| 0002 | EV-06 | `evidence_records` + partitioning + role grants | claimed |
 | 0003 | EV-12 | Boundaries, qualification records | unclaimed |
 | 0004 | EV-14 | Population records | unclaimed |
 | 0005 | EV-15 | Reconciliation results | unclaimed |
