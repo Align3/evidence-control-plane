@@ -3,8 +3,12 @@
 **Repo location:** `docs/setup-guide.md`
 **From:** a Windows machine with nothing installed
 **To:** two agents building in parallel, first PR open
-**Version:** 0.3 — corrected
+**Version:** 0.4 — corrected
 **Time:** about two hours, most of it waiting on downloads
+
+> **Corrections from 0.3:** Part 3.3 required only three status checks while CI
+> runs four, so a pull request could merge to `main` with
+> `Cross-implementation conformance` red. All four are now required.
 
 > **Corrections from 0.2:** `pytest` no longer fails on a fresh scaffold. It was
 > collecting zero tests and exiting 5, which CI reports as a failure;
@@ -194,7 +198,8 @@ gh api -X PUT repos/:owner/evidence-control-plane/branches/main/protection \
     "contexts": [
       "Feature files match documents",
       "Python",
-      "Go verifier"
+      "Go verifier",
+      "Cross-implementation conformance"
     ]
   },
   "enforce_admins": true,
@@ -213,7 +218,7 @@ Then `staging`, which needs CI green but not the signoff:
 gh api -X PUT repos/:owner/evidence-control-plane/branches/staging/protection \
   --input - <<'EOF'
 {
-  "required_status_checks": {"strict": true, "contexts": ["Feature files match documents", "Python", "Go verifier"]},
+  "required_status_checks": {"strict": true, "contexts": ["Feature files match documents", "Python", "Go verifier", "Cross-implementation conformance"]},
   "enforce_admins": false,
   "required_pull_request_reviews": null,
   "restrictions": null
@@ -225,6 +230,13 @@ EOF
 your own pull request, and with `enforce_admins: true` a review requirement would lock
 `main` permanently for a solo maintainer. The real gate is the cross-model agent review
 plus the signoff artifact.
+
+All four CI jobs are required, not three. `Cross-implementation conformance` is a
+placeholder until EV-05 — it currently echoes and passes — but requiring it now
+means the gate is already enforced the moment it asserts ES-S-007 for real, rather
+than depending on someone remembering to add it. It carries `needs: [python, go]`,
+so it can only be skipped when a required check has already failed; it cannot
+deadlock a pull request on its own.
 
 `develop` stays unprotected — agents push to it freely.
 
