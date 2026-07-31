@@ -3,8 +3,14 @@
 **Repo location:** `docs/setup-guide.md`
 **From:** a Windows machine with nothing installed
 **To:** two agents building in parallel, first PR open
-**Version:** 0.2 — corrected
+**Version:** 0.3 — corrected
 **Time:** about two hours, most of it waiting on downloads
+
+> **Corrections from 0.2:** `pytest` no longer fails on a fresh scaffold. It was
+> collecting zero tests and exiting 5, which CI reports as a failure;
+> `tests/test_scaffold.py` now asserts the scaffold invariants. Part 6 and the
+> completion checklist both said the correct starting state was a failing
+> `pytest` — it is 5 passed, 1 skipped, with no story scenarios collected.
 
 > **Corrections from 0.1:** removed the deadsnakes PPA and `update-alternatives`
 > (24.04 already has Python 3.12; repointing it breaks apt); removed the required
@@ -347,10 +353,14 @@ Before the agent starts, from inside the worktree:
 ```bash
 source .venv/bin/activate
 make check      # no drift
-pytest -q       # scenarios FAIL — this is correct and is the starting state
+pytest -q       # 5 passed, 1 skipped — scaffold invariants only
 ```
 
-An agent that begins with passing tests has nothing to drive against.
+The 55 scenarios in `tests/features/` are not collected: pytest-bdd needs step
+definitions and none exist yet. Writing the ones for this story's scenarios, so
+that they collect and fail, is the first task inside the story rather than a
+precondition of it. An agent that begins with nothing red has nothing to drive
+against.
 
 While they work, watch for two things:
 
@@ -418,7 +428,10 @@ Merge only on an explicit Go from the reviewing agent plus those three clean. CI
 - [ ] Two Postgres instances on distinct ports with distinct databases
 - [ ] Two separate dev signing keys, evidence and issuer namespaces
 - [ ] Both agents authenticated and able to run in their worktrees
-- [ ] `pytest` **fails** in both worktrees — the correct starting state
+- [ ] `pytest` **passes** in both worktrees — 5 passed, 1 skipped. Those are the
+      scaffold invariants in `tests/test_scaffold.py`. No story scenarios are
+      collected, because no step definitions exist yet. That is the correct
+      starting state
 - [ ] Builder and reviewer are different models
 
 ---
