@@ -1,0 +1,135 @@
+# Agent Working Agreement
+
+**Repo location:** `docs/agent-working-agreement.md`
+**Audience:** Codex, Claude Code, and any human reviewing their output.
+**Read this before picking up a story.**
+
+---
+
+## 1. The loop
+
+1. **Pick a story** from `docs/prd.md` by ID (`EV-nn`). Check its **Touches** set does not overlap any story currently in flight.
+2. **Read the requirements** it declares under **Satisfies**, in the owning document. Not the summary — the actual requirement text.
+3. **Run the scenarios and watch them fail.** They already exist, generated into `tests/features/`. Do not write them; find them by tag.
+4. **Write step definitions** in `tests/steps/`. These are the only test code you author for acceptance.
+5. **Implement** until the scenarios pass.
+6. **Add unit and property tests** for anything the scenarios do not reach.
+7. **Open a PR.** Independent review before merge.
+
+```bash
+# Find the scenarios for your story
+grep -rn "@CM-S-004" tests/features/
+
+# Run only your story's scenarios
+pytest tests/ -k "CM_S_004"
+
+# Regenerate features after editing a document
+python tools/extract_features.py --docs docs --out tests/features
+```
+
+---
+
+## 2. Rules that are not negotiable
+
+**AG-001 — Never edit a `.feature` file.** They are generated from `docs/`. If a scenario is wrong, fix it in the owning document and regenerate. CI runs the extractor in `--check` mode and fails on drift.
+
+**AG-002 — Never weaken a scenario to make it pass.** If a scenario cannot be satisfied, the implementation is wrong or the requirement is wrong. Both are conversations, not edits. Changing `Then verification fails` to `Then a warning is logged` is the single most damaging thing you can do in this repository.
+
+**AG-003 — Never add an assertion the attestation can emit without a requirement and a scenario.** The catalogue in `attestation-reliance.md` §2 is closed (AR-003).
+
+**AG-004 — Claim your migration number in `docs/data-model.md` first**, in a commit that touches nothing else, before writing the migration (DM-001).
+
+**AG-005 — No queue in the evidence write path.** Celery is for derived computation only (AC-001, AC-010). If a story seems to need async ingestion, it is being misread.
+
+**AG-006 — Acceptance tests assert through the verifier**, not internal state (QA-003). A test reaching into the coverage engine's intermediates is a unit test and does not count toward acceptance.
+
+---
+
+## 3. Negative-first
+
+The dangerous defect here is not a crash. It is a **false claim**. A system returning 500 is embarrassing; a system quietly reporting full enforced coverage across an interval where the collector was down is fatal to the company.
+
+**AG-007** — For any capability you implement, write the withholding case before the happy path. Ask: *under what conditions must this refuse to claim?* Then make that fail first.
+
+Left to natural inclination an agent writes `test_coverage_computed_correctly`. What is needed is `test_coverage_refuses_when_denominator_truncated`. If your test names are mostly affirmative, you have built the wrong suite.
+
+---
+
+## 4. Known traps
+
+Specific places where the obvious implementation is wrong. Each has burned someone already or is predicted to.
+
+### EV-11 — the oversight record is not logging
+
+The pattern-match is "record that a human approved something." That implementation is worthless. What matters is `action_state_at_review`: a review recorded against an action that had already committed **must not count as effective oversight**, no matter what decision it carries. Scenario `ES-S-003` enforces this. If your implementation counts it, you have built the commodity version of the differentiating feature.
+
+Likewise `evidence_shown` must be a digest of what was **rendered client-side**. A server-side reconstruction of what should have been shown is a different claim and must be labelled as such (ES-013).
+
+### EV-16 — the coverage engine must refuse, not estimate
+
+Every instinct says fill the gap: interpolate, extrapolate, report a best estimate. All of it is prohibited (CM-011). An unmatched record is counted and classified. An unknown interval is reported as a time range, not folded into a percentage. At denominator class C4 or C5, `coverage_ratio` is **explicitly null** — not zero, not omitted (ES-017). The null is a claim about the world.
+
+Watch gap conservation specifically (`QA-S-002`): covered intervals and gap intervals must partition the window exactly. An interval that is neither is the silent-overclaim bug this product exists to prevent.
+
+### EV-13 — two capabilities, not one
+
+`enumerate` and `confirm` are independent. A connector with `confirm` but not `enumerate` supports per-action reconciliation and **must not** support a window-level coverage claim (AC-008). The type signature should make this hard to get wrong; the coverage engine must enforce it regardless, because a future connector will get it wrong.
+
+### EV-05 / EV-19 — the Go verifier shares no code with Python
+
+Sharing a canonicalisation library between writer and verifier defeats the entire point (AC-011). The cross-implementation agreement in `ES-S-007` is only meaningful if the implementations are genuinely independent. If you find yourself extracting a shared module, stop.
+
+### EV-06 — immutability lives in the database
+
+`UPDATE` and `DELETE` are refused by role grant, not by an application check (AC-012). An ORM configuration that merely avoids issuing them does not satisfy `AC-S-004`.
+
+---
+
+## 5. Review protocol
+
+Following the DamDam convention, and for the same reason: a self-report is not evidence.
+
+**AG-008 — The reviewer MUST be a different model from the builder.** Not merely a different session — a different model. Whatever failure mode led one model to write something wrong is reasonably likely to lead the same model to read it as right; same-model review shares blind spots and produces false confidence. Roles are not fixed: either agent builds, the other reviews, alternating by track.
+
+**AG-009 — Review is a fresh session in the main clone** that **reproduces the claims with real commands**. Not reading the diff and agreeing. Run the tests, inspect the database, verify the chain, confirm the migration applied. The reviewer must not inherit the builder's session context or reasoning — doing so discards the independence the cross-model rule buys.
+
+**AG-010 — Read the requirement before the diff.** Form an expectation of what a correct implementation looks like from the requirement text alone, then compare against what was built. Reading the diff first anchors you to the author's framing, which is exactly what the review exists to escape.
+
+**AG-011** — For anything touching the evidence schema, signing, canonicalisation, or coverage computation, the review must include the Go verifier independently reproducing Python output. This is the check that catches the class of bug nothing else will.
+
+**AG-012 — Adversarial review on high-risk stories.** For `EV-11`, `EV-16`, `EV-05`, and `EV-19`, confirming that tests pass is not sufficient. The reviewer must actively attempt to construct an input that makes the implementation emit a **false claim** — a coverage figure it should have withheld, an oversight record it should have disqualified, a verification that should have failed. For a product whose failure mode is overclaiming, an hour spent trying to break it is worth more than a careful diff read.
+
+**AG-013 — Dual review on those same four stories.** Both models review independently, without seeing each other's findings, and both recommendations are recorded. Expensive, and correct: a false negative on `EV-11` or `EV-16` survives to production and quietly converts the product into a logging tool.
+
+**AG-014** — An automated review-bot pass is not a merge signal on its own for anything in the evidence, signing, coverage, or attestation path.
+
+**AG-015** — Deliberately unbuilt items are disclosed explicitly in the PR, never dropped silently. "Spec listed X; not built because Y" is acceptable. Silence is not.
+
+---
+
+## 6. Done
+
+A story is done when all of the following hold:
+
+- Its acceptance scenarios pass, asserted through the verifier
+- The traceability matrix has no orphans (`EV-22`)
+- The adversarial suite still passes (`EV-23`)
+- Golden attestations are unchanged, or changed with a stated reviewed cause (`EV-24`)
+- `extract_features.py --check` passes
+- For schema, signing, canonicalisation, or coverage changes: cross-implementation reproduction recorded
+- An independent review session has reproduced the claims with real commands
+
+---
+
+## 7. When to stop and ask
+
+Stop rather than guess if:
+
+- A scenario appears unsatisfiable as written
+- A requirement in one document contradicts another
+- Implementing a story cleanly would require changing the evidence schema
+- A story's Touches set turns out to be wrong once you are inside it
+- You are about to make the coverage engine estimate anything
+- You are about to add a field to the envelope
+
+The last two are architectural decisions wearing the costume of implementation details.

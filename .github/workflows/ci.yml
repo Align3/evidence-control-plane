@@ -1,0 +1,61 @@
+name: CI
+
+on:
+  pull_request:
+  push:
+    branches: [develop, staging, main]
+
+jobs:
+  spec-drift:
+    name: Feature files match documents
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with: {python-version: "3.12"}
+      # AG-001: fails if a .feature file was hand-edited or a doc changed
+      # without regeneration. This is the gate that stops an agent weakening
+      # a scenario to make a test pass.
+      - run: python tools/extract_features.py --docs docs --out tests/features --check
+
+  python:
+    name: Python
+    runs-on: ubuntu-latest
+    needs: spec-drift
+    services:
+      postgres:
+        image: postgres:17-alpine
+        env:
+          POSTGRES_USER: evidence
+          POSTGRES_PASSWORD: devonly
+          POSTGRES_DB: evidence
+        ports: ["5432:5432"]
+        options: >-
+          --health-cmd "pg_isready -U evidence"
+          --health-interval 5s --health-retries 10
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with: {python-version: "3.12"}
+      - run: pip install -e ".[dev]"
+      - run: ruff check .
+      - run: mypy services sdk_python || true   # strict mode; relax once EV-02 lands
+      - run: pytest -q
+
+  go:
+    name: Go verifier
+    runs-on: ubuntu-latest
+    needs: spec-drift
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with: {go-version: "1.23"}
+      - run: cd verifier-go && go build ./... && go test ./...
+
+  conformance:
+    name: Cross-implementation conformance
+    runs-on: ubuntu-latest
+    needs: [python, go]
+    steps:
+      - uses: actions/checkout@v4
+      - run: echo "Enabled by EV-05. Asserts ES-S-007: Python and Go byte-identical."

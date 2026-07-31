@@ -1,0 +1,48 @@
+[project]
+name = "evidence-control-plane"
+version = "0.1.0"
+requires-python = ">=3.12"
+dependencies = [
+    "fastapi>=0.115",
+    "uvicorn[standard]>=0.32",
+    "sqlalchemy>=2.0",
+    "alembic>=1.14",
+    "psycopg[binary]>=3.2",
+    "celery>=5.4",
+    "redis>=5.2",
+    "cryptography>=44.0",
+    "pydantic>=2.10",
+]
+
+[project.optional-dependencies]
+dev = [
+    "pytest>=8.3",
+    "pytest-bdd>=8.1",
+    "pytest-cov>=6.0",
+    "hypothesis>=6.122",
+    "ruff>=0.8",
+    "mypy>=1.14",
+]
+
+[tool.setuptools.packages.find]
+# Explicit discovery. Without this, setuptools refuses to build a flat layout
+# containing multiple top-level directories (services, migrations, tests).
+include = ["services*", "sdk_python*"]
+exclude = ["migrations*", "tests*", "tools*", "docs*", "verifier-go*", "sdk-typescript*"]
+
+[tool.ruff]
+line-length = 100
+target-version = "py312"
+
+[tool.ruff.lint]
+select = ["E", "F", "I", "N", "UP", "B", "S"]
+ignore = ["S101"]
+
+[tool.mypy]
+python_version = "3.12"
+strict = true
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+bdd_features_base_dir = "tests/features"
+markers = ["adversarial: threat-model attack scenarios"]

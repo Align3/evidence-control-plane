@@ -1,0 +1,312 @@
+# Agent Evidence Specification
+
+**Version:** 0.1 draft
+**Repo location:** `docs/evidence-spec.md`
+**Status:** unstable. Field names and semantics may change until v1.0. Do not build external integrations against this version without coordination.
+**Audience:** implementers of collectors, gateways, verifiers, and destination connectors — including third parties.
+**Depends on:** `coverage-methodology.md`
+**Drives:** `architecture.md`, `api.md`, `verifier-conformance.md`
+
+---
+
+## 0. Nature of this document
+
+This is the artifact we publish. It is the abstraction boundary of the entire system: everything upstream (collection) and downstream (reconciliation, coverage, attestation, verification) plugs into it. It is also the moat, in the sense that adoption of the schema by parties other than us is the thing that makes the company hard to displace.
+
+It follows that this document is written to be implemented by someone who does not work here and cannot ask us questions.
+
+Conformance keywords MUST, MUST NOT, SHOULD, SHOULD NOT, MAY are used per RFC 2119.
+
+Requirements carry IDs `ES-nnn`. Scenarios in §12 reference them.
+
+---
+
+## 1. Design goals
+
+1. **Independently verifiable.** A relying party with the bundle, the public keys, and a verifier MUST be able to reach the same conclusion we do, offline.
+2. **Honest about gaps.** The schema MUST be able to express what was not captured. A format that can only describe what happened is unfit for purpose.
+3. **Language-neutral.** No construct may depend on the serialization behaviour of a particular runtime.
+4. **Stable under versioning.** Records written under v0.1 MUST remain verifiable after v1.0 ships.
+5. **Minimal by default.** Sensitive content is referenced by digest unless explicitly configured otherwise.
+
+### 1.1 Non-goals
+
+Not a telemetry or tracing format — no spans, no sampling, no performance instrumentation. Not a policy language. Not a transport specification.
+
+---
+
+## 2. Canonical form
+
+**ES-001** — Records MUST be serialized as JSON canonicalized per RFC 8785 (JCS) for the purposes of hashing and signing.
+
+**ES-002** — Numbers MUST NOT be represented as IEEE-754 floats anywhere in a signed record. Monetary and quantity values MUST be strings with an accompanying unit or currency field. Timestamps MUST be RFC 3339 with explicit offset and at least millisecond precision.
+
+**ES-003** — Digests are SHA-256, lowercase hex, prefixed `sha256:`.
+
+**ES-004** — Identifiers are UUIDv7, rendered lowercase. UUIDv7 is specified for the embedded timestamp ordering, which aids operational debugging; ordering guarantees for verification derive from the sequence field, not the identifier.
+
+> **Implementer note.** Canonicalization is the most common source of cross-implementation divergence. Two implementations that agree on semantics but disagree on byte-level serialization will fail verification for reasons that are extremely hard to debug. The conformance vectors in `verifier-conformance.md` exist primarily to catch this.
+
+---
+
+## 3. Record envelope
+
+Every record shares an envelope.
+
+| Field | Type | Required | Meaning |
+|---|---|---|---|
+| `record_id` | uuid7 | yes | Unique within tenant |
+| `record_type` | string | yes | One of §5 |
+| `schema_version` | string | yes | Semver of this spec |
+| `tenant_id` | string | yes | Issuing tenant |
+| `boundary_ref` | string | yes | Assurance boundary version this record falls under |
+| `stream_id` | string | yes | Chain this record belongs to (§4) |
+| `sequence` | integer | yes | Monotonic within `stream_id`, starting at 1, no gaps |
+| `prev_digest` | digest \| null | yes | Digest of the previous record in the stream; `null` at sequence 1 |
+| `source` | object | yes | Collector identity, implementation, version, deployment |
+| `clocks` | object | yes | §6 |
+| `body` | object | yes | Type-specific payload |
+| `signature` | object | yes | §7 |
+
+**ES-005** — Unknown envelope fields MUST cause verification failure. Unknown fields inside `body` MUST be preserved for digest computation and MUST NOT cause failure, permitting forward-compatible extension of payloads but not of the envelope.
+
+---
+
+## 4. Chains and streams
+
+**ES-006** — A stream is an append-only sequence of records sharing a `stream_id`, linked by `prev_digest`. Streams MUST NOT fork: two records with the same `stream_id` and `sequence` and differing `record_id` are a fatal integrity failure and MUST be reported as such rather than resolved.
+
+**ES-007** — A single boundary MAY have multiple streams — typically one per collector instance. Cross-stream ordering is established by clocks (§6), never by sequence.
+
+**ES-008** — A sequence gap is detectable and MUST produce a `CoverageGap` record on detection. Per `coverage-methodology.md` CM-017, an unexplained chain break terminates the attestation window at the break.
+
+---
+
+## 5. Record types
+
+### 5.1 AssuranceBoundary
+
+Declares scope. Signed, versioned, and referenced by every other record. Boundary changes create a new version; they never mutate.
+
+Body: `boundary_version`, `tenant`, `deployment`, `agent_identities[]`, `action_families[]`, `destination_systems[]`, `enforcement_points[]`, `policy_refs[]`, `window_start`, `window_end`, `collection_modes[]`, `fail_behaviour` (per family), `qualification_refs[]`.
+
+**ES-009** — Every `action_families[]` entry MUST carry a `qualification_ref` pointing to a `QualificationRecord`. A boundary declaring a family without qualification is invalid.
+
+### 5.2 QualificationRecord
+
+The denominator qualification output from `coverage-methodology.md` §7. This record is what entitles a window to claim anything above `observed`.
+
+Body: `action_family`, `destination_system`, `enumeration` (api, scoping params, ordering guarantee, pagination, result_cap), `identity_isolation` (attribute, vendor_settable, partial_notes), `confirmation` (api, permission_set, independent_of_enumeration), `temporal` (authoritative_timestamp_source, measured_settlement_lag), `retention_period`, `mutability` (deletion_possible, backdating_possible, trace_available), `assigned_class` (C1|C2|C3|C4|C5), `class_evidence`, `trial` (window, match_rate, unmatched_explanations), `qualified_at`, `revalidation_cadence`.
+
+**ES-010** — `assigned_class` MUST NOT be increased by amending an existing record. A stronger class requires a new `QualificationRecord` with a later `qualified_at`, and per CM-004 applies only to windows beginning after that date.
+
+### 5.3 PopulationRecord
+
+The enumeration snapshot from the destination system. **This is the denominator, and it is a distinct record type precisely because the methodology forbids conflating it with the population** (CM-002).
+
+Body: `action_family`, `destination_system`, `window_start`, `window_end`, `enumeration_query` (as executed), `record_identifiers[]` or `identifier_digest` for large populations, `count`, `pagination_complete` (boolean), `result_cap_hit` (boolean), `retrieved_at`, `authoritative_timestamps` (min/max observed).
+
+**ES-011** — `result_cap_hit: true` MUST prevent any coverage ratio being emitted for the affected window. A truncated enumeration is not a denominator.
+
+**ES-012** — `pagination_complete: false` MUST be treated identically to `result_cap_hit: true`.
+
+### 5.4 AgentIdentity
+
+Body: `agent_id`, `deployment`, `runtime`, `tenant_scope`, `service_identity`, `model_versions[]`, `tool_versions[]`, `credential_ref` (the attribute used for identity isolation).
+
+### 5.5 ActionProposal
+
+Body: `action_family`, `action_id`, `tool`, `parameters_digest`, `parameters` (optional, per data-minimisation config), `purpose`, `target_ref`, `risk_class`, `proposed_at`.
+
+### 5.6 AuthorityDecision
+
+Body: `action_id`, `decision` (`grant`|`deny`|`review_required`), `policy_ref`, `policy_version`, `constraints[]`, `decided_by` (policy engine or reviewer identity), `decided_at`.
+
+### 5.7 HumanReview
+
+The differentiating record. Captures whether oversight was real, not merely that it nominally occurred.
+
+Body: `action_id`, `reviewer_identity`, `reviewer_authority` (role and whether authorised for this risk class), `surface` (which UI, which version), `evidence_shown` (digest of what was actually rendered, not what was available), `evidence_shown_refs[]`, `options_offered[]` (approve|deny|modify|escalate|stop|reverse|compensate), `time_available_ms`, `time_taken_ms`, `decision`, `modifications`, **`action_state_at_review`** (proposed|dispatched|accepted|committed|reversible|irreversible), `decided_at`.
+
+**ES-013** — `evidence_shown` MUST be a digest of what was rendered client-side. A server-side reconstruction of what *should* have been rendered is not conformant and MUST be labelled `evidence_shown_provenance: "server_reconstructed"` if used, which caps the oversight claim.
+
+**ES-014** — `action_state_at_review` is mandatory. A review recorded against an action already in state `committed` or `irreversible` MUST NOT be reported as effective oversight regardless of the decision recorded.
+
+> This field is the difference between oversight and oversight theatre. It is the single most consequential field in the specification.
+
+### 5.8 ExecutionReceipt
+
+Body: `action_id`, `dispatch_attempt`, `connector_identity`, `connector_version`, `destination_response_digest`, `destination_record_ref`, `status`, `dispatched_at`, `responded_at`.
+
+### 5.9 ExternalConfirmation
+
+Body: `action_id`, `destination_system`, `destination_record_id`, `destination_record_digest`, `authoritative_timestamp`, `reconciliation_status` (`matched`|`unmatched_with_evidence`|`unmatched_without_evidence`|`duplicate`|`ambiguous`|`out_of_scope`), `retrieved_at`.
+
+**ES-015** — `reconciliation_status` is a closed enumeration. Per CM-012, no residual or default bucket exists; an unclassifiable record is a defect, not a status.
+
+### 5.10 FinalityRecord
+
+Body: `action_id`, `state` (per lifecycle), `reversible_until`, `compensation_ref`, `settled_at`.
+
+### 5.11 OutcomeRecord
+
+Body: `action_id`, `outcome_contract_ref`, `authoritative_source`, `result`, `finalised_at`, `disputed`, `reversal_ref`.
+
+### 5.12 CoverageGap
+
+Body: `gap_start`, `gap_end`, `affected_scope` (families, identities, systems), `cause` (`collector_unreachable`|`fail_open`|`sequence_break`|`denominator_unavailable`|`clock_skew`|`key_discontinuity`), `detection_source`, `exposure` (`known`|`estimated_bounds`|`unknown`), `actions_during_gap` (count if determinable, else null).
+
+**ES-016** — A `CoverageGap` MUST be signable and emittable by the SDK without contacting hosted infrastructure. If gap emission depends on our availability, our outage erases the evidence of our outage. Offline-signed gap markers are the integrity mechanism, not an optimisation.
+
+### 5.13 AttestationWindow
+
+Body: `boundary_ref`, `window_start`, `window_end`, `methodology_version`, `denominator_class`, `population_record_refs[]`, `coverage_level`, `verification_status` (`self_computed`|`independently_reproduced`), `coverage_ratio` (nullable), `counts` (matched, unmatched_with_evidence, unmatched_without_evidence, duplicate, ambiguous), `gaps[]`, `assertions[]`, `exclusions[]`, `relying_parties`, `validity_from`, `validity_until`, `liability_ref`, `issued_at`, `issuer`, `verifier_version`.
+
+**ES-017** — `coverage_ratio` MUST be `null` where `denominator_class` is C4 or C5 (CM-009). Serializing zero, or omitting the field, are both non-conformant — the null is a claim about the world and must be explicit.
+
+**ES-018** — `coverage_level` MUST equal `min(evidence_supported_level, class_admissible_level)` per CM-008, and the record MUST include `capped_by_class` (boolean) so a relying party can see when the cap bound.
+
+### 5.14 RevocationRecord
+
+Body: `attestation_ref`, `reason`, `issuer`, `effective_at`, `superseding_ref`, `relying_party_notification_status`.
+
+---
+
+## 6. Clocks
+
+**ES-019** — Every record carries three clock fields: `source_time` (the emitting component), `ingest_time` (our receipt), and where applicable `authoritative_time` (the destination's). `clock_skew_ms` between source and ingest MUST be recorded.
+
+**ES-020** — Where `authoritative_time` is present it governs reconciliation ordering. Where it is absent, and skew exceeds the boundary's declared threshold, affected records are excluded from the numerator and counted as unknown per CM-018.
+
+---
+
+## 7. Signatures
+
+**ES-021** — Ed25519. The `signature` object carries `alg`, `key_id`, `sig` (base64url, unpadded), and `signed_digest` (digest of the JCS-canonical record excluding the `signature` field).
+
+**ES-022** — Algorithm agility: `alg` is present so that a future migration is possible, but v0.1 verifiers MUST reject any value other than `ed25519` rather than attempting negotiation.
+
+**ES-023** — Two-signature model. Record signatures are produced by the customer's key. The `AttestationWindow` carries an additional counter-signature from the issuer. This is what permits the claim that we cannot modify customer evidence.
+
+**ES-024** — Key rotation MUST be accompanied by a `KeyContinuity` assertion: the new key signed by the old, recorded in-stream. Rotation without continuity is a chain break under ES-008 and CM-017.
+
+> **Honest limit, stated here because implementers will ask.** The two-signature model prevents us forging evidence. It does not prevent us *withholding* it. The mitigation is that the customer holds their own copy and the verifier runs offline, making withholding detectable rather than impossible. See `threat-model.md` §5.
+
+---
+
+## 8. Data minimisation
+
+**ES-025** — `parameters` and any free-text field default to digest-only. Inclusion of cleartext content is per-action-family configuration, recorded in the boundary, and visible to the relying party.
+
+**ES-026** — Selective disclosure MUST be possible: a relying party can be given a bundle proving a claim without receiving cleartext inputs, by verifying digests against separately-disclosed content.
+
+---
+
+## 9. Versioning
+
+**ES-027** — `schema_version` is semver. Verifiers MUST support every published version. Records are never migrated in place.
+
+**ES-028** — A breaking change increments major and requires a new verifier release supporting both. Historical attestations remain verifiable under the version that produced them (CM-023).
+
+---
+
+## 10. Conformance
+
+An implementation is conformant if it produces records that our reference verifier accepts, and accepts records our reference implementation produces. Both directions are required.
+
+**ES-029** — Test vectors are published alongside this specification and are normative. Where this prose and a vector disagree, the vector is authoritative and the prose is a defect.
+
+---
+
+## 11. Open questions requiring input
+
+| Question | Why it matters | Default if unanswered |
+|---|---|---|
+| Include a transparency-log anchor in v0.1? | Would strengthen the withholding limit in §7, at real cost | No — defer to a higher assurance level post-MVP |
+| Support hardware-backed keys at MVP? | Enterprise buyers may ask | No — client-held software keys only |
+| Publish v0.1 or wait for v1.0? | Early publication invites feedback and adoption; also invites being wrong in public | Wait until first design partner has implemented against it |
+
+---
+
+## 12. Acceptance criteria
+
+### ES-S-001 — Fork detection *(ES-006)*
+
+```gherkin
+Given a stream containing a record at sequence 42
+When a second record with the same stream_id and sequence 42 is submitted
+Then verification fails with "stream fork"
+And no attestation may be issued covering that stream
+```
+
+### ES-S-002 — Truncated enumeration blocks ratio *(ES-011, ES-012)*
+
+```gherkin
+Given a PopulationRecord with result_cap_hit true
+When an attestation window is generated
+Then coverage_ratio is null
+And the attestation states that enumeration was truncated
+```
+
+### ES-S-003 — Review after commitment is not effective oversight *(ES-014)*
+
+```gherkin
+Given a HumanReview with action_state_at_review "committed"
+And decision "approve"
+When oversight effectiveness is evaluated
+Then the review is not counted as effective oversight
+And the attestation records it as "review after commitment"
+```
+
+### ES-S-004 — Offline gap emission *(ES-016)*
+
+```gherkin
+Given hosted ingestion is unreachable
+When the SDK detects a collection gap
+Then a signed CoverageGap record is produced locally
+And it is accepted on reconnection with its original signature intact
+```
+
+### ES-S-005 — Rotation without continuity breaks the chain *(ES-024)*
+
+```gherkin
+Given records signed with key K1
+When subsequent records are signed with K2 and no KeyContinuity assertion exists
+Then verification reports a chain break at the rotation point
+And the attestation window terminates there
+```
+
+### ES-S-006 — Null ratio is explicit, not omitted *(ES-017)*
+
+```gherkin
+Given denominator_class C5
+When an AttestationWindow is serialized
+Then coverage_ratio is present with value null
+And the record does not omit the field
+```
+
+### ES-S-007 — Cross-implementation canonicalization *(ES-001)*
+
+```gherkin
+Given the published conformance vectors
+When the Python writer and the Go verifier each canonicalize them
+Then both produce byte-identical output
+And both compute identical digests
+```
+
+### ES-S-008 — Unknown envelope field rejected *(ES-005)*
+
+```gherkin
+Given a record carrying an unrecognised field in its envelope
+When the verifier validates it
+Then verification fails with "unknown envelope field"
+```
+
+### ES-S-009 — Unknown body field preserved *(ES-005)*
+
+```gherkin
+Given a record carrying an unrecognised field inside body
+When the verifier validates it
+Then verification succeeds
+And the unknown field is included in the digest computation
+```

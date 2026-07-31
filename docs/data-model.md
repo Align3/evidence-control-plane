@@ -1,0 +1,282 @@
+# Data Model
+
+**Version:** 0.1 draft
+**Repo location:** `docs/data-model.md`
+**Depends on:** `evidence-spec.md`, `architecture.md`, `security.md`
+
+---
+
+## 0. Purpose and amendment convention
+
+This is the shared contract between concurrently working agents. On DamDam, a real numbering collision occurred when two agents amended this file simultaneously — so:
+
+**DM-001** — Migration numbers are allocated by editing this file **first**, in a commit that touches nothing else. An agent that needs migration `0007` claims it here before writing it.
+
+**DM-002** — Section amendments are numbered (`§4.1 amendment 1`) rather than rewritten in place, so concurrent edits conflict visibly instead of silently overwriting.
+
+**DM-003** — Two stories may run concurrently only if their table sets are disjoint. The Touches field in `prd.md` is authoritative; this file is the reference for what each table means.
+
+---
+
+## 1. Design rules
+
+**DM-004** — The `evidence_records` table is append-only. The application role holds `INSERT` and `SELECT` only; `UPDATE` and `DELETE` are granted to no application role (AC-012, SE-012).
+
+**DM-005** — `canonical_bytes` is authoritative. Every parsed column is a projection and must be rebuildable from it (AC-015). A migration that changes a projection column does not touch `canonical_bytes`.
+
+**DM-006** — Per-tenant partitioning on `evidence_records`. Cross-tenant reads must be inexpressible at the query layer, not filtered in application code (SE-011).
+
+**DM-007** — No `ON DELETE CASCADE` anywhere touching evidence. Deletion of evidence is blocked while a covering attestation is valid (SE-017), and cascades make that invariant unenforceable.
+
+---
+
+## 2. Tables
+
+### 2.1 `tenants`
+
+| Column | Type | Notes |
+|---|---|---|
+| `tenant_id` | text PK | |
+| `name` | text | |
+| `deployment_profile` | enum | `p1_hosted` \| `p2_vpc` \| `p3_sidecar` (SE-025) |
+| `key_custody` | enum | `client_held` \| `hosted_kms` (SE-006) |
+| `evidence_region` | text | IN-015 |
+| `created_at` | timestamptz | |
+
+### 2.2 `collectors`
+
+Registered collection sources. Records from unregistered collectors are rejected (SE-018).
+
+| Column | Type | Notes |
+|---|---|---|
+| `collector_id` | text PK | |
+| `tenant_id` | text FK | |
+| `implementation` | text | e.g. `sdk-python`, `gateway-adapter` |
+| `version` | text | |
+| `mode` | enum | `checkpoint` \| `third_party` \| `observation_only` |
+| `expected_cadence_s` | integer | Silence past this opens a provisional gap (IN-018) |
+| `registered_at` | timestamptz | |
+| `revoked_at` | timestamptz null | |
+
+### 2.3 `keys`
+
+| Column | Type | Notes |
+|---|---|---|
+| `key_id` | text PK | |
+| `tenant_id` | text FK | |
+| `namespace` | enum | `evidence` \| `issuer` — structurally distinct (SE-003) |
+| `public_key` | bytea | |
+| `custody` | enum | `client_held` \| `hosted_kms` |
+| `valid_from` | timestamptz | |
+| `valid_until` | timestamptz null | |
+| `continuity_signature` | bytea null | New key signed by predecessor (SE-008) |
+| `predecessor_key_id` | text null | |
+| `compromised_from` | timestamptz null | SE-009 |
+
+**DM-008** — A key in namespace `issuer` may never sign an evidence record; a key in namespace `evidence` may never counter-sign an attestation. Enforced by a check at ingestion and at issuance, tested by SE-S-001.
+
+### 2.4 `boundaries`
+
+Immutable and versioned. Changes create rows; they never update.
+
+| Column | Type | Notes |
+|---|---|---|
+| `boundary_ref` | text PK | `{tenant}:{name}:{version}` |
+| `tenant_id` | text FK | |
+| `name` | text | |
+| `version` | integer | |
+| `body` | jsonb | Full signed boundary per ES §5.1 |
+| `canonical_bytes` | bytea | |
+| `signature` | bytea | |
+| `created_at` | timestamptz | |
+| `superseded_by` | text null | |
+
+Unique on `(tenant_id, name, version)`.
+
+### 2.5 `qualification_records`
+
+| Column | Type | Notes |
+|---|---|---|
+| `qualification_ref` | text PK | |
+| `tenant_id` | text FK | |
+| `action_family` | text | |
+| `destination_system` | text | |
+| `assigned_class` | enum | `c1`…`c5` |
+| `enumeration_capable` | boolean | |
+| `confirmation_capable` | boolean | AC-008 — independent of the above |
+| `identity_isolation_attribute` | text null | |
+| `identity_vendor_settable` | boolean | |
+| `authoritative_time_available` | boolean | |
+| `settlement_lag_s` | integer | CM-019 |
+| `source_retention_days` | integer | |
+| `deletion_traceless_possible` | boolean | TM-005 |
+| `body` | jsonb | Full record per ES §5.2 |
+| `qualified_at` | timestamptz | |
+| `revalidate_after` | timestamptz | |
+| `signature` | bytea | |
+
+**DM-009** — No `UPDATE` on `assigned_class`. A stronger class requires a new row with a later `qualified_at`, applying only to windows beginning after it (ES-010, CM-004).
+
+### 2.6 `evidence_records` — the core table
+
+Partitioned by `tenant_id`. Append-only.
+
+| Column | Type | Notes |
+|---|---|---|
+| `record_id` | uuid PK | UUIDv7 |
+| `tenant_id` | text | Partition key |
+| `record_type` | text | ES §5 |
+| `schema_version` | text | |
+| `boundary_ref` | text FK | |
+| `stream_id` | text | |
+| `sequence` | bigint | Monotonic within stream |
+| `prev_digest` | bytea null | |
+| `record_digest` | bytea | |
+| `collector_id` | text FK | |
+| `key_id` | text FK | |
+| `signature` | bytea | |
+| `source_time` | timestamptz | |
+| `ingest_time` | timestamptz | |
+| `authoritative_time` | timestamptz null | Governs where present (ES-020) |
+| `clock_skew_ms` | integer | |
+| `canonical_bytes` | bytea | **Authoritative** |
+| `body` | jsonb | Projection — rebuildable |
+| `action_id` | uuid null | Projection for join performance |
+| `action_family` | text null | Projection |
+
+Unique on `(tenant_id, stream_id, sequence)` — this constraint is what makes fork detection (ES-006) a database guarantee rather than application logic.
+
+Indexes: `(tenant_id, action_id)`, `(tenant_id, action_family, source_time)`, `(tenant_id, record_type, ingest_time)`.
+
+### 2.7 `population_records`
+
+The denominator. Distinct table because CM-002 forbids conflating population with denominator.
+
+| Column | Type | Notes |
+|---|---|---|
+| `population_ref` | text PK | |
+| `tenant_id` | text FK | |
+| `action_family` | text | |
+| `destination_system` | text | |
+| `window_start` | timestamptz | |
+| `window_end` | timestamptz | |
+| `enumeration_query` | jsonb | As executed |
+| `identifier_digest` | bytea | Digest over the identifier set |
+| `identifiers` | jsonb null | Inline for small populations |
+| `count` | integer | |
+| `pagination_complete` | boolean | |
+| `result_cap_hit` | boolean | |
+| `retrieved_at` | timestamptz | |
+| `signature` | bytea | |
+
+**DM-010** — `result_cap_hit` or `NOT pagination_complete` must force `coverage_ratio` to null downstream (ES-011/012). Enforced in the coverage engine and asserted by ES-S-002.
+
+### 2.8 `reconciliation_results`
+
+Derived and rebuildable. Not evidence.
+
+| Column | Type | Notes |
+|---|---|---|
+| `id` | bigserial PK | |
+| `tenant_id` | text | |
+| `population_ref` | text FK | |
+| `action_id` | uuid null | Null where a population record has no matching evidence |
+| `destination_record_id` | text null | |
+| `status` | enum | Closed set (ES-015) — no default, no residual |
+| `computed_at` | timestamptz | |
+| `computation_version` | text | |
+
+**DM-011** — This table may be truncated and rebuilt from evidence at any time (AC-002). If a rebuild produces different results from identical inputs, that is a defect.
+
+### 2.9 `coverage_gaps`
+
+| Column | Type | Notes |
+|---|---|---|
+| `gap_id` | uuid PK | |
+| `tenant_id` | text | |
+| `evidence_record_id` | uuid null | Present when signed by an SDK (ES-016) |
+| `gap_start` | timestamptz | |
+| `gap_end` | timestamptz null | Null while provisional/open |
+| `cause` | enum | ES §5.12 |
+| `affected_scope` | jsonb | |
+| `detection_source` | text | |
+| `provisional` | boolean | Opened by silence detection (IN-018) |
+| `actions_during_gap` | integer null | |
+
+### 2.10 `attestations`
+
+| Column | Type | Notes |
+|---|---|---|
+| `attestation_id` | uuid PK | |
+| `tenant_id` | text FK | |
+| `boundary_ref` | text FK | |
+| `window_start` / `window_end` | timestamptz | |
+| `methodology_version` | text | |
+| `denominator_class` | enum | |
+| `coverage_level` | enum | |
+| `capped_by_class` | boolean | ES-018 |
+| `verification_status` | enum | `self_computed` \| `independently_reproduced` (CM-007) |
+| `coverage_ratio` | numeric null | **Explicit null at C4/C5** (ES-017) |
+| `counts` | jsonb | |
+| `assertions` | jsonb | Catalogue IDs only (AR-003) |
+| `exclusions` | jsonb | |
+| `relying_parties` | jsonb | |
+| `purpose` | text | AR-008 |
+| `validity_from` / `validity_until` | timestamptz | |
+| `liability_ref` | text | |
+| `issuer_key_id` | text FK | Namespace must be `issuer` |
+| `signature` | bytea | |
+| `bundle_digest` | bytea | Golden-attestation comparison (QA-008) |
+| `issued_at` | timestamptz | |
+
+### 2.11 `revocations`
+
+| Column | Type | Notes |
+|---|---|---|
+| `revocation_id` | uuid PK | |
+| `attestation_id` | uuid FK | |
+| `reason` | text | |
+| `effective_at` | timestamptz | |
+| `superseding_attestation_id` | uuid null | |
+| `notified_at` | timestamptz null | AR-012 |
+| `notification_status` | enum | |
+
+### 2.12 `admin_audit_log`
+
+| Column | Type | Notes |
+|---|---|---|
+| `id` | bigserial PK | |
+| `operator_identity` | text | |
+| `operation` | text | |
+| `tenant_id` | text null | |
+| `justification` | text | |
+| `surfaced_to_tenant_at` | timestamptz null | SE-013 |
+| `occurred_at` | timestamptz | |
+
+---
+
+## 3. Migration register
+
+Claim a number here before writing the migration (DM-001).
+
+| # | Story | Description | Status |
+|---|---|---|---|
+| 0001 | EV-06 | Tenants, collectors, keys | unclaimed |
+| 0002 | EV-06 | `evidence_records` + partitioning + role grants | unclaimed |
+| 0003 | EV-12 | Boundaries, qualification records | unclaimed |
+| 0004 | EV-14 | Population records | unclaimed |
+| 0005 | EV-15 | Reconciliation results | unclaimed |
+| 0006 | EV-09 | Coverage gaps | unclaimed |
+| 0007 | EV-17 | Attestations | unclaimed |
+| 0008 | EV-18 | Revocations | unclaimed |
+| 0009 | EV-20 | Admin audit log | unclaimed |
+
+---
+
+## 4. Retention and deletion
+
+**DM-012** — Evidence within the window of a valid attestation cannot be deleted. Deletion requires prior revocation (SE-017), and the check runs in the deletion path, not as a scheduled sweep.
+
+**DM-013** — Derived tables (`reconciliation_results`, projections) may be dropped and rebuilt freely. Evidence, population records, gaps, attestations, and revocations may not.
+
+**DM-014** — Retention floor: attestation validity plus the dispute window, with 12 months recommended as the configurable default (IN-009 note).
