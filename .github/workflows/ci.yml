@@ -58,4 +58,5 @@ jobs:
     needs: [python, go]
     steps:
       - uses: actions/checkout@v4
-      - run: echo "Enabled by EV-05. Asserts ES-S-007: Python and Go byte-identical."
+      - run: >-
+          echo "Enabled by EV-05. Asserts ES-S-007: Python and Go byte-identical."
