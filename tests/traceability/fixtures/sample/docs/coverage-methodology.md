@@ -19,8 +19,9 @@ story. The sharpest class of orphan.
 
 **CM-904** — A requirement whose scenario is owed by a later story.
 
-> **Non-testable (deferred) — EV-99.** The scenario belongs with the
-> cross-implementation work and is not invented here.
+> **Non-testable (deferred) — EV-90.** The scenario belongs with the
+> cross-implementation work and is not invented here. EV-90 exists and lists
+> this requirement under Satisfies, so the deferral is fully accounted for.
 
 **CM-905** — A requirement carrying an exemption whose category is not in the
 closed enum. It must fail closed.
@@ -38,6 +39,18 @@ closed enum. It must fail closed.
 
 > **Non-testable (deferred) — unassigned.** Nobody has taken this one yet, and
 > that fact is the whole point of recording it here rather than in a side file.
+
+**CM-910** — A requirement deferred to a story that prd.md does not define. The
+deferral must be revoked, not honoured.
+
+> **Non-testable (deferred) — EV-97.** Typing a story number that does not exist
+> must not retire the debt; the requirement has to fall back to being an orphan.
+
+**CM-911** — A requirement deferred to a real story that does not claim it under
+Satisfies. The deferral stands, but nobody has committed to it.
+
+> **Non-testable (deferred) — EV-91.** EV-91 exists but does not list this
+> requirement under Satisfies, so the commitment is not recorded anywhere.
 
 **CM-909** — A requirement referenced by a scenario whose reference list also
 carries prose, so that the malformed reference does not disturb another chain.

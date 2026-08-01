@@ -10,6 +10,7 @@
 | **A-02** | An assertion whose only basis is an exempt requirement | CM-902 |
 | **A-03** | An assertion with no basis at all |  |
 | **A-04** | An assertion citing a retired requirement | ES-901/999 |
+| **A-01** | A duplicate catalogue ID that must not overwrite the first | CM-906 |
 
 ---
 

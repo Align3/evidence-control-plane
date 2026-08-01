@@ -117,7 +117,12 @@ SCENARIO_HEADING = re.compile(
     r"(?:\s*\*\((?P<refs>[^)]*)\)\*)?\s*$"
 )
 SID_TOKEN = re.compile(r"\b[A-Z]{2}-S-\d{3}\b")
-SID_IN_NAME = re.compile(r"\b(?P<prefix>[a-z]{2})_s_(?P<num>\d{3})\b")
+# `test_qa_s_001_assertion_without_scenario_fails_ci` -> QA-S-001. The leading
+# boundary must be `^` or `_`, not `\b`: an underscore is a word character, so
+# `\b` never matches between `test_` and `qa` and this fallback silently linked
+# nothing at all. Every apparent name-link was really coming from a pytest-bdd
+# decorator elsewhere in the function body.
+SID_IN_NAME = re.compile(r"(?:^|_)(?P<prefix>[a-z]{2})_s_(?P<num>\d{3})(?:_|$)")
 
 STORY_HEADING = re.compile(r"^####\s+(?P<story>EV-\d{2})\b")
 SATISFIES = re.compile(r"^\*\*Satisfies:\*\*\s*(?P<body>.+?)\s*$")
@@ -174,6 +179,24 @@ FINDING_HELP = {
         "wins; the others are ignored."
     ),
     "DUPLICATE_SCENARIO": "One scenario ID is defined in more than one document.",
+    "DUPLICATE_ASSERTION": (
+        "One assertion ID appears twice in the catalogue. AR-003 closes the catalogue, so "
+        "a duplicate row silently replacing a claim's text or basis would erase part of "
+        "the published chain. The first row wins."
+    ),
+    "DUPLICATE_STORY": (
+        "One story has more than one Satisfies field. The first wins, so the requirements "
+        "listed in the others are attributed to nothing."
+    ),
+    "DEFERRED_UNKNOWN_STORY": (
+        "A requirement is deferred to a story that does not exist. The deferral is revoked "
+        "and the requirement is reported as an orphan: a typo in a story reference must "
+        "not retire traceability debt."
+    ),
+    "DEFERRED_STORY_DOES_NOT_CLAIM": (
+        "A requirement is deferred to a real story that does not list it under Satisfies. "
+        "The deferral stands, but no story has committed to writing the scenario."
+    ),
     "UNKNOWN_PREFIX": (
         "A requirement-shaped ID uses a prefix the matrix does not track, so it is "
         "invisible to this gate."
@@ -266,6 +289,11 @@ class TestNode:
     file: str
     scenarios: tuple[str, ...] = ()
     citations: tuple[str, ...] = ()
+    # (scenario id, how the link was established): "pytest-bdd" executes the
+    # scenario's documented steps; "test name" and "cited in body" are the
+    # author's assertion that the test covers it. Recorded so the strength of
+    # each link in the published chain is visible rather than assumed.
+    link_kind: tuple[tuple[str, str], ...] = ()
 
 
 @dataclass(frozen=True)
@@ -575,18 +603,41 @@ def expand_satisfies(raw: str) -> list[str]:
     return out
 
 
-def _parse_stories(path: Path) -> dict[str, tuple[str, ...]]:
+def _parse_stories(path: Path) -> tuple[dict[str, tuple[str, ...]], list[Finding]]:
     stories: dict[str, tuple[str, ...]] = {}
+    findings: list[Finding] = []
     story: str | None = None
-    for line in path.read_text(encoding="utf-8").splitlines():
+    for n, line in enumerate(path.read_text(encoding="utf-8").splitlines(), 1):
         heading = STORY_HEADING.match(line)
         if heading:
             story = heading.group("story")
             continue
         satisfies = SATISFIES.match(line)
         if satisfies and story:
+            if story in stories:
+                findings.append(
+                    Finding(
+                        kind="DUPLICATE_STORY",
+                        severity=Severity.HIGH,
+                        subject=story,
+                        location=f"{path.name}:{n}",
+                        detail="a second Satisfies field for one story; the first wins, so the "
+                               "requirements listed here are not attributed to any story",
+                    )
+                )
+                continue
             stories[story] = tuple(expand_satisfies(satisfies.group("body")))
-    return stories
+    return stories, findings
+
+
+BDD_SCENARIO_CALL = re.compile(
+    r"@scenario\s*\(\s*[^)]*?[\"'](?P<sid>[A-Z]{2}-S-\d{3})\b", re.S
+)
+
+
+def _bdd_scenarios(body: str) -> list[str]:
+    """Scenario ids bound through a pytest-bdd `@scenario(...)` decorator."""
+    return [m.group("sid") for m in BDD_SCENARIO_CALL.finditer(body)]
 
 
 def _function_spans(source: str) -> dict[str, tuple[int, int]]:
@@ -672,15 +723,29 @@ def _link_tests(
                 tests[nodeid] = TestNode(nodeid=nodeid, file=rel)
                 continue
             body = "\n".join(lines[span[0] - 1: span[1]])
-            sids = set(SID_TOKEN.findall(body))
+
+            # How each scenario link was established is itself evidence: a
+            # binding through pytest-bdd executes the documented Given/When/Then
+            # steps, a link by function name or a mention in the body only
+            # asserts that the author says the test covers the scenario. An
+            # auditor reading the matrix should be able to tell the two apart
+            # rather than take every link at equal weight.
+            how: dict[str, str] = {}
+            for decorator_sid in _bdd_scenarios(body):
+                how[decorator_sid] = "pytest-bdd"
+            for mentioned in SID_TOKEN.findall(body):
+                how.setdefault(mentioned, "cited in body")
             in_name = SID_IN_NAME.search(key)
             if in_name:
-                sids.add(f"{in_name.group('prefix').upper()}-S-{in_name.group('num')}")
+                sid = f"{in_name.group('prefix').upper()}-S-{in_name.group('num')}"
+                how.setdefault(sid, "test name")
+
             tests[nodeid] = TestNode(
                 nodeid=nodeid,
                 file=rel,
-                scenarios=tuple(sorted(sids)),
+                scenarios=tuple(sorted(how)),
                 citations=tuple(sorted(set(REQ_TOKEN.findall(body)))),
+                link_kind=tuple(sorted(how.items())),
             )
 
     return tests, module_citations, findings
@@ -760,14 +825,35 @@ def build_matrix(
             matrix.scenarios[scenario.sid] = scenario
 
     # -- assertions and story ownership ------------------------------------
+    # AR-003 closes the catalogue, so a duplicate row is worse here than
+    # anywhere else: last-write-wins would silently replace a claim's text and
+    # basis, erasing part of the published four-link chain while the matrix
+    # still reported a complete one. First definition wins, and the collision
+    # is reported.
     ar_doc = docs_dir / "attestation-reliance.md"
     if ar_doc.is_file():
         for assertion in _parse_assertions(ar_doc):
+            if assertion.aid in matrix.assertions:
+                first = matrix.assertions[assertion.aid]
+                matrix.findings.append(
+                    Finding(
+                        kind="DUPLICATE_ASSERTION",
+                        severity=Severity.CRITICAL,
+                        subject=assertion.aid,
+                        location=f"{assertion.doc}:{assertion.line}",
+                        detail=f"already defined at {first.doc}:{first.line} with basis "
+                               f"{', '.join(first.basis) or '(none)'}; the first row wins and "
+                               f"this one is ignored",
+                    )
+                )
+                continue
             matrix.assertions[assertion.aid] = assertion
 
     prd = docs_dir / "prd.md"
     if prd.is_file():
-        matrix.stories = _parse_stories(prd)
+        stories, story_findings = _parse_stories(prd)
+        matrix.stories = stories
+        matrix.findings.extend(story_findings)
     claims: dict[str, list[str]] = defaultdict(list)
     for story, rids in sorted(matrix.stories.items()):
         for rid in rids:
@@ -775,6 +861,40 @@ def build_matrix(
     for rid, owners in claims.items():
         if rid in matrix.requirements:
             matrix.requirements[rid].claimed_by = tuple(sorted(set(owners)))
+
+    # A deferral names a story that owes the scenario. Validating only the
+    # `EV-nn` shape let a deferral to a story that does not exist suppress an
+    # orphan outright -- a typo in the reference silently retired the debt,
+    # which is the exact failure the fail-closed rule exists to prevent. The
+    # story list is only available here, after prd.md is parsed, so this runs
+    # as a second pass and revokes the exemption it rejects.
+    for rid, req in sorted(matrix.requirements.items()):
+        exemption = req.exemption
+        if exemption is None or exemption.category != "deferred" or exemption.story is None:
+            continue
+        if exemption.story not in matrix.stories:
+            req.exemption = None
+            matrix.findings.append(
+                Finding(
+                    kind="DEFERRED_UNKNOWN_STORY",
+                    severity=Severity.CRITICAL,
+                    subject=rid,
+                    location=exemption.source,
+                    detail=f"deferred to {exemption.story}, which prd.md does not define; the "
+                           f"deferral is revoked and the requirement is reported as an orphan",
+                )
+            )
+        elif rid not in matrix.stories[exemption.story]:
+            matrix.findings.append(
+                Finding(
+                    kind="DEFERRED_STORY_DOES_NOT_CLAIM",
+                    severity=Severity.MEDIUM,
+                    subject=rid,
+                    location=exemption.source,
+                    detail=f"deferred to {exemption.story}, which does not list it under "
+                           f"Satisfies; the deferral stands, but nobody has committed to it",
+                )
+            )
 
     # -- tests --------------------------------------------------------------
     tests, module_citations, findings = _link_tests(
@@ -1223,6 +1343,24 @@ def render_markdown(matrix: Matrix) -> str:
         )
     add("")
 
+    add("## How each scenario is demonstrated")
+    add("")
+    add("`pytest-bdd` means the test executes the scenario's documented Given/When/Then")
+    add("steps. `test name` and `cited in body` mean the test asserts the same behaviour")
+    add("and its author says so, but the documented steps are not what runs. Both are")
+    add("real links; they are not equally strong, and an auditor should not have to guess")
+    add("which kind they are reading.")
+    add("")
+    add("| Scenario | Test | Link |")
+    add("|---|---|---|")
+    for sid, scenario in sorted(matrix.scenarios.items()):
+        for nodeid in scenario.tests:
+            kind = dict(matrix.tests[nodeid].link_kind).get(sid, "unknown")
+            add(f"| `{sid}` | `{_cell(_short(nodeid), 70)}` | {kind} |")
+    if not any(s2.tests for s2 in matrix.scenarios.values()):
+        add("| — | — | — |")
+    add("")
+
     add("## Scenarios without a test")
     add("")
     untested = [s2 for s2 in matrix.scenarios.values() if not s2.tests]
@@ -1274,6 +1412,10 @@ def render_json(matrix: Matrix) -> str:
                 "line": scenario.line,
                 "requirements": list(scenario.refs),
                 "tests": list(scenario.tests),
+                "link_kind": {
+                    nodeid: dict(matrix.tests[nodeid].link_kind).get(sid, "unknown")
+                    for nodeid in scenario.tests
+                },
             }
             for sid, scenario in sorted(matrix.scenarios.items())
         ],
@@ -1282,6 +1424,7 @@ def render_json(matrix: Matrix) -> str:
                 "id": nodeid,
                 "file": test.file,
                 "scenarios": list(test.scenarios),
+                "link_kind": dict(test.link_kind),
                 "requirements": list(test.citations),
             }
             for nodeid, test in sorted(matrix.tests.items())

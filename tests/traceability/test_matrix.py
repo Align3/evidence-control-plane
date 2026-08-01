@@ -67,6 +67,33 @@ def test_full_chain_is_linked_end_to_end(matrix):
     assert matrix.assertions["A-01"].basis == ("CM-901",)
 
 
+def test_a_test_links_to_a_scenario_by_its_function_name(matrix):
+    """PR #6 review, blocker 2: the name-based link never fired.
+
+    `SID_IN_NAME` anchored on `\\b`, but an underscore is a word character, so
+    the boundary between `test_` and `qa_s_001` never matched. Every link that
+    appeared to come from a function name was really coming from a pytest-bdd
+    decorator elsewhere in the body, and a test named for a scenario it had no
+    decorator for -- which is the whole point of the fallback -- linked to
+    nothing.
+    """
+    nodeid = "tests/unit/test_sample_unit.py::test_cm_s_902_named_for_its_scenario"
+    assert matrix.tests[nodeid].scenarios == ("CM-S-902",)
+    assert dict(matrix.tests[nodeid].link_kind)["CM-S-902"] == "test name"
+    assert "CM-S-902" not in subjects(matrix, "SCENARIO_NO_TEST")
+
+
+def test_link_provenance_distinguishes_a_binding_from_a_mention(matrix):
+    """How a link was established is itself evidence.
+
+    A pytest-bdd binding executes the scenario's documented steps. A name or a
+    mention is the author asserting the test covers it. An auditor reading the
+    published chain should be able to tell those apart.
+    """
+    bdd = "tests/steps/test_sample_steps.py::test_cm_s_901_coverage_ratio_withheld"
+    assert dict(matrix.tests[bdd].link_kind)["CM-S-901"] == "pytest-bdd"
+
+
 def test_binding_does_not_cross_documents(matrix):
     """ES-901 sits in a second file and is unaffected by CM markers."""
     assert matrix.requirements["ES-901"].exemption is None
@@ -103,10 +130,23 @@ def test_unclaimed_orphan_ranks_below_a_claimed_one(matrix):
 
 
 def test_scenario_with_no_test_is_reported(matrix):
-    """CM-S-902 exists in the document and nothing implements it."""
-    assert "CM-S-902" in subjects(matrix, "SCENARIO_NO_TEST")
-    assert matrix.scenarios["CM-S-902"].tests == ()
-    assert severity_of(matrix, "SCENARIO_NO_TEST", "CM-S-902") is Severity.HIGH
+    """CM-S-903 exists in the document and nothing implements it."""
+    assert "CM-S-903" in subjects(matrix, "SCENARIO_NO_TEST")
+    assert matrix.scenarios["CM-S-903"].tests == ()
+    assert severity_of(matrix, "SCENARIO_NO_TEST", "CM-S-903") is Severity.HIGH
+
+
+def test_duplicate_assertion_id_does_not_overwrite_the_first(matrix):
+    """PR #6 review, blocker 4: a second A-01 silently replaced the first.
+
+    AR-003 closes the catalogue, so last-write-wins here quietly rewrites a
+    claim's text and basis while the matrix still reports a complete chain --
+    part of the published evidence erased with nothing said about it.
+    """
+    assert matrix.assertions["A-01"].basis == ("CM-901",), "the first row must win"
+    assert matrix.assertions["A-01"].text == "A fully traced assertion"
+    assert "A-01" in subjects(matrix, "DUPLICATE_ASSERTION")
+    assert severity_of(matrix, "DUPLICATE_ASSERTION", "A-01") is Severity.CRITICAL
 
 
 def test_assertion_with_no_requirement_is_reported(matrix):
@@ -162,7 +202,7 @@ def test_properly_exempted_requirement_is_not_an_orphan(matrix):
 
 
 def test_exemption_survives_a_story_claiming_the_requirement(matrix):
-    """EV-90 satisfies CM-901..903; CM-902 is exempt and stays exempt."""
+    """EV-90 satisfies CM-901..904; CM-902 is exempt and stays exempt."""
     assert "EV-90" in matrix.requirements["CM-902"].claimed_by
 
 
@@ -186,9 +226,47 @@ def test_deferred_is_not_counted_as_a_permanent_exemption(matrix):
     exemption = matrix.requirements["CM-904"].exemption
     assert exemption is not None
     assert exemption.category == "deferred"
-    assert exemption.story == "EV-99"
+    assert exemption.story == "EV-90"
     assert "CM-904" in matrix.summary["deferred_ids"]
     assert "CM-904" not in matrix.summary["exempt_ids"]
+
+
+def test_deferral_to_a_nonexistent_story_is_revoked(matrix):
+    """PR #6 review, blocker 3: a typo in a story reference silently retired debt.
+
+    CM-910 defers to EV-97, which prd.md does not define. Validating only the
+    `EV-nn` shape accepted it and suppressed the orphan outright. The deferral
+    must be revoked -- reported *and* the requirement returned to the orphan
+    list, not merely reported while still counting as excused.
+    """
+    assert matrix.requirements["CM-910"].exemption is None, "the deferral must be revoked"
+    assert "CM-910" in subjects(matrix, "DEFERRED_UNKNOWN_STORY")
+    assert severity_of(matrix, "DEFERRED_UNKNOWN_STORY", "CM-910") is Severity.CRITICAL
+    assert "CM-910" in subjects(matrix, "REQUIREMENT_NO_SCENARIO_SPEC")
+    assert "CM-910" not in matrix.summary["deferred_ids"]
+    assert "CM-910" not in matrix.summary["exempt_ids"]
+
+
+def test_deferral_to_a_story_that_does_not_claim_it_is_reported(matrix):
+    """CM-911 defers to EV-91, which exists but does not list it under Satisfies.
+
+    The deferral stands -- a legitimate deferral often names the story that will
+    write the scenario rather than the one that claimed the requirement -- but
+    nobody has recorded the commitment, and that is worth saying out loud.
+    """
+    exemption = matrix.requirements["CM-911"].exemption
+    assert exemption is not None
+    assert exemption.story == "EV-91"
+    assert "CM-911" in subjects(matrix, "DEFERRED_STORY_DOES_NOT_CLAIM")
+    assert severity_of(matrix, "DEFERRED_STORY_DOES_NOT_CLAIM", "CM-911") is Severity.MEDIUM
+
+
+def test_a_fully_accounted_deferral_produces_no_finding(matrix):
+    """CM-904 defers to EV-90, which exists and claims it. Nothing to report."""
+    assert matrix.requirements["CM-904"].exemption is not None
+    assert "CM-904" not in subjects(matrix, "DEFERRED_UNKNOWN_STORY")
+    assert "CM-904" not in subjects(matrix, "DEFERRED_STORY_DOES_NOT_CLAIM")
+    assert "CM-904" not in subjects(matrix, "DEFERRED_UNASSIGNED")
 
 
 def test_deferred_without_a_story_is_reported_as_debt(matrix):
