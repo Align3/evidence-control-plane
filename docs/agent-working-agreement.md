@@ -105,6 +105,12 @@ Following the DamDam convention, and for the same reason: a self-report is not e
 
 **AG-015** — Deliberately unbuilt items are disclosed explicitly in the PR, never dropped silently. "Spec listed X; not built because Y" is acceptable. Silence is not.
 
+**AG-016 — Reviewers report; builders fix.** A reviewer MUST NOT author the patch for a finding they raised. This is broader than "do not approve your own work": reporting a defect and correcting it are different roles, and the moment a reviewer writes code in a PR the independent read that AG-008 buys is spent. No model can review a diff it wrote — not in that session, and not in a later one, because the blind spot that produced the code is the same blind spot that reads it as correct. A correct patch from the wrong author still consumes the only independent look that PR will get.
+
+The sequence is: the reviewer files findings; the builder takes ownership and fixes them; the reviewer re-checks the fix. This holds even when the fix is small, obvious, or already written in the reviewer's head — *especially* then, because that is when authoring it feels harmless.
+
+If a reviewer has already committed to the branch, the patch is handed back to the builder with a note stating what was changed, why, and what needs independent eyes. The builder takes ownership of that code as if they had written it. The reviewer does not verify their own patch further, and green CI does not change this — CI is not the independent check the review was for (AG-014).
+
 ---
 
 ## 6. Done
