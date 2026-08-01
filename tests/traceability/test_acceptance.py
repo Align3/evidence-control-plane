@@ -57,6 +57,8 @@ from tests.traceability.matrix import (
     effective_threshold,
     main,
     mandated_threshold,
+    strictest,
+    strictness,
 )
 
 FIXTURES = Path(__file__).parent / "fixtures"
@@ -208,15 +210,83 @@ def test_the_gate_bites_on_the_expiry_date(
     assert "FAIL" in output
 
 
-def test_today_can_rehearse_the_future_but_not_undo_the_present() -> None:
-    """`--today` must not become the loophole that defeats the schedule.
+@pytest.mark.parametrize(
+    ("real", "supplied"),
+    [
+        # The window the old sentinel left open: real calendar in the critical
+        # stage, supplied date one day before it. Both mapped to rank 0, so the
+        # floor never applied and enforcement switched off for all of August.
+        (date(2026, 8, 8), date(2026, 8, 7)),
+        (date(2026, 8, 9), date(2026, 8, 7)),
+        (date(2026, 8, 20), date(2026, 1, 1)),
+        (date(2026, 8, 31), date(2026, 8, 7)),
+        # And the later stages, which the rank comparison happened to cover.
+        (date(2026, 9, 1), date(2026, 8, 8)),
+        (date(2026, 10, 1), date(2026, 9, 1)),
+    ],
+)
+def test_today_cannot_disable_a_live_stage_through_the_cli(
+    tmp_path: Path, capsys: pytest.CaptureFixture[str], real: date, supplied: date
+) -> None:
+    """`--today` must never weaken a mandate the real calendar has reached.
 
-    It exists to test a stage before it lands. Allowing it to name a past date
-    would hand every build a way to switch the gate off, so the CLI evaluates
-    the strictest of the real calendar and the supplied date.
+    Asserted through the CLI, at the exact point the bypass was reachable. The
+    earlier version of this test only compared ranks on 1 October and so never
+    touched the one stage that was broken.
     """
-    real = date(2026, 10, 1)
-    pretend = date(2026, 8, 7)
-    assert SEVERITY_RANK[mandated_threshold(real)] > SEVERITY_RANK[
-        mandated_threshold(pretend) or Severity.CRITICAL
-    ]
+    root = _corpus(tmp_path, "assertion_without_scenario")
+
+    code = main(
+        [
+            "--repo-root", str(root),
+            "--docs", str(root / "docs"),
+            "--features", str(root / "no-features"),
+            "--collect-from", str(root / "collected.txt"),
+            "--mode", "report",
+            "--today", supplied.isoformat(),
+        ],
+        real_today=real,
+    )
+    output = capsys.readouterr().out
+
+    assert code == 1, (
+        f"--today {supplied} must not disable the stage live on {real}"
+    )
+    assert "FAIL" in output
+    assert "ASSERTION_NO_SCENARIO" in output
+
+
+def test_none_ranks_below_every_severity() -> None:
+    """The ordering the bypass turned on.
+
+    `None` means "block nothing" and must sit strictly below `critical`. Folding
+    it onto CRITICAL is what made a live gate and no gate compare equal.
+    """
+    assert strictness(None) < strictness(Severity.CRITICAL)
+    assert strictness(Severity.CRITICAL) < strictness(Severity.HIGH)
+    assert strictness(Severity.HIGH) < strictness(Severity.MEDIUM)
+    assert strictness(Severity.MEDIUM) < strictness(Severity.LOW)
+    assert strictest(None, Severity.CRITICAL) is Severity.CRITICAL
+    assert strictest(None, None) is None
+
+
+def test_a_future_today_may_still_bring_a_stage_forward(
+    tmp_path: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
+    """The legitimate use survives: rehearse September while it is August."""
+    root = _corpus(tmp_path, "orphan_only")
+
+    code = main(
+        [
+            "--repo-root", str(root),
+            "--docs", str(root / "docs"),
+            "--features", str(root / "no-features"),
+            "--collect-from", str(root / "collected.txt"),
+            "--mode", "report",
+            "--today", "2026-10-01",
+        ],
+        real_today=date(2026, 8, 1),
+    )
+    output = capsys.readouterr().out
+    assert code == 1, "a medium orphan must fail once the low stage is rehearsed"
+    assert "REQUIREMENT_NO_SCENARIO_SPEC" in output

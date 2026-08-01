@@ -57,8 +57,10 @@ Usage
     python -m tests.traceability.matrix --out-md M.md --out-json M.json
     python -m tests.traceability.matrix --mode enforce --fail-on critical
 
-`--mode report` (the default) always exits 0. `--mode enforce` exits 1 when any
-finding is at or above `--fail-on`.
+`--mode` and `--fail-on` may only *strengthen* the QA-011 staged-enforcement
+schedule, never weaken it. `--mode report` exits 0 only while the schedule
+mandates nothing; once a stage is live it is overridden and the build fails at
+the mandated severity. See ENFORCEMENT_SCHEDULE.
 """
 
 from __future__ import annotations
@@ -186,32 +188,64 @@ def mandated_threshold(today: date) -> Severity | None:
     return mandated
 
 
+def strictness(threshold: Severity | None) -> int:
+    """Order thresholds by how much they block. `None` blocks nothing.
+
+    `None` MUST rank strictly below every severity. An earlier version folded it
+    onto `Severity.CRITICAL` with `mandated or Severity.CRITICAL`, which gave
+    "no mandate" and "fail on critical" the same rank of 0 and let
+    `--today 2026-08-07` disable the live critical stage for the whole of
+    August: `0 > 0` is false, so the real-calendar floor never applied. The
+    sentinel is gone rather than repaired -- a comparison that has to remember
+    a special case is one someone reintroduces.
+    """
+    return -1 if threshold is None else SEVERITY_RANK[threshold]
+
+
+def strictest(*candidates: Severity | None) -> Severity | None:
+    """The candidate that blocks the most. Ties keep the first."""
+    return max(candidates, key=strictness)
+
+
 def effective_threshold(
-    requested: Severity | None, today: date
+    requested: Severity | None,
+    asof: date,
+    real_today: date | None = None,
 ) -> tuple[Severity | None, str]:
-    """Resolve the requested gate against the schedule. The stricter one wins.
+    """Resolve the requested gate against the schedule. The strictest wins.
+
+    The floor is whatever the *real* calendar mandates. `asof` may bring a
+    future stage forward for rehearsal, so its mandate counts too, but it can
+    never lower the floor: the mandate is the strictest of the two, and the
+    result is the strictest of that and what was requested.
 
     Returns the threshold to enforce (None means report-only) and a sentence
     saying which input decided it, so the build log states why it is failing or
     not failing rather than leaving a reader to infer it.
     """
-    mandated = mandated_threshold(today)
-    if mandated is None and requested is None:
-        return None, "report-only: QA-011 mandates no severity before 2026-08-08"
+    real = real_today if real_today is not None else asof
+    mandated = strictest(mandated_threshold(real), mandated_threshold(asof))
+    effective = strictest(requested, mandated)
+
+    if effective is None:
+        first = ENFORCEMENT_SCHEDULE[0][0].isoformat()
+        return None, f"report-only: QA-011 mandates no severity before {first}"
     if mandated is None:
-        assert requested is not None
-        return requested, f"requested {requested.value}; QA-011 mandates nothing yet"
+        return effective, f"requested {effective.value}; QA-011 mandates nothing yet"
+    since = _mandate_date(mandated).isoformat()
     if requested is None:
-        return mandated, (
-            f"QA-011 mandates {mandated.value} from "
-            f"{_mandate_date(mandated).isoformat()}; report-only was requested and is "
-            f"overridden"
+        return effective, (
+            f"QA-011 mandates {mandated.value} from {since}; report-only was requested "
+            f"and is overridden"
         )
-    if SEVERITY_RANK[requested] >= SEVERITY_RANK[mandated]:
-        return requested, f"requested {requested.value}, at or above the mandated {mandated.value}"
-    return mandated, (
+    if strictness(requested) >= strictness(mandated):
+        return effective, (
+            f"requested {requested.value}, at or above the {mandated.value} mandated "
+            f"from {since}"
+        )
+    return effective, (
         f"requested {requested.value} is weaker than the {mandated.value} QA-011 mandates "
-        f"from {_mandate_date(mandated).isoformat()}; the schedule wins (one-way ratchet)"
+        f"from {since}; the schedule wins (one-way ratchet)"
     )
 
 
@@ -1578,7 +1612,12 @@ def _print_report(matrix: Matrix) -> None:
         print()
 
 
-def main(argv: list[str] | None = None) -> int:
+def main(argv: list[str] | None = None, *, real_today: date | None = None) -> int:
+    """`real_today` is a test seam, deliberately not a command-line flag.
+
+    Exposing it as an argument would hand every build the escape hatch the
+    ratchet exists to prevent.
+    """
     ap = argparse.ArgumentParser(description=__doc__.splitlines()[0] if __doc__ else None)
     ap.add_argument("--repo-root", type=Path, default=Path.cwd())
     ap.add_argument("--docs", type=Path, default=None, help="default <repo-root>/docs")
@@ -1641,20 +1680,18 @@ def main(argv: list[str] | None = None) -> int:
     _print_report(matrix)
 
     # The QA-011 ratchet. `--today` may only bring a future stage forward, never
-    # push a live one back: the strictest of (real calendar, supplied date) is
-    # what the schedule is evaluated against, so the flag can rehearse September
-    # but cannot pretend it is July.
-    real_today = date.today()
-    asof = args.today or real_today
-    if args.today is not None and SEVERITY_RANK.get(
-        mandated_threshold(real_today) or Severity.CRITICAL, -1
-    ) > SEVERITY_RANK.get(mandated_threshold(asof) or Severity.CRITICAL, -1):
-        asof = real_today
+    # push a live one back. effective_threshold() takes the real calendar as a
+    # floor, so there is no comparison here to get wrong.
+    real = real_today if real_today is not None else date.today()
+    asof = args.today or real
 
     requested = Severity(args.fail_on) if args.mode == "enforce" else None
-    threshold, why = effective_threshold(requested, asof)
+    threshold, why = effective_threshold(requested, asof, real)
 
-    print(f"\nQA-011 enforcement as of {asof.isoformat()}: {why}.")
+    print(f"\nQA-011 enforcement as of {real.isoformat()}: {why}.")
+    if asof != real:
+        print(f"(--today {asof.isoformat()} supplied; it may bring a stage forward, "
+              f"never defer one.)")
     if threshold is None:
         print("No finding fails this build. Every finding above is still counted, named,")
         print("and written to the matrix. Next stage: critical from 2026-08-08.")

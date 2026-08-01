@@ -55,7 +55,7 @@ jobs:
       - run: cd verifier-go && go build ./... && go test ./...
 
   traceability:
-    name: Traceability matrix (report-only)
+    name: Traceability matrix (QA-011 staged)
     runs-on: ubuntu-latest
     needs: spec-drift
     steps:
