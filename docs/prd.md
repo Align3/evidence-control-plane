@@ -131,7 +131,7 @@ Remove hosted clock observations from the customer-signed record. Define and imp
 
 #### EV-07 — Ingestion service
 FastAPI. Validate schema, verify signature, check collector registration, check sequence, durable append, acknowledge. **No queue anywhere in this path** (AC-001). Out-of-order arrival reconciled by sequence.
-**Touches:** `services/ingestion/`
+**Touches:** `services/ingestion/`, `migrations/`, `docs/data-model.md`
 **Depends on:** EV-03, EV-06, EV-27
 **Satisfies:** AC-001, AC-010, IN-003, IN-012, SE-018, ES-019 (runtime portion — see note), ES-020
 **Acceptance:** AC-S-001, IN-S-001, IN-S-003, SE-S-006
