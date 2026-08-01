@@ -39,7 +39,9 @@ jobs:
         with: {python-version: "3.12"}
       - run: pip install -e ".[dev]"
       - run: ruff check .
-      - run: mypy services sdk_python || true   # strict mode; relax once EV-02 lands
+      # Gating since EV-02 landed on develop. The `|| true` this replaces
+      # was commented as lasting exactly until then; strict mypy is clean.
+      - run: mypy services sdk_python
       - run: pytest -q
 
   go:
