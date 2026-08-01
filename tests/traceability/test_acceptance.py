@@ -79,9 +79,9 @@ def _run(root: Path, *extra: str) -> int:
             "--docs", str(root / "docs"),
             "--features", str(root / "no-features"),
             "--collect-from", str(root / "collected.txt"),
-            "--no-baseline",
             *extra,
-        ]
+        ],
+        regression_gate=False,
     )
 
 
@@ -358,11 +358,11 @@ def test_today_cannot_disable_a_live_stage_through_the_cli(
             "--docs", str(root / "docs"),
             "--features", str(root / "no-features"),
             "--collect-from", str(root / "collected.txt"),
-            "--no-baseline",
             "--mode", "report",
             "--today", supplied.isoformat(),
         ],
         real_today=real,
+        regression_gate=False,
     )
     output = capsys.readouterr().out
 
@@ -399,12 +399,93 @@ def test_a_future_today_may_still_bring_a_stage_forward(
             "--docs", str(root / "docs"),
             "--features", str(root / "no-features"),
             "--collect-from", str(root / "collected.txt"),
-            "--no-baseline",
             "--mode", "report",
             "--today", "2026-10-01",
         ],
         real_today=date(2026, 8, 1),
+        regression_gate=False,
     )
     output = capsys.readouterr().out
     assert code == 1, "a medium orphan must fail once the low stage is rehearsed"
     assert "REQUIREMENT_NO_SCENARIO_SPEC" in output
+
+
+def test_no_baseline_is_not_a_command_line_option(
+    tmp_path: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
+    """PR #6 review, finding 1: QA-S-001 had a public off switch.
+
+    `--no-baseline` disabled the acceptance criterion outright, so a newly
+    unmapped assertion exited 0 for anyone who passed it. Skipping the gate is
+    now reachable only from Python. `--baseline-ref` survives, because pointing
+    the comparison at another commit is not the same as not comparing.
+    """
+    root = _git_corpus(
+        tmp_path, baseline="catalogue-empty.md", current="catalogue-unmapped.md"
+    )
+    with pytest.raises(SystemExit) as exit_info:
+        main(
+            [
+                "--repo-root", str(root),
+                "--docs", str(root / "docs"),
+                "--collect-from", str(root / "collected.txt"),
+                "--baseline-ref", "base",
+                "--no-baseline",
+            ]
+        )
+    assert exit_info.value.code == 2, "argparse must reject the removed flag"
+
+
+def test_a_missing_merge_base_fails_closed(
+    tmp_path: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
+    """PR #6 review, finding 2: the ref tip was substituted for the merge base.
+
+    Unrelated histories and shallow clones both fail `git merge-base`. Falling
+    back to the tip produced a comparison against the wrong commit while still
+    labelling it a merge base, which is precisely the shallow-history case
+    `fetch-depth: 0` is supposed to guard.
+    """
+    root = _git_corpus(
+        tmp_path, baseline="catalogue-empty.md", current="catalogue-unmapped.md"
+    )
+    git = shutil.which("git")
+    assert git is not None
+    author = ["-c", "user.email=t@example.com", "-c", "user.name=t"]
+    for args in (
+        ["checkout", "-q", "--orphan", "unrelated"],
+        ["add", "-A"],
+        [*author, "commit", "-q", "-m", "unrelated history"],
+    ):
+        subprocess.run([git, *args], cwd=root, check=True)  # noqa: S603 - resolved path
+
+    code = _run_as_ci(root)
+    output = capsys.readouterr().out
+
+    assert code == 1, "no merge base must block, not silently compare against the tip"
+    assert "BASELINE_UNAVAILABLE" in output
+    assert "no merge base" in output
+    assert "fetch-depth: 0" in output
+
+
+def test_changing_the_claim_text_alone_is_a_regression(
+    tmp_path: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
+    """PR #6 review, finding 3: only (id, basis) was compared.
+
+    Rewriting what an unmapped assertion claims, while keeping its id and basis,
+    is a different claim resting on the same evidence. For a closed catalogue
+    (AR-003) the text is load-bearing, not decoration.
+    """
+    root = _git_corpus(
+        tmp_path,
+        baseline="catalogue-unmapped.md",
+        current="catalogue-unmapped-retexted.md",
+    )
+
+    code = _run_as_ci(root)
+    output = capsys.readouterr().out
+
+    assert code == 1, "a rewritten claim on an unmapped assertion is newly unmapped"
+    assert "NEW_ASSERTION_NO_SCENARIO" in output
+    assert "claim text changed" in output

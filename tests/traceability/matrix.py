@@ -884,34 +884,65 @@ def _git(repo_root: Path, *args: str) -> str | None:
     return proc.stdout if proc.returncode == 0 else None
 
 
+@dataclass(frozen=True)
+class CatalogueEntry:
+    """What an assertion said, as of some commit.
+
+    The claim text is part of the identity, not decoration. Rewriting what an
+    attestation asserts while keeping the same id and basis produces a
+    different claim resting on the same evidence, which is exactly the case a
+    closed catalogue (AR-003) exists to control. Comparing ids and bases alone
+    would wave it through as old backlog.
+    """
+
+    text: str
+    basis: tuple[str, ...]
+
+
+def _parse_catalogue(blob: str) -> dict[str, CatalogueEntry]:
+    out: dict[str, CatalogueEntry] = {}
+    for line in blob.splitlines():
+        m = ASSERTION_ROW.match(line)
+        # First row wins, matching the live parse, so a duplicated id in the
+        # baseline cannot change what "unchanged" means.
+        if m and m.group("aid") not in out:
+            out[m.group("aid")] = CatalogueEntry(
+                text=_clean(m.group("text")), basis=tuple(expand_basis(m.group("basis")))
+            )
+    return out
+
+
 def baseline_assertions(
     repo_root: Path, ref: str, ar_relpath: str = "docs/attestation-reliance.md"
-) -> tuple[dict[str, tuple[str, ...]] | None, str]:
+) -> tuple[dict[str, CatalogueEntry] | None, str]:
     """The assertion catalogue as of the merge base with `ref`.
 
-    Returns {assertion id: basis} and a sentence describing what was compared.
-    None means the baseline could not be established -- which is reported and
-    blocks, never silently treated as "nothing is new". A gate that cannot see
-    the previous state cannot tell a regression from backlog, and guessing in
-    the permissive direction is how this check would quietly stop working.
+    None means the baseline could not be established, which is reported and
+    blocks. It is never silently treated as "nothing is new": a gate that
+    cannot see the previous state cannot tell a regression from backlog, and
+    guessing in the permissive direction is how this check would quietly stop
+    working.
+
+    There is deliberately no fall back to the tip of `ref` when `merge-base`
+    fails. Unrelated histories and shallow clones both fail that way, and the
+    tip is not the baseline in either case -- an earlier version substituted it
+    and still called the result a merge base, which defeated the shallow-history
+    safeguard `fetch-depth: 0` exists to satisfy.
     """
+    if not (_git(repo_root, "rev-parse", "--verify", f"{ref}^{{commit}}") or "").strip():
+        return None, f"{ref} could not be resolved"
     base = (_git(repo_root, "merge-base", "HEAD", ref) or "").strip()
     if not base:
-        resolved = (_git(repo_root, "rev-parse", "--verify", f"{ref}^{{commit}}") or "").strip()
-        if not resolved:
-            return None, f"{ref} could not be resolved"
-        base = resolved
+        return None, (
+            f"no merge base between HEAD and {ref} -- unrelated histories, or the common "
+            f"ancestor was not fetched (actions/checkout needs fetch-depth: 0)"
+        )
     blob = _git(repo_root, "show", f"{base}:{ar_relpath}")
     if blob is None:
-        # The file not existing at the baseline is a real answer: every
-        # assertion in it today is new.
-        return {}, f"{ar_relpath} did not exist at {base[:12]}"
-    catalogue = {
-        m.group("aid"): tuple(expand_basis(m.group("basis")))
-        for line in blob.splitlines()
-        if (m := ASSERTION_ROW.match(line))
-    }
-    return catalogue, f"merge base {base[:12]} with {ref}"
+        # The file not existing at the baseline is a real answer, not a
+        # failure: every assertion in it today is new.
+        return {}, f"{ar_relpath} did not exist at merge base {base[:12]}"
+    return _parse_catalogue(blob), f"merge base {base[:12]} with {ref}"
 
 
 def collect_node_ids(repo_root: Path, target: str = "tests") -> list[str]:
@@ -946,7 +977,7 @@ def build_matrix(
     features_dir: Path | None,
     node_ids: list[str],
     exclude_citations: tuple[str, ...] = (),
-    baseline: dict[str, tuple[str, ...]] | None = None,
+    baseline: dict[str, CatalogueEntry] | None = None,
     baseline_description: str = "no baseline supplied",
     regression_gate: bool = False,
 ) -> Matrix:
@@ -1286,7 +1317,7 @@ def _check(
 
 def _check_regressions(
     matrix: Matrix,
-    baseline: dict[str, tuple[str, ...]] | None,
+    baseline: dict[str, CatalogueEntry] | None,
     description: str,
 ) -> list[Finding]:
     """QA-S-001: a newly unmapped assertion fails CI now, not on a schedule.
@@ -1326,12 +1357,18 @@ def _check_regressions(
         assertion = matrix.assertions.get(aid)
         if assertion is None:
             continue
-        if aid not in baseline:
+        was = baseline.get(aid)
+        if was is None:
             why = "added to the catalogue"
-        elif baseline[aid] != assertion.basis:
+        elif was.basis != assertion.basis:
             why = (
-                f"basis changed from {', '.join(baseline[aid]) or '(none)'} to "
+                f"basis changed from {', '.join(was.basis) or '(none)'} to "
                 f"{', '.join(assertion.basis) or '(none)'}"
+            )
+        elif was.text != assertion.text:
+            why = (
+                f"claim text changed from {was.text!r} to {assertion.text!r}; the same "
+                f"basis now carries a different claim"
             )
         else:
             continue  # unmapped before this change: QA-011 backlog, staged.
@@ -1751,11 +1788,19 @@ def _print_report(matrix: Matrix) -> None:
         print()
 
 
-def main(argv: list[str] | None = None, *, real_today: date | None = None) -> int:
-    """`real_today` is a test seam, deliberately not a command-line flag.
+def main(
+    argv: list[str] | None = None,
+    *,
+    real_today: date | None = None,
+    regression_gate: bool = True,
+) -> int:
+    """`real_today` and `regression_gate` are test seams, not command-line flags.
 
-    Exposing it as an argument would hand every build the escape hatch the
-    ratchet exists to prevent.
+    Both were argparse options once. Exposing either hands every build the
+    escape hatch the gate exists to prevent -- `--no-baseline` in particular
+    switched QA-S-001 off entirely, which is a public off switch for an
+    acceptance criterion. `--baseline-ref` remains, because pointing the
+    comparison at a different commit is not the same as skipping it.
     """
     ap = argparse.ArgumentParser(description=__doc__.splitlines()[0] if __doc__ else None)
     ap.add_argument("--repo-root", type=Path, default=Path.cwd())
@@ -1782,10 +1827,6 @@ def main(argv: list[str] | None = None, *, real_today: date | None = None) -> in
                     help="ref whose merge base supplies the previous assertion catalogue, "
                          "used to tell a new unmapped assertion from existing backlog "
                          f"(default: {DEFAULT_BASELINE_REF})")
-    ap.add_argument("--no-baseline", action="store_true",
-                    help="skip the QA-S-001 regression gate by treating every assertion as "
-                         "pre-existing. For running against a corpus with no git history; "
-                         "it is printed prominently and must never be used in CI")
     ap.add_argument("--today", type=date.fromisoformat, default=None, metavar="YYYY-MM-DD",
                     help="evaluate the QA-011 schedule as of this date instead of today. "
                          "For testing the ratchet; it cannot weaken a mandate that has "
@@ -1808,13 +1849,13 @@ def main(argv: list[str] | None = None, *, real_today: date | None = None) -> in
         else DEFAULT_EXCLUDED_CITATION_PATHS
     )
 
-    baseline: dict[str, tuple[str, ...]] | None = None
-    if args.no_baseline:
-        baseline_description = "--no-baseline: QA-S-001 regression gate DISABLED"
-    else:
+    baseline: dict[str, CatalogueEntry] | None = None
+    if regression_gate:
         baseline, baseline_description = baseline_assertions(
             root, args.baseline_ref, str(Path(docs.name) / "attestation-reliance.md")
         )
+    else:
+        baseline_description = "QA-S-001 regression gate disabled by the caller"
 
     matrix = build_matrix(
         repo_root=root,
@@ -1824,7 +1865,7 @@ def main(argv: list[str] | None = None, *, real_today: date | None = None) -> in
         exclude_citations=exclude,
         baseline=baseline,
         baseline_description=baseline_description,
-        regression_gate=not args.no_baseline,
+        regression_gate=regression_gate,
     )
 
     if args.out_md:
@@ -1848,9 +1889,9 @@ def main(argv: list[str] | None = None, *, real_today: date | None = None) -> in
     threshold, why = effective_threshold(requested, asof, real)
 
     print(f"\nBaseline for the QA-S-001 regression gate: {baseline_description}.")
-    if args.no_baseline:
-        print("WARNING: --no-baseline disables the QA-S-001 regression gate. Never use "
-              "this in CI.")
+    if not regression_gate:
+        print("WARNING: the QA-S-001 regression gate is disabled. This is reachable only "
+              "from Python, never from the command line.")
     print(f"QA-011 enforcement as of {real.isoformat()}: {why}.")
     if asof != real:
         print(f"(--today {asof.isoformat()} supplied; it may bring a stage forward, "
