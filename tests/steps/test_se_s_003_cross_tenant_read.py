@@ -6,9 +6,10 @@ because a `WHERE tenant_id = ...` was appended somewhere.
 
 The mechanism under test: `evidence_records` is LIST-partitioned by
 `tenant_id`; no application role holds any privilege on the parent; each
-tenant role holds INSERT/SELECT on its own partition only; and the login
-role is NOINHERIT, so holding membership in two tenant roles still grants
-nothing until one is explicitly assumed.
+tenant role holds INSERT/SELECT on its own partition only; and each tenant
+role is a login role with its own credential, granted to nobody, so a
+session authenticates *as* one tenant and has no membership that would let
+it become another.
 
 Not listed under EV-06's Acceptance field, which names only AC-S-004 and
 AC-S-006 -- but EV-06 declares SE-011 under Satisfies and no other story
@@ -170,8 +171,14 @@ def test_own_partition_remains_readable(
 
 
 def test_login_role_inherits_no_tenant_privileges(application_engine: Engine) -> None:
-    """The login role is a member of every tenant role. NOINHERIT is what stops
-    that membership becoming a cross-tenant read."""
+    """`evidence_app` holds no memberships, and does not inherit either.
+
+    Isolation no longer rests on NOINHERIT -- it rests on `evidence_app`
+    being a member of nothing, pinned by
+    `test_no_role_holds_membership_in_any_tenant_role` in the adversarial
+    suite. This keeps the second lock on the door: were a membership ever
+    granted back, inheritance would not silently turn it into privileges.
+    """
     with application_engine.connect() as conn:
         (inherits,) = conn.execute(
             text("SELECT rolinherit FROM pg_roles WHERE rolname = current_user")
@@ -186,13 +193,18 @@ def test_tenant_role_does_not_survive_into_the_next_pooled_connection(
     tenant_engines: TenantEngines,
     application_engine: Engine, populated_ledger: dict[str, list[dict[str, Any]]]
 ) -> None:
-    """Regression: a committed session-level SET ROLE outlives its transaction.
+    """Regression: a tenant identity must not reach an unscoped connection.
 
-    The connection returns to the pool still wearing the tenant's identity,
-    and the next checkout -- for a different tenant, or for none -- inherits
-    it. Partitioning does not help; the session genuinely holds the other
-    tenant's privileges. `tenant_connection` uses SET LOCAL ROLE for exactly
-    this reason.
+    Originally this caught a committed session-level `SET ROLE` outliving
+    its transaction, leaving the pooled connection wearing the tenant's
+    identity for whoever checked it out next. The design that made that
+    possible is gone -- each tenant now has its own credential and its own
+    pool, so no connection is ever shared across tenants.
+
+    The test is kept because the property it asserts is the one that matters
+    and it is now guaranteed by different means: an `evidence_app` connection
+    is `evidence_app`, and reaches nothing. If a future change reintroduces a
+    shared pool, this fails again.
     """
     with tenant_connection(tenant_engines, TENANT_B) as conn:
         conn.execute(text(f'SELECT count(*) FROM "{partition_name(TENANT_B)}"'))  # noqa: S608

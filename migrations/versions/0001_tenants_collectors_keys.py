@@ -6,11 +6,24 @@ Creates the registry tables (`data-model.md` §2.1-§2.3) and the two roles the
 whole isolation design rests on:
 
 ``evidence_app``
-    The login role every service authenticates as. **NOINHERIT**, and holds
-    no privilege on any evidence relation. This is not decoration: the role
-    is a member of every tenant role, and if it inherited, one session could
-    read every tenant. NOINHERIT forces an explicit ``SET ROLE``, which is
-    what confines a session to a single tenant (SE-011).
+    A login role that is a member of nothing and holds no privilege on any
+    evidence or registry relation. It is **not** the path services use --
+    each tenant has its own login role, created by `provision_tenant`, and a
+    session authenticates *as* the tenant (SE-011).
+
+    It is retained, and retained powerless, as a negative control: "an
+    authenticated session holding no tenant credential can reach nothing" is
+    then something the suite asserts rather than a property that follows from
+    the role being absent. ``NOINHERIT`` is belt-and-braces on a role with no
+    memberships to inherit.
+
+    An earlier revision of this story made ``evidence_app`` the shared login
+    for every service, holding membership in every tenant role and assuming a
+    tenant with ``SET LOCAL ROLE``. Review broke it: membership is not
+    scopeable to a connection, so any statement reaching the database --
+    including one introduced by SQL injection -- could ``RESET ROLE`` and
+    assume a different tenant. Per-tenant credentials remove the membership,
+    so the server refuses the switch rather than the application avoiding it.
 
 ``evidence_registry_reader``
     Group role holding SELECT on the registry tables. Tenant roles are

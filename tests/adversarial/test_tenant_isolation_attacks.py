@@ -29,7 +29,7 @@ from __future__ import annotations
 from typing import Any
 
 import pytest
-from sqlalchemy import Engine, text
+from sqlalchemy import Engine, create_engine, text
 from sqlalchemy.exc import DBAPIError, ProgrammingError
 
 from services.ledger import (
@@ -43,6 +43,38 @@ from services.ledger.naming import TENANT_ROLE_PREFIX
 from tests.ledger_support import INSUFFICIENT_PRIVILEGE, TENANT_A, TENANT_B
 
 REGISTRY_TABLES = ("tenants", "collectors", "keys")
+
+#: Postgres refuses a bad credential with SQLSTATE 28P01, but libpq reports
+#: connection-time failures before a protocol error frame exists, so psycopg
+#: surfaces `sqlstate is None` for *every* connection failure -- bad password,
+#: missing role, missing database, and unreachable server alike. Matching the
+#: FATAL text is therefore the only way to tell "the credential was refused"
+#: from "the test never reached a server", and telling those apart is the
+#: whole point: a connection failing for the wrong reason would make an
+#: isolation test pass while proving nothing.
+_PASSWORD_REFUSED = "password authentication failed for user"  # noqa: S105 -- error text
+_NOT_A_CREDENTIAL_REFUSAL = (
+    "does not exist",          # missing role or database
+    "Connection refused",      # no server listening
+    "could not translate",     # bad host
+    "timeout expired",
+)
+
+
+def assert_credential_refused(error: BaseException, role: str) -> None:
+    """Assert Postgres refused this credential, and for that reason."""
+    message = str(getattr(error, "orig", error))
+    for wrong_reason in _NOT_A_CREDENTIAL_REFUSAL:
+        assert wrong_reason not in message, (
+            f"connection failed for an unrelated reason, so nothing about "
+            f"isolation was tested: {message}"
+        )
+    assert _PASSWORD_REFUSED in message, (
+        f"expected a refused credential for {role!r}, got: {message}"
+    )
+    assert f'"{role}"' in message, (
+        f"refusal names a different role than {role!r}: {message}"
+    )
 
 
 # --- role escape -----------------------------------------------------------
@@ -128,11 +160,90 @@ def test_no_role_holds_membership_in_any_tenant_role(owner_engine: Engine) -> No
 def test_tenant_login_cannot_authenticate_as_another_tenant(
     tenant_engines: TenantEngines, tenants: list[str]
 ) -> None:
-    """The credential is per tenant, so Acme's password is not Globex's."""
+    """Acme's credential must not open a Globex session.
+
+    This has to reach Postgres. Comparing the two derived passwords proves
+    only that `derive_tenant_password` is a function of `tenant_id` -- which
+    it visibly is -- and says nothing about what the database was actually
+    told during provisioning. A regression that set every tenant role to the
+    same password, or set Globex's to Acme's, would leave the derivation
+    intact and the deployment wide open, and a string comparison would pass
+    it. So the assertion is an authentication attempt and its refusal.
+    """
+    from sqlalchemy.exc import OperationalError
+
     from services.ledger import LedgerConfig
 
     config = LedgerConfig.from_env()
-    assert config.tenant_password(TENANT_A) != config.tenant_password(TENANT_B)
+    acme_password = config.tenant_password(TENANT_A)
+
+    # Globex's role, Acme's password. Everything else is the real DSN.
+    forged = config.tenant_url(TENANT_B).set(password=acme_password)
+    assert forged.username == application_role(TENANT_B)
+
+    engine = create_engine(forged, future=True, pool_pre_ping=False)
+    try:
+        with pytest.raises(OperationalError) as caught:
+            with engine.connect() as conn:
+                conn.execute(text("SELECT current_user")).scalar_one()
+    finally:
+        engine.dispose()
+
+    assert_credential_refused(caught.value, application_role(TENANT_B))
+
+
+def test_each_tenant_credential_does_authenticate(
+    tenant_engines: TenantEngines, tenants: list[str]
+) -> None:
+    """Positive control for the test above.
+
+    If provisioning set no passwords at all, or the server rejected every
+    connection, the refusal above would pass while the system was entirely
+    broken. This pins that each tenant's own credential works and lands on
+    that tenant's role.
+    """
+    from services.ledger import LedgerConfig
+
+    config = LedgerConfig.from_env()
+    for tenant_id in (TENANT_A, TENANT_B):
+        engine = create_engine(config.tenant_url(tenant_id), future=True)
+        try:
+            with engine.connect() as conn:
+                who = conn.execute(text("SELECT current_user")).scalar_one()
+        finally:
+            engine.dispose()
+        assert who == application_role(tenant_id), (
+            f"{tenant_id}'s credential authenticated as {who!r}"
+        )
+
+
+def test_tenant_password_is_not_the_tenant_id_or_the_secret(
+    tenant_engines: TenantEngines, tenants: list[str]
+) -> None:
+    """Guessable credentials would make per-tenant logins theatre.
+
+    Also confirms the database refuses the guesses, rather than trusting
+    that the derivation is what was installed.
+    """
+    from sqlalchemy.exc import OperationalError
+
+    from services.ledger import LedgerConfig
+
+    config = LedgerConfig.from_env()
+    # No empty-string guess: libpq refuses to send one, so the failure comes
+    # from the client and says nothing about what the server would accept.
+    for guess in (TENANT_A, application_role(TENANT_A), config.tenant_secret):
+        assert config.tenant_password(TENANT_A) != guess
+        engine = create_engine(
+            config.tenant_url(TENANT_A).set(password=guess), future=True
+        )
+        try:
+            with pytest.raises(OperationalError) as caught:
+                with engine.connect() as conn:
+                    conn.execute(text("SELECT 1"))
+        finally:
+            engine.dispose()
+        assert_credential_refused(caught.value, application_role(TENANT_A))
 
 
 # --- ownership -------------------------------------------------------------
