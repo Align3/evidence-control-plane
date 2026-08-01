@@ -52,7 +52,6 @@ import pytest
 
 from tests.traceability.matrix import (
     ENFORCEMENT_SCHEDULE,
-    SEVERITY_RANK,
     Severity,
     effective_threshold,
     main,
