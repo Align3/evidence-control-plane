@@ -244,7 +244,7 @@ Scoped, time-bound attestation view. Numerator and denominator sources shown, no
 ### Test infrastructure
 
 #### EV-22 — Traceability matrix generator
-Parses requirement IDs, scenario IDs, test IDs, and assertion IDs; generates the four-link matrix; fails CI on any orphan.
+Parses requirement IDs, scenario IDs, test IDs, and assertion IDs; generates the four-link matrix; fails CI on orphans at the severity QA-011 currently enforces, and reports every orphan at every stage regardless.
 **Touches:** `tests/traceability/`, CI config
 **Depends on:** EV-01
 **Satisfies:** QA-010…012
@@ -285,7 +285,7 @@ EV-13 is the only story blocked on an external decision. Everything before it ca
 
 ## 5. Definition of done
 
-A story is done when: acceptance scenarios pass; the traceability matrix has no orphans; the adversarial suite still passes; for anything touching schema, signing, canonicalisation, or coverage, the Go verifier independently reproduces Python output; and an independent review session has reproduced the claims with real commands rather than accepting a self-report.
+A story is done when: acceptance scenarios pass; the traceability matrix has no orphans at the severity QA-011 currently enforces; the adversarial suite still passes; for anything touching schema, signing, canonicalisation, or coverage, the Go verifier independently reproduces Python output; and an independent review session has reproduced the claims with real commands rather than accepting a self-report.
 
 ---
 
