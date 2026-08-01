@@ -14,11 +14,12 @@ from __future__ import annotations
 
 from sqlalchemy import Connection, text
 
-from .config import APP_LOGIN_ROLE
+from .config import LedgerConfig, derive_tenant_password
 from .naming import (
     APP_GRANTS,
     EVIDENCE_PARENT_TABLE,
     REGISTRY_READER_ROLE,
+    TENANT_ROLE_PREFIX,
     application_role,
     partition_name,
     validate_tenant_id,
@@ -31,6 +32,13 @@ from .registry import assert_registry_isolated
 FORBIDDEN_GRANTS = ("UPDATE", "DELETE", "TRUNCATE", "REFERENCES", "TRIGGER")
 
 
+def _database_name(connection: Connection) -> str:
+    name = connection.engine.url.database
+    if name is None:  # pragma: no cover -- malformed DSN
+        raise RuntimeError("connection names no database")
+    return name
+
+
 def provision_tenant(
     connection: Connection,
     *,
@@ -39,9 +47,12 @@ def provision_tenant(
     deployment_profile: str,
     key_custody: str,
     evidence_region: str,
+    tenant_secret: str | None = None,
 ) -> None:
-    """Register a tenant and create its partition and role. Idempotent."""
+    """Register a tenant and create its partition and login role. Idempotent."""
     validate_tenant_id(tenant_id)
+    if tenant_secret is None:
+        tenant_secret = LedgerConfig.from_env().tenant_secret
     partition = partition_name(tenant_id)
     role = application_role(tenant_id)
 
@@ -74,11 +85,19 @@ def provision_tenant(
         )
     )
 
+    # The tenant role is itself a LOGIN role with its own derived password
+    # (SE-011). It is deliberately NOT granted to any shared login: a login
+    # holding membership in two tenant roles can move between them mid-
+    # session, including via a statement introduced by SQL injection, and
+    # membership cannot be scoped to one connection. See config.py.
+    password = derive_tenant_password(tenant_secret, tenant_id)
     connection.execute(
         text(
             "DO $$ BEGIN"  # noqa: S608 -- role name validated by application_role
             f"  IF NOT EXISTS (SELECT 1 FROM pg_roles WHERE rolname = '{role}') THEN"
-            f'    CREATE ROLE "{role}" NOLOGIN;'
+            f"    CREATE ROLE \"{role}\" LOGIN PASSWORD '{password}';"
+            "  ELSE"
+            f"    ALTER ROLE \"{role}\" LOGIN PASSWORD '{password}';"
             "  END IF;"
             "END $$;"
         )
@@ -87,19 +106,19 @@ def provision_tenant(
     grants = ", ".join(APP_GRANTS)
     forbidden = ", ".join(FORBIDDEN_GRANTS)
     for statement in (
+        f'GRANT CONNECT ON DATABASE "{_database_name(connection)}" TO "{role}"',
         f'GRANT USAGE ON SCHEMA public TO "{role}"',
         # INSERT and SELECT. Nothing else, ever (DM-004, AC-012, SE-012).
         f'GRANT {grants} ON TABLE "{partition}" TO "{role}"',
         f'REVOKE {forbidden} ON TABLE "{partition}" FROM "{role}"',
         # Registry reads (tenants, collectors, keys) for registration checks.
+        # Row-level security scopes them to this tenant's own rows.
         f'GRANT "{REGISTRY_READER_ROLE}" TO "{role}"',
-        # The login role may assume this tenant. It is NOINHERIT, so
-        # membership confers nothing until it does so explicitly.
-        f'GRANT "{role}" TO "{APP_LOGIN_ROLE}"',
     ):
         connection.execute(text(statement))
 
     _assert_append_only(connection, role=role, partition=partition)
+    _assert_no_cross_tenant_membership(connection, role=role)
     # The new tenant role gains SELECT on the registry through
     # REGISTRY_READER_ROLE. If row-level isolation were missing, that grant
     # would let it enumerate every other tenant (SE-011).
@@ -127,6 +146,37 @@ def _assert_append_only(connection: Connection, *, role: str, partition: str) ->
         raise RuntimeError(
             f"refusing to provision {partition}: role {role} holds {sorted(held)}, "
             f"expected exactly {sorted(APP_GRANTS)} (DM-004, SE-012)"
+        )
+
+
+def _assert_no_cross_tenant_membership(connection: Connection, *, role: str) -> None:
+    """Fail provisioning if anything holds membership in a tenant role.
+
+    A tenant role is a login in its own right and is granted to nobody. The
+    moment some other role is a member of one, that role can `SET ROLE` into
+    the tenant -- and if it is a member of two, it can move between them
+    inside a single statement, which is the cross-tenant read SE-011 says
+    must not be expressible. Checking the catalogue rather than trusting
+    that no grant was written: a later story adding a convenience grant
+    would otherwise reopen this silently.
+    """
+    rows = connection.execute(
+        text(
+            "SELECT member.rolname AS member, granted.rolname AS granted"
+            " FROM pg_auth_members am"
+            " JOIN pg_roles member ON member.oid = am.member"
+            " JOIN pg_roles granted ON granted.oid = am.roleid"
+            " WHERE granted.rolname LIKE :prefix"
+            " ORDER BY 1, 2"
+        ),
+        {"prefix": f"{TENANT_ROLE_PREFIX}%"},
+    ).all()
+    if rows:
+        held = ", ".join(f"{row.member} -> {row.granted}" for row in rows)
+        raise RuntimeError(
+            f"refusing to provision {role}: tenant roles are granted to "
+            f"other roles, which makes a cross-tenant SET ROLE possible "
+            f"({held}) (SE-011)"
         )
 
 

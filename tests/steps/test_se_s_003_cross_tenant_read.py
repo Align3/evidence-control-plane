@@ -26,6 +26,7 @@ from sqlalchemy.exc import ProgrammingError
 
 from services.ledger import (
     EVIDENCE_PARENT_TABLE,
+    TenantEngines,
     application_role,
     partition_name,
     tenant_connection,
@@ -68,6 +69,7 @@ def _cross_tenant_queries(
 
 @when("it is executed under any application role", target_fixture="cross_tenant_results")
 def _execute_under_each_role(
+    tenant_engines: TenantEngines,
     application_engine: Engine, cross_tenant_queries: dict[str, str]
 ) -> list[dict[str, Any]]:
     """'Any' means each tenant role in turn, and the bare login role."""
@@ -85,7 +87,7 @@ def _execute_under_each_role(
                     with application_engine.connect() as conn:
                         conn.execute(text(sql)).all()
                 else:
-                    with tenant_connection(application_engine, tenant_id) as conn:
+                    with tenant_connection(tenant_engines, tenant_id) as conn:
                         conn.execute(text(sql)).all()
             except ProgrammingError as exc:
                 error: ProgrammingError | None = exc
@@ -155,11 +157,11 @@ def _no_application_filter(
 
 
 def test_own_partition_remains_readable(
-    application_engine: Engine, populated_ledger: dict[str, list[dict[str, Any]]]
+    tenant_engines: TenantEngines, populated_ledger: dict[str, list[dict[str, Any]]]
 ) -> None:
     """Isolation that also blocks the legitimate read proves nothing."""
     for tenant_id in (TENANT_A, TENANT_B):
-        with tenant_connection(application_engine, tenant_id) as conn:
+        with tenant_connection(tenant_engines, tenant_id) as conn:
             rows = conn.execute(
                 text(f'SELECT tenant_id FROM "{partition_name(tenant_id)}"')  # noqa: S608
             ).all()
@@ -181,6 +183,7 @@ def test_login_role_inherits_no_tenant_privileges(application_engine: Engine) ->
 
 
 def test_tenant_role_does_not_survive_into_the_next_pooled_connection(
+    tenant_engines: TenantEngines,
     application_engine: Engine, populated_ledger: dict[str, list[dict[str, Any]]]
 ) -> None:
     """Regression: a committed session-level SET ROLE outlives its transaction.
@@ -191,7 +194,7 @@ def test_tenant_role_does_not_survive_into_the_next_pooled_connection(
     tenant's privileges. `tenant_connection` uses SET LOCAL ROLE for exactly
     this reason.
     """
-    with tenant_connection(application_engine, TENANT_B) as conn:
+    with tenant_connection(tenant_engines, TENANT_B) as conn:
         conn.execute(text(f'SELECT count(*) FROM "{partition_name(TENANT_B)}"'))  # noqa: S608
 
     for _ in range(4):
@@ -208,7 +211,7 @@ def test_tenant_role_does_not_survive_into_the_next_pooled_connection(
 
 
 def test_write_into_another_tenants_partition_is_impossible(
-    application_engine: Engine,
+    tenant_engines: TenantEngines,
     record_factories: dict[str, Any],
 ) -> None:
     """Isolation must hold on the write side too.
@@ -222,7 +225,7 @@ def test_write_into_another_tenants_partition_is_impossible(
 
     foreign = evidence_partition(TENANT_B)
     with pytest.raises(ProgrammingError) as caught:
-        with tenant_connection(application_engine, TENANT_A) as conn:
+        with tenant_connection(tenant_engines, TENANT_A) as conn:
             conn.execute(foreign.insert(), payload)
     assert getattr(caught.value.orig, "sqlstate", None) == INSUFFICIENT_PRIVILEGE
 
@@ -230,7 +233,7 @@ def test_write_into_another_tenants_partition_is_impossible(
     own = evidence_partition(TENANT_A)
     misrouted = dict(payload) | {"tenant_id": TENANT_B}
     with pytest.raises(Exception) as bound:  # noqa: B017
-        with tenant_connection(application_engine, TENANT_A) as conn:
+        with tenant_connection(tenant_engines, TENANT_A) as conn:
             conn.execute(own.insert(), misrouted)
     assert getattr(bound.value.orig, "sqlstate", None) == "23514", (  # type: ignore[attr-defined]
         "a row for another tenant landed in this tenant's partition"

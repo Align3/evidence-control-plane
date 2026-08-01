@@ -25,6 +25,7 @@ from sqlalchemy import Engine, text
 from services.ledger import (
     EVIDENCE_PARENT_TABLE,
     PROJECTION_COLUMNS,
+    TenantEngines,
     drop_projection,
     projection_columns_present,
     rebuild_projection,
@@ -186,7 +187,7 @@ def test_projection_indexes_return_after_rebuild(
 
 
 def test_projection_rebuild_needs_no_application_privileges(
-    application_engine: Engine, populated_ledger: dict[str, list[dict[str, Any]]]
+    tenant_engines: TenantEngines, populated_ledger: dict[str, list[dict[str, Any]]]
 ) -> None:
     """The application role must not be able to run the rebuild path.
 
@@ -198,7 +199,7 @@ def test_projection_rebuild_needs_no_application_privileges(
     from tests.ledger_support import TENANT_A
 
     try:
-        with tenant_connection(application_engine, TENANT_A) as conn:
+        with tenant_connection(tenant_engines, TENANT_A) as conn:
             conn.execute(
                 text(
                     f'UPDATE "{partition_name(TENANT_A)}"'  # noqa: S608

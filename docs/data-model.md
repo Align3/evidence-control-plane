@@ -24,6 +24,8 @@ This is the shared contract between concurrently working agents. On DamDam, a re
 
 **DM-005** — `canonical_bytes` is authoritative. Every parsed column is a projection and must be rebuildable from it (AC-015). A migration that changes a projection column does not touch `canonical_bytes`.
 
+"Every parsed column" is the whole list, not the droppable subset. Columns split three ways: **droppable** ones are dropped and rebuilt outright; **repairable** ones are recomputed in place, because no identity or uniqueness guarantee hangs off them; and **verified-only** ones — the record identity, the partition key, and the fork-detection key `(stream_id, sequence)` — are checked but never rewritten, because rewriting them would relocate rows between partitions or silently resolve a fork that ES-006 says must be reported. Review found the earlier implementation verifying eight of sixteen derived columns, which let a `source_time` edited away from the bytes go undetected and survive a rebuild. `ingest_time` is deliberately not derived — it records our receipt, not anything the writer signed — as are `key_id` and `signature`, which live in the signature member `canonical_bytes` excludes (ES-021).
+
 **DM-006** — Cross-tenant reads must be inexpressible at the query layer, not filtered in application code (SE-011). Two mechanisms, because two access patterns:
 
 | Tables | Mechanism | Why |
@@ -173,7 +175,13 @@ Indexes: `(tenant_id, action_id)`, `(tenant_id, action_family, source_time)`, `(
 
 **DM-018** — Partitions are created by `provision_tenant`, one per tenant, and there is **no DEFAULT partition**. Evidence naming an unprovisioned tenant is rejected outright rather than pooled into a shared relation that no tenant role could safely be granted.
 
-**DM-019** — Grants. No role holds any privilege on the parent `evidence_records`; naming it is how a cross-tenant read would be spelled, so it must fail before a predicate is evaluated (SE-011). Each tenant has a role `evidence_tenant_{tenant_id}` holding `INSERT` and `SELECT` on its own partition and nothing else. The login role `evidence_app` is **NOINHERIT** and is a member of every tenant role: without NOINHERIT, one session would inherit every tenant's privileges and the partitioning would buy nothing.
+**DM-019** — Grants. No role holds any privilege on the parent `evidence_records`; naming it is how a cross-tenant read would be spelled, so it must fail before a predicate is evaluated (SE-011). Each tenant has a role `evidence_tenant_{tenant_id}` holding `INSERT` and `SELECT` on its own partition and nothing else.
+
+Each tenant role is itself a **login** role with its own credential, and is granted to nobody. An application session authenticates *as* the tenant rather than authenticating as a shared login and then assuming the tenant with `SET ROLE`.
+
+The distinction is not stylistic. Membership in a role cannot be scoped to a connection: a login that may assume two tenants may assume the second at any point in any statement that reaches the database on that connection — including a statement introduced by SQL injection, which is precisely the query-layer crossing SE-011 requires be impossible rather than merely unused. Review of the shared-login design demonstrated it: a single stacked driver call moved an Acme session to Globex and read its evidence. With no membership to exercise, the server refuses the switch instead of the application being trusted not to attempt it.
+
+The trust boundary remains the application process, which holds the secret each tenant password is derived from and can therefore open a connection as any tenant. What it cannot do is cross tenants *on a connection it already holds*. `evidence_app` is retained as a login that is a member of nothing and holds nothing, so that "an authenticated session with no tenant credential reaches nothing" is a property the suite asserts rather than one that follows from an absent role.
 
 **DM-020** — `tenant_id` is constrained by CHECK to `^[a-z0-9]([a-z0-9_]{0,44}[a-z0-9])?$`. The tenant id reaches SQL identifiers in `CREATE TABLE ... PARTITION OF` and `CREATE ROLE`, neither of which accepts a bind parameter; restricting it to characters that are already a legal identifier makes the tenant → partition-name mapping injective, so two tenants can never derive one partition.
 

@@ -17,6 +17,7 @@ from sqlalchemy import Engine, text
 
 from services.ledger import (
     LedgerConfig,
+    TenantEngines,
     app_engine,
     evidence_partition,
     migrator_engine,
@@ -55,14 +56,27 @@ def owner_engine(migrated: LedgerConfig) -> Iterator[Engine]:
 
 @pytest.fixture(scope="session")
 def application_engine(migrated: LedgerConfig) -> Iterator[Engine]:
-    """The real application login role, not the owner.
+    """The unscoped login: authenticated, a member of nothing, powerless.
 
-    Testing grants from a superuser or owner session would prove nothing:
-    those roles hold every privilege implicitly.
+    Kept as the negative control. Every statement it issues should be
+    refused, and several tests assert exactly that.
     """
     engine = app_engine(migrated)
     yield engine
     engine.dispose()
+
+
+@pytest.fixture(scope="session")
+def tenant_engines(migrated: LedgerConfig, tenants: list[str]) -> Iterator[TenantEngines]:
+    """Per-tenant logins -- each authenticates as its own role.
+
+    Not the owner and not a shared login: testing grants from a superuser
+    would prove nothing, and testing them from a login that may assume any
+    tenant would prove less than it appears to.
+    """
+    engines = TenantEngines(migrated)
+    yield engines
+    engines.dispose()
 
 
 @pytest.fixture(scope="session")
@@ -119,7 +133,7 @@ def record_factories(owner_engine: Engine, tenants: list[str]) -> dict[str, Reco
 
 @pytest.fixture(scope="session")
 def populated_ledger(
-    application_engine: Engine,
+    tenant_engines: TenantEngines,
     record_factories: dict[str, RecordFactory],
 ) -> dict[str, list[dict[str, Any]]]:
     """Appends records under each tenant's own role, into its own partition.
@@ -134,7 +148,7 @@ def populated_ledger(
             factory.next_record(action_family=None),
         ]
         partition = evidence_partition(tenant_id)
-        with tenant_connection(application_engine, tenant_id) as conn:
+        with tenant_connection(tenant_engines, tenant_id) as conn:
             for row in rows:
                 conn.execute(partition.insert(), dict(row))
         written[tenant_id] = rows

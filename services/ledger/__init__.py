@@ -12,7 +12,7 @@ code path that forgets to call it, and there is always one.
 
 Entry points:
 
-* `tenant_connection(app_engine(), tenant_id)` -- the only sanctioned way to
+* `tenant_connection(TenantEngines(), tenant_id)` -- the only sanctioned way to
   read or append evidence;
 * `evidence_partition(tenant_id)` -- a table handle scoped to one tenant;
 * `migrator_engine()` -- the separately-credentialed schema path, used by
@@ -35,7 +35,7 @@ from .digests import (
     digest_ref,
     parse_digest_ref,
 )
-from .engine import app_engine, migrator_engine, tenant_connection
+from .engine import TenantEngines, app_engine, migrator_engine, tenant_connection
 from .naming import (
     APP_GRANTS,
     EVIDENCE_PARENT_TABLE,
@@ -59,7 +59,9 @@ from .registry import (
     registry_isolation_status,
 )
 from .schema import (
+    CANONICAL_DERIVED_COLUMNS,
     PROJECTION_COLUMNS,
+    REPAIRABLE_DERIVED_COLUMNS,
     VERIFIED_HEADER_COLUMNS,
     collectors,
     evidence_partition,
@@ -77,7 +79,9 @@ __all__ = [
     "DIGEST_PREFIX",
     "EVIDENCE_PARENT_TABLE",
     "FORBIDDEN_GRANTS",
+    "CANONICAL_DERIVED_COLUMNS",
     "PROJECTION_COLUMNS",
+    "REPAIRABLE_DERIVED_COLUMNS",
     "REGISTRY_READER_ROLE",
     "REGISTRY_TABLES",
     "TENANT_ID_SQL_PATTERN",
@@ -85,6 +89,7 @@ __all__ = [
     "VERIFIED_HEADER_COLUMNS",
     "LedgerConfig",
     "ProjectionMismatch",
+    "TenantEngines",
     "app_engine",
     "application_role",
     "assert_registry_isolated",

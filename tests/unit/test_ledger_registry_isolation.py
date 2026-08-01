@@ -23,6 +23,7 @@ from sqlalchemy import Engine, text
 from services.ledger import (
     REGISTRY_TABLES,
     TENANT_ISOLATION_POLICY,
+    TenantEngines,
     assert_registry_isolated,
     registry_isolation_status,
     tenant_connection,
@@ -32,7 +33,7 @@ from tests.ledger_support import TENANT_A, TENANT_B, RecordFactory
 
 @pytest.mark.parametrize("table", REGISTRY_TABLES)
 def test_tenant_cannot_see_another_tenants_registry_rows(
-    application_engine: Engine,
+    tenant_engines: TenantEngines,
     record_factories: dict[str, RecordFactory],
     table: str,
 ) -> None:
@@ -40,7 +41,7 @@ def test_tenant_cannot_see_another_tenants_registry_rows(
 
     Before RLS this returned every customer we have.
     """
-    with tenant_connection(application_engine, TENANT_A) as conn:
+    with tenant_connection(tenant_engines, TENANT_A) as conn:
         visible = {
             row.tenant_id
             for row in conn.execute(text(f"SELECT tenant_id FROM {table}"))  # noqa: S608
@@ -53,7 +54,7 @@ def test_tenant_cannot_see_another_tenants_registry_rows(
 
 
 def test_targeted_lookup_of_another_tenants_collector_returns_nothing(
-    application_engine: Engine, record_factories: dict[str, RecordFactory]
+    tenant_engines: TenantEngines, record_factories: dict[str, RecordFactory]
 ) -> None:
     """Knowing the id must not be enough.
 
@@ -62,7 +63,7 @@ def test_targeted_lookup_of_another_tenants_collector_returns_nothing(
     """
     foreign_collector = record_factories[TENANT_B].collector_id
     foreign_key = record_factories[TENANT_B].key_id
-    with tenant_connection(application_engine, TENANT_A) as conn:
+    with tenant_connection(tenant_engines, TENANT_A) as conn:
         collectors = conn.execute(
             text("SELECT collector_id FROM collectors WHERE collector_id = :cid"),
             {"cid": foreign_collector},
@@ -76,16 +77,16 @@ def test_targeted_lookup_of_another_tenants_collector_returns_nothing(
 
 
 def test_aggregate_does_not_leak_the_customer_count(
-    application_engine: Engine, record_factories: dict[str, RecordFactory]
+    tenant_engines: TenantEngines, record_factories: dict[str, RecordFactory]
 ) -> None:
     """A count is a smaller leak than a list, and still a leak."""
-    with tenant_connection(application_engine, TENANT_A) as conn:
+    with tenant_connection(tenant_engines, TENANT_A) as conn:
         (count,) = conn.execute(text("SELECT count(*) FROM tenants")).one()
     assert count == 1, f"tenants count leaked {count} customers"
 
 
 def test_ingestion_can_resolve_its_own_collector_by_id_alone(
-    application_engine: Engine, record_factories: dict[str, RecordFactory]
+    tenant_engines: TenantEngines, record_factories: dict[str, RecordFactory]
 ) -> None:
     """The query shape RLS was chosen to preserve (SE-018).
 
@@ -95,7 +96,7 @@ def test_ingestion_can_resolve_its_own_collector_by_id_alone(
     the row that tells it the tenant.
     """
     own = record_factories[TENANT_A].collector_id
-    with tenant_connection(application_engine, TENANT_A) as conn:
+    with tenant_connection(tenant_engines, TENANT_A) as conn:
         rows = conn.execute(
             text(
                 "SELECT collector_id, tenant_id, mode FROM collectors"
@@ -173,7 +174,7 @@ def test_assert_registry_isolated_refuses_when_a_policy_is_missing(
 
 
 def test_tenant_role_still_cannot_write_the_registry(
-    application_engine: Engine, record_factories: dict[str, RecordFactory]
+    tenant_engines: TenantEngines, record_factories: dict[str, RecordFactory]
 ) -> None:
     """RLS governs which rows are visible, not which statements are allowed.
 
@@ -191,7 +192,7 @@ def test_tenant_role_still_cannot_write_the_registry(
         "DELETE FROM keys",
     ):
         with pytest.raises(ProgrammingError) as caught:
-            with tenant_connection(application_engine, TENANT_A) as conn:
+            with tenant_connection(tenant_engines, TENANT_A) as conn:
                 conn.execute(text(sql))
         assert getattr(caught.value.orig, "sqlstate", None) == INSUFFICIENT_PRIVILEGE, (
             f"{sql} was not refused"

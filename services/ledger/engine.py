@@ -1,28 +1,23 @@
 """Engines and the tenant-scoped session.
 
 `tenant_connection` is the only sanctioned way for application code to reach
-evidence. It assumes the tenant's role for the transaction, which is what
-turns partitioning into isolation: while that role is current, the session's
-privileges name one partition, so no *query* it issues reaches another
-tenant (SE-011).
+evidence. The session's privileges name one partition, so no query it issues
+reaches another tenant (SE-011).
 
-**Where that guarantee stops.** `APP_LOGIN_ROLE` holds membership in every
-tenant role -- that is how it can assume any of them -- so a session that
-has issued `RESET ROLE`, or `SET ROLE` naming another tenant, is acting as
-that other tenant and can read its evidence. The database cannot prevent
-this while one login role serves all tenants; membership is what makes the
-`SET ROLE` possible in the first place.
+A session authenticates **as** the tenant. It does not authenticate as a
+shared login and then assume the tenant, because membership in a role is
+not scopeable to a connection: a login that may assume two tenants may
+assume the second one at any point in any statement it executes, including
+one introduced by SQL injection. Review demonstrated exactly that against
+the earlier design -- a single stacked driver call moved an Acme session to
+Globex and read its evidence. Per-tenant credentials remove the membership,
+so the server refuses the switch instead of the application avoiding it.
 
-So the isolation boundary is the application process, not the connection.
-Code inside that process is trusted not to change role; code outside it
-cannot reach a connection at all. What this does buy, and it is the point,
-is that a *SQL injection confined to a query* cannot cross tenants: it would
-have to inject a role change, which `SET LOCAL` inside an open transaction
-does not make available to a `SELECT` payload.
-
-Closing the gap entirely means one login role per tenant, so no session ever
-holds the membership. That is a connection-pooling change well beyond this
-story; recorded here rather than left implied (AG-015).
+The trust boundary is still the application process: code holding the
+tenant secret can derive any tenant's credential and open a connection as
+that tenant. What it can no longer do is cross tenants *on a connection it
+already has*, which is what SE-011 requires be impossible in the query
+layer rather than merely unused.
 """
 
 from __future__ import annotations
@@ -48,34 +43,71 @@ def migrator_engine(config: LedgerConfig | None = None) -> Engine:
 
 
 def app_engine(config: LedgerConfig | None = None) -> Engine:
-    """Engine for the application login role.
+    """Engine for the unscoped login role -- a negative control, not a path.
 
-    The role is NOINHERIT and holds no privilege on any evidence relation.
-    Connections from it can do nothing until `tenant_connection` assumes a
-    tenant role -- and can then do nothing outside that tenant.
+    `APP_LOGIN_ROLE` is a member of no role and holds no privilege on any
+    evidence or registry relation, so every statement it issues is refused.
+    It is kept, and kept powerless, so that "an authenticated connection
+    with no tenant credential can reach nothing" is a claim the suite can
+    assert rather than a property of an absent role.
     """
     config = config or LedgerConfig.from_env()
     return create_engine(config.app_url, future=True)
 
 
+class TenantEngines:
+    """Per-tenant engines, each authenticating as that tenant's own role.
+
+    One pool per tenant. Pools are not shared across tenants, so a pooled
+    connection can never be handed to a different tenant than the one whose
+    credential opened it -- the class of bug that `SET ROLE` on a shared
+    login makes possible and that no amount of resetting fully closes.
+    """
+
+    def __init__(self, config: LedgerConfig | None = None) -> None:
+        self._config = config or LedgerConfig.from_env()
+        self._engines: dict[str, Engine] = {}
+
+    def engine(self, tenant_id: str) -> Engine:
+        role = application_role(tenant_id)  # validates before it reaches a DSN
+        if role not in self._engines:
+            self._engines[role] = create_engine(
+                self._config.tenant_url(tenant_id), future=True
+            )
+        return self._engines[role]
+
+    def dispose(self) -> None:
+        for engine in self._engines.values():
+            engine.dispose()
+        self._engines.clear()
+
+
 @contextmanager
-def tenant_connection(engine: Engine, tenant_id: str) -> Iterator[Connection]:
-    """Yield a connection acting as `tenant_id`'s role, for one transaction.
+def tenant_connection(
+    engines: TenantEngines, tenant_id: str
+) -> Iterator[Connection]:
+    """Yield a connection authenticated as `tenant_id`'s role, for one transaction.
 
     The block owns the transaction: it commits on clean exit and rolls back
     on an exception. Callers must not commit themselves.
 
-    ``SET LOCAL ROLE``, not ``SET ROLE``, and the difference is the whole
-    point. A session-level ``SET ROLE`` survives a ``COMMIT``; the connection
-    then returns to the pool still wearing that tenant's identity, and the
-    next checkout -- possibly serving a different tenant -- inherits it. That
-    is a cross-tenant read arriving through the front door, and no amount of
-    partitioning stops it. ``SET LOCAL`` is scoped to the transaction, so the
-    role cannot outlive the block that set it.
+    The session **is** the tenant rather than assuming the tenant. Nothing is
+    granted that would let it become another one: its role is a member of no
+    other tenant role, so a `SET ROLE` naming one -- whether written by
+    application code or smuggled in as a stacked statement by SQL injection
+    -- is refused by the server rather than by convention.
+
+    The identity is asserted rather than assumed. If the connection is not
+    the expected role, the block refuses to yield: a misconfigured DSN that
+    silently connected as something wider would otherwise look like working
+    code right up until it read another tenant's evidence.
     """
     role = application_role(tenant_id)
-    with engine.begin() as connection:
-        # `role` is validated against an anchored identifier pattern by
-        # `application_role`; DDL-adjacent statements take no bind parameters.
-        connection.execute(text(f'SET LOCAL ROLE "{role}"'))
+    with engines.engine(tenant_id).begin() as connection:
+        actual = connection.execute(text("SELECT current_user")).scalar_one()
+        if actual != role:
+            raise RuntimeError(
+                f"refusing to act for {tenant_id!r}: connected as {actual!r}, "
+                f"expected {role!r} (SE-011)"
+            )
         yield connection

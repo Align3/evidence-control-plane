@@ -18,6 +18,7 @@ from sqlalchemy.exc import ProgrammingError
 
 from services.ledger import (
     EVIDENCE_PARENT_TABLE,
+    TenantEngines,
     application_role,
     partition_name,
     tenant_connection,
@@ -32,7 +33,7 @@ def test_ac_s_004() -> None:
 
 @given("the application database role", target_fixture="app_role_context")
 def _app_role_context(
-    application_engine: Engine,
+    tenant_engines: TenantEngines,
     populated_ledger: dict[str, list[dict[str, Any]]],
 ) -> dict[str, Any]:
     """The role the ingestion service runs as, holding a populated ledger.
@@ -41,7 +42,7 @@ def _app_role_context(
     a superuser or the table owner -- if it were, the refusals below would
     prove nothing.
     """
-    with tenant_connection(application_engine, TENANT_A) as conn:
+    with tenant_connection(tenant_engines, TENANT_A) as conn:
         current, is_super, owner = conn.execute(
             text(
                 "SELECT current_user,"
@@ -64,7 +65,7 @@ def _app_role_context(
 @when("an UPDATE or DELETE is attempted on the evidence table",
       target_fixture="mutation_attempts")
 def _mutation_attempts(
-    application_engine: Engine, app_role_context: dict[str, Any]
+    tenant_engines: TenantEngines, app_role_context: dict[str, Any]
 ) -> list[dict[str, Any]]:
     """Four raw attempts: UPDATE and DELETE, against the partition and the parent."""
     tenant_id = app_role_context["tenant_id"]
@@ -78,7 +79,7 @@ def _mutation_attempts(
     attempts: list[dict[str, Any]] = []
     for label, sql in statements.items():
         try:
-            with tenant_connection(application_engine, tenant_id) as conn:
+            with tenant_connection(tenant_engines, tenant_id) as conn:
                 conn.execute(text(sql))  # noqa: S608 -- identifiers are validated
         except ProgrammingError as exc:
             attempts.append({"label": label, "sql": sql, "error": exc})
@@ -103,7 +104,8 @@ def _database_rejects(mutation_attempts: list[dict[str, Any]]) -> None:
 
 @then("the rejection is not dependent on application-layer checks")
 def _not_application_layer(
-    owner_engine: Engine, application_engine: Engine, app_role_context: dict[str, Any]
+    tenant_engines: TenantEngines,
+    owner_engine: Engine, app_role_context: dict[str, Any]
 ) -> None:
     """The catalogue is the evidence: the privilege is absent, not intercepted.
 
@@ -139,7 +141,7 @@ def _not_application_layer(
                     f"{role} holds {privilege} on {table}"
                 )
     # And the row count is unchanged: nothing was quietly swallowed.
-    with tenant_connection(application_engine, tenant_id) as conn:
+    with tenant_connection(tenant_engines, tenant_id) as conn:
         (rows_after,) = conn.execute(
             text(f'SELECT count(*) FROM "{partition_name(tenant_id)}"')  # noqa: S608
         ).one()
@@ -177,17 +179,17 @@ def test_no_application_role_holds_update_or_delete_on_any_evidence_table(
 
 
 def test_truncate_is_refused(
-    application_engine: Engine, populated_ledger: dict[str, list[dict[str, Any]]]
+    tenant_engines: TenantEngines, populated_ledger: dict[str, list[dict[str, Any]]]
 ) -> None:
     """TRUNCATE is neither UPDATE nor DELETE and erases just as much."""
     with pytest.raises(ProgrammingError) as caught:
-        with tenant_connection(application_engine, TENANT_A) as conn:
+        with tenant_connection(tenant_engines, TENANT_A) as conn:
             conn.execute(text(f'TRUNCATE "{partition_name(TENANT_A)}"'))  # noqa: S608
     assert getattr(caught.value.orig, "sqlstate", None) == INSUFFICIENT_PRIVILEGE
 
 
 def test_ddl_disguised_mutation_is_refused(
-    application_engine: Engine, populated_ledger: dict[str, list[dict[str, Any]]]
+    tenant_engines: TenantEngines, populated_ledger: dict[str, list[dict[str, Any]]]
 ) -> None:
     """Immutability that DROP or ALTER can undo is not immutability."""
     partition = partition_name(TENANT_A)
@@ -197,7 +199,7 @@ def test_ddl_disguised_mutation_is_refused(
         f'ALTER TABLE "{partition}" ALTER COLUMN body DROP NOT NULL',
     ):
         with pytest.raises(ProgrammingError) as caught:
-            with tenant_connection(application_engine, TENANT_A) as conn:
+            with tenant_connection(tenant_engines, TENANT_A) as conn:
                 conn.execute(text(sql))
         assert getattr(caught.value.orig, "sqlstate", None) == INSUFFICIENT_PRIVILEGE, (
             f"{sql} was not refused"
@@ -205,7 +207,7 @@ def test_ddl_disguised_mutation_is_refused(
 
 
 def test_canonical_bytes_cannot_be_rewritten_by_reinsert(
-    application_engine: Engine,
+    tenant_engines: TenantEngines,
     populated_ledger: dict[str, list[dict[str, Any]]],
 ) -> None:
     """INSERT is granted; overwriting history through it must still fail.
@@ -222,13 +224,13 @@ def test_canonical_bytes_cannot_be_rewritten_by_reinsert(
     tampered["body"] = {}
 
     with pytest.raises(Exception) as caught:  # noqa: B017 -- integrity or privilege
-        with tenant_connection(application_engine, TENANT_A) as conn:
+        with tenant_connection(tenant_engines, TENANT_A) as conn:
             conn.execute(partition.insert(), tampered)
     sqlstate = getattr(caught.value.orig, "sqlstate", None)  # type: ignore[attr-defined]
     assert sqlstate == "23505", f"expected unique_violation, got {sqlstate}"
 
     with pytest.raises(ProgrammingError) as upsert:
-        with tenant_connection(application_engine, TENANT_A) as conn:
+        with tenant_connection(tenant_engines, TENANT_A) as conn:
             conn.execute(
                 text(
                     f'INSERT INTO "{partition_name(TENANT_A)}" AS e'  # noqa: S608

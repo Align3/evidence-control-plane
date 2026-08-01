@@ -119,16 +119,44 @@ keys = Table(
 #: may be dropped and rebuilt at will (DM-005, DM-013, AC-015).
 PROJECTION_COLUMNS: tuple[str, ...] = ("body", "action_id", "action_family")
 
+#: Derived from `canonical_bytes` and repairable in place. They carry no
+#: identity, partition or uniqueness guarantee, so `rebuild_projection` may
+#: recompute them without dropping a constraint to do it (DM-005).
+REPAIRABLE_DERIVED_COLUMNS: tuple[str, ...] = (
+    "prev_digest",
+    "record_digest",
+    "collector_id",
+    "source_time",
+    "authoritative_time",
+    "clock_skew_ms",
+)
+
 #: Columns parsed from `canonical_bytes` that carry constraints the ledger's
-#: integrity depends on -- the partition key, and the fork-detection unique
-#: constraint (ES-006). They are verified against the canonical bytes rather
-#: than dropped, because dropping them would drop the guarantee with them.
+#: integrity depends on -- the partition key, the record identity, and the
+#: fork-detection unique constraint (ES-006). They are verified against the
+#: canonical bytes but never rewritten: rewriting the partition key would
+#: move rows between partitions, and rewriting (stream_id, sequence) could
+#: silently resolve a fork that ES-006 says must be reported. A mismatch
+#: here is an integrity failure to surface, not a cache miss to repair.
 VERIFIED_HEADER_COLUMNS: tuple[str, ...] = (
+    "record_id",
+    "tenant_id",
     "record_type",
     "schema_version",
     "boundary_ref",
     "stream_id",
     "sequence",
+)
+
+#: Every column `canonical_bytes` determines. DM-005 says each one must be
+#: reproducible from the authoritative bytes, so each one is checked.
+#: `ingest_time` is absent by design -- it records our receipt, not anything
+#: the writer signed -- as are `key_id` and `signature`, which live in the
+#: signature member that `canonical_bytes` excludes (ES-021).
+CANONICAL_DERIVED_COLUMNS: tuple[str, ...] = (
+    *VERIFIED_HEADER_COLUMNS,
+    *REPAIRABLE_DERIVED_COLUMNS,
+    *PROJECTION_COLUMNS,
 )
 
 

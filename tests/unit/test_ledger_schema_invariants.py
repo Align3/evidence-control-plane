@@ -20,6 +20,7 @@ from sqlalchemy.exc import IntegrityError
 from services.ledger import (
     APP_GRANTS,
     EVIDENCE_PARENT_TABLE,
+    TenantEngines,
     evidence_partition,
     provision_tenant,
     tenant_connection,
@@ -74,7 +75,7 @@ def test_no_cascade_on_any_constraint_touching_evidence(owner_engine: Engine) ->
 
 
 def test_fork_is_refused_by_the_database_not_by_ingestion(
-    application_engine: Engine, record_factories: dict[str, RecordFactory]
+    tenant_engines: TenantEngines, record_factories: dict[str, RecordFactory]
 ) -> None:
     """ES-006: two records sharing (stream_id, sequence) are a fatal integrity
     failure that must be *reported*, never resolved.
@@ -85,7 +86,7 @@ def test_fork_is_refused_by_the_database_not_by_ingestion(
     factory = record_factories[TENANT_A]
     first = factory.next_record()
     partition = evidence_partition(TENANT_A)
-    with tenant_connection(application_engine, TENANT_A) as conn:
+    with tenant_connection(tenant_engines, TENANT_A) as conn:
         conn.execute(partition.insert(), dict(first))
 
     # Same stream and sequence, different record_id: a fork, not a duplicate.
@@ -96,7 +97,7 @@ def test_fork_is_refused_by_the_database_not_by_ingestion(
     )
 
     with pytest.raises(IntegrityError) as caught:
-        with tenant_connection(application_engine, TENANT_A) as conn:
+        with tenant_connection(tenant_engines, TENANT_A) as conn:
             conn.execute(partition.insert(), dict(forked))
     assert getattr(caught.value.orig, "sqlstate", None) == UNIQUE_VIOLATION
     # The partition's copy of the constraint carries a generated name, so
@@ -105,31 +106,31 @@ def test_fork_is_refused_by_the_database_not_by_ingestion(
 
 
 def test_sequence_zero_is_refused(
-    application_engine: Engine, record_factories: dict[str, RecordFactory]
+    tenant_engines: TenantEngines, record_factories: dict[str, RecordFactory]
 ) -> None:
     """ES-006: sequence is monotonic within a stream, starting at 1."""
     row = dict(record_factories[TENANT_A].next_record(sequence=0))
     with pytest.raises(IntegrityError) as caught:
-        with tenant_connection(application_engine, TENANT_A) as conn:
+        with tenant_connection(tenant_engines, TENANT_A) as conn:
             conn.execute(evidence_partition(TENANT_A).insert(), row)
     assert getattr(caught.value.orig, "sqlstate", None) == CHECK_VIOLATION
 
 
 def test_short_digest_is_refused(
-    application_engine: Engine, record_factories: dict[str, RecordFactory]
+    tenant_engines: TenantEngines, record_factories: dict[str, RecordFactory]
 ) -> None:
     """ES-003 fixes SHA-256. A 16-byte digest in the column is a weaker
     algorithm smuggled past a schema that only said `bytea`."""
     row = dict(record_factories[TENANT_A].next_record())
     row["record_digest"] = row["record_digest"][:16]
     with pytest.raises(IntegrityError) as caught:
-        with tenant_connection(application_engine, TENANT_A) as conn:
+        with tenant_connection(tenant_engines, TENANT_A) as conn:
             conn.execute(evidence_partition(TENANT_A).insert(), row)
     assert getattr(caught.value.orig, "sqlstate", None) == CHECK_VIOLATION
 
 
 def test_record_citing_another_tenants_collector_is_refused(
-    application_engine: Engine, record_factories: dict[str, RecordFactory]
+    tenant_engines: TenantEngines, record_factories: dict[str, RecordFactory]
 ) -> None:
     """The collector FK is composite on (tenant_id, collector_id).
 
@@ -141,7 +142,7 @@ def test_record_citing_another_tenants_collector_is_refused(
     row = dict(record_factories[TENANT_A].next_record())
     row["collector_id"] = record_factories[TENANT_B].collector_id
     with pytest.raises(IntegrityError) as caught:
-        with tenant_connection(application_engine, TENANT_A) as conn:
+        with tenant_connection(tenant_engines, TENANT_A) as conn:
             conn.execute(evidence_partition(TENANT_A).insert(), row)
     assert getattr(caught.value.orig, "sqlstate", None) == "23503"
 
