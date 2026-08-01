@@ -21,9 +21,11 @@ from services.ledger import (
     APP_GRANTS,
     EVIDENCE_PARENT_TABLE,
     evidence_partition,
+    provision_tenant,
     tenant_connection,
     verify_projection,
 )
+from services.ledger.naming import MAX_TENANT_ID_LENGTH
 from tests.ledger_support import (
     CHECK_VIOLATION,
     TENANT_A,
@@ -177,6 +179,69 @@ def test_tenant_id_outside_the_identifier_alphabet_is_refused(
                 )
             )
     assert "ck_tenants_tenant_id_identifier" in str(caught.value.orig)
+
+
+def test_tenant_id_long_enough_to_truncate_an_identifier_is_refused(
+    owner_engine: Engine,
+) -> None:
+    """Postgres truncates identifiers over 63 bytes silently rather than
+    erroring, so the length bound is an isolation boundary (SE-011).
+
+    Regression: the bound was 48, which made 'evidence_records_' + tenant_id
+    65 bytes and 'evidence_tenant_' + tenant_id 64. Two tenant ids agreeing
+    on their first 47 characters therefore truncated to one partition and one
+    role, and one tenant's session could read the other's evidence.
+    """
+    with pytest.raises(IntegrityError) as caught:
+        with owner_engine.begin() as conn:
+            conn.execute(
+                text(
+                    "INSERT INTO tenants (tenant_id, name, deployment_profile,"
+                    " key_custody, evidence_region, created_at)"
+                    " VALUES (:tenant_id, 'x', 'p1_hosted', 'client_held',"
+                    " 'eu-west-1', now())"
+                ),
+                {"tenant_id": "a" * (MAX_TENANT_ID_LENGTH + 1)},
+            )
+    assert "ck_tenants_tenant_id_identifier" in str(caught.value.orig)
+
+
+def test_two_tenants_sharing_a_long_prefix_cannot_be_provisioned_onto_one_role(
+    owner_engine: Engine,
+) -> None:
+    """The end-to-end form of the same defect.
+
+    Provisioning must refuse before it creates anything, rather than letting
+    the second tenant silently adopt the first tenant's role and partition.
+    """
+    first = "a" * (MAX_TENANT_ID_LENGTH - 1) + "b"
+    second = "a" * (MAX_TENANT_ID_LENGTH - 1) + "c"
+    assert first != second
+    # Identical once Postgres truncates -- the collision the bound prevents.
+    over_long = f"{first}{'z' * 8}", f"{second}{'z' * 8}"
+
+    for tenant_id in over_long:
+        with pytest.raises(ValueError, match="invalid tenant_id"):
+            with owner_engine.begin() as conn:
+                provision_tenant(
+                    conn,
+                    tenant_id=tenant_id,
+                    name="x",
+                    deployment_profile="p1_hosted",
+                    key_custody="client_held",
+                    evidence_region="eu-west-1",
+                )
+
+    with owner_engine.connect() as conn:
+        leaked = conn.execute(
+            text(
+                "SELECT rolname FROM pg_roles WHERE rolname LIKE :pattern"
+                " UNION ALL"
+                " SELECT relname FROM pg_class WHERE relname LIKE :pattern"
+            ),
+            {"pattern": f"%{'a' * 20}%"},
+        ).all()
+    assert leaked == [], f"a refused tenant left objects behind: {leaked}"
 
 
 def test_runtime_schema_matches_the_migrated_database(

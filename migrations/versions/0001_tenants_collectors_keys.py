@@ -44,11 +44,20 @@ REGISTRY_TABLES = ("tenants", "collectors", "keys")
 TENANT_ROLE_PREFIX = "evidence_tenant_"
 POLICY_NAME = "tenant_isolation"
 
-# Mirrors services.ledger.naming.TENANT_ID_SQL_PATTERN. Constraining the
-# tenant id to characters that are already a legal SQL identifier makes the
-# tenant -> partition-name mapping the identity function, so two tenants can
-# never derive the same partition (SE-011).
-TENANT_ID_PATTERN = "^[a-z0-9]([a-z0-9_]{0,46}[a-z0-9])?$"
+# Mirrors services.ledger.naming.TENANT_ID_SQL_PATTERN, which is asserted by
+# tests/unit/test_ledger_schema_invariants.py. Constraining the tenant id to
+# characters that are already a legal SQL identifier makes the tenant ->
+# partition-name mapping the identity function, so two tenants can never
+# derive the same partition (SE-011).
+#
+# The length bound is part of that guarantee, not cosmetic. Postgres
+# truncates identifiers at NAMEDATALEN-1 = 63 bytes silently. At the previous
+# bound of 48, 'evidence_records_' + tenant_id was 65 bytes and
+# 'evidence_tenant_' + tenant_id was 64, so two tenant ids agreeing on their
+# first 47 characters truncated to one partition and one role -- a
+# cross-tenant read requiring no attacker. 46 keeps every derived identifier
+# under the limit.
+TENANT_ID_PATTERN = "^[a-z0-9]([a-z0-9_]{0,44}[a-z0-9])?$"
 
 ENUMS = {
     "deployment_profile": ("p1_hosted", "p2_vpc", "p3_sidecar"),

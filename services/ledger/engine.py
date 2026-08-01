@@ -1,9 +1,28 @@
 """Engines and the tenant-scoped session.
 
 `tenant_connection` is the only sanctioned way for application code to reach
-evidence. It assumes the tenant's role for the life of the connection, which
-is what turns partitioning into isolation: the session's privileges name one
-partition, so no query it can issue reaches another tenant (SE-011).
+evidence. It assumes the tenant's role for the transaction, which is what
+turns partitioning into isolation: while that role is current, the session's
+privileges name one partition, so no *query* it issues reaches another
+tenant (SE-011).
+
+**Where that guarantee stops.** `APP_LOGIN_ROLE` holds membership in every
+tenant role -- that is how it can assume any of them -- so a session that
+has issued `RESET ROLE`, or `SET ROLE` naming another tenant, is acting as
+that other tenant and can read its evidence. The database cannot prevent
+this while one login role serves all tenants; membership is what makes the
+`SET ROLE` possible in the first place.
+
+So the isolation boundary is the application process, not the connection.
+Code inside that process is trusted not to change role; code outside it
+cannot reach a connection at all. What this does buy, and it is the point,
+is that a *SQL injection confined to a query* cannot cross tenants: it would
+have to inject a role change, which `SET LOCAL` inside an open transaction
+does not make available to a `SELECT` payload.
+
+Closing the gap entirely means one login role per tenant, so no session ever
+holds the membership. That is a connection-pooling change well beyond this
+story; recorded here rather than left implied (AG-015).
 """
 
 from __future__ import annotations
