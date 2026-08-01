@@ -7,7 +7,6 @@ import binascii
 import re
 from collections.abc import Iterable, Mapping
 from dataclasses import dataclass
-from typing import Final
 
 from cryptography.exceptions import InvalidSignature
 from cryptography.hazmat.primitives import serialization
@@ -20,13 +19,10 @@ from sdk_python.evidence.canonical import canonical_digest, canonicalize
 from sdk_python.evidence.schema import RecordEnvelope
 from sdk_python.evidence.signing import (
     ALGORITHM,
+    CONTINUITY_FIELDS,
     SignatureError,
     UnsupportedAlgorithmError,
     verify_record_signature,
-)
-
-CONTINUITY_FIELDS: Final = frozenset(
-    {"alg", "predecessor_key_id", "new_key_id", "new_public_key", "sig"}
 )
 
 
@@ -109,10 +105,15 @@ def _public_key_bytes(public_key: Ed25519PublicKey) -> bytes:
 
 
 def _continuity_payload(
-    *, predecessor_key_id: str, new_key_id: str, new_public_key: Ed25519PublicKey
+    *,
+    predecessor_key_id: str,
+    new_key_id: str,
+    new_public_key: Ed25519PublicKey,
+    tenant_id: str,
+    stream_id: str,
 ) -> dict[str, str]:
-    if not predecessor_key_id or not new_key_id:
-        raise KeyContinuityError("continuity key IDs must be non-empty strings")
+    if not all((predecessor_key_id, new_key_id, tenant_id, stream_id)):
+        raise KeyContinuityError("continuity IDs must be non-empty strings")
     if predecessor_key_id == new_key_id:
         raise KeyContinuityError("key continuity must describe a real key rotation")
     return {
@@ -120,6 +121,8 @@ def _continuity_payload(
         "predecessor_key_id": predecessor_key_id,
         "new_key_id": new_key_id,
         "new_public_key": _encode_base64url(_public_key_bytes(new_public_key)),
+        "tenant_id": tenant_id,
+        "stream_id": stream_id,
     }
 
 
@@ -129,13 +132,17 @@ def create_key_continuity(
     predecessor_private_key: Ed25519PrivateKey,
     new_key_id: str,
     new_public_key: Ed25519PublicKey,
+    tenant_id: str,
+    stream_id: str,
 ) -> dict[str, str]:
-    """Sign the new key and both IDs with the predecessor key (ES-024/SE-008)."""
+    """Sign a context-bound key rotation with the predecessor key (ES-024a)."""
 
     payload = _continuity_payload(
         predecessor_key_id=predecessor_key_id,
         new_key_id=new_key_id,
         new_public_key=new_public_key,
+        tenant_id=tenant_id,
+        stream_id=stream_id,
     )
     return {
         **payload,
@@ -150,6 +157,8 @@ def verify_key_continuity(
     predecessor_public_key: Ed25519PublicKey,
     expected_new_key_id: str,
     new_public_key: Ed25519PublicKey,
+    expected_tenant_id: str,
+    expected_stream_id: str,
 ) -> None:
     """Verify a closed, non-negotiable Ed25519 continuity assertion."""
 
@@ -163,6 +172,10 @@ def verify_key_continuity(
         raise KeyContinuityError("key continuity names the wrong predecessor key")
     if assertion.get("new_key_id") != expected_new_key_id:
         raise KeyContinuityError("key continuity names the wrong new key")
+    if assertion.get("tenant_id") != expected_tenant_id:
+        raise KeyContinuityError("key continuity tenant_id does not match record tenant_id")
+    if assertion.get("stream_id") != expected_stream_id:
+        raise KeyContinuityError("key continuity stream_id does not match record stream_id")
     expected_public_key = _public_key_bytes(new_public_key)
     asserted_public_key = _decode_base64url(
         assertion.get("new_public_key"), label="new public key", expected_length=32
@@ -175,6 +188,8 @@ def verify_key_continuity(
         "predecessor_key_id": assertion["predecessor_key_id"],
         "new_key_id": assertion["new_key_id"],
         "new_public_key": assertion["new_public_key"],
+        "tenant_id": assertion["tenant_id"],
+        "stream_id": assertion["stream_id"],
     }
     signature = _decode_base64url(
         assertion.get("sig"), label="continuity sig", expected_length=64
@@ -287,6 +302,12 @@ def verify_stream(
             break_sequence=1,
         )
     last_key_id = _signature_key_id(first, public_keys)
+    if "key_continuity" in first.signature:
+        raise KeyContinuityError(
+            "key continuity is forbidden on the first stream record",
+            stream_id=stream_id,
+            break_sequence=1,
+        )
     last_digest = canonical_digest(first)
     previous = first
 
@@ -309,8 +330,8 @@ def verify_stream(
             )
 
         current_key_id = _signature_key_id(current, public_keys)
+        continuity = current.signature.get("key_continuity")
         if current_key_id != last_key_id:
-            continuity = current.signature.get("key_continuity")
             if not isinstance(continuity, dict):
                 raise KeyContinuityError(
                     f"key rotation without continuity at sequence {current.sequence}",
@@ -332,6 +353,8 @@ def verify_stream(
                     predecessor_public_key=predecessor_key,
                     expected_new_key_id=current_key_id,
                     new_public_key=new_key,
+                    expected_tenant_id=current.tenant_id,
+                    expected_stream_id=current.stream_id,
                 )
             except (KeyContinuityError, UnsupportedAlgorithmError) as exc:
                 raise KeyContinuityError(
@@ -344,6 +367,16 @@ def verify_stream(
                     ),
                 ) from exc
             last_key_id = current_key_id
+        elif continuity is not None:
+            raise KeyContinuityError(
+                f"key continuity without a key rotation at sequence {current.sequence}",
+                stream_id=stream_id,
+                break_sequence=current.sequence,
+                valid_through_sequence=previous.sequence,
+                coverage_gap_body=_gap_body(
+                    previous, current, cause="key_discontinuity"
+                ),
+            )
 
         previous = current
         last_digest = canonical_digest(current)

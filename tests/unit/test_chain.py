@@ -22,16 +22,22 @@ from sdk_python.evidence.signing import sign_record
 TS = "2026-07-31T12:00:00.000+01:00"
 
 
-def _record(sequence: int, *, prev_digest: str | None = None):
+def _record(
+    sequence: int,
+    *,
+    prev_digest: str | None = None,
+    tenant_id: str = "tenant-1",
+    stream_id: str = "collector-1",
+):
     suffix = f"{sequence:012x}"
     return validate_record(
         {
             "record_id": f"01890f47-2f58-7cc0-98c4-{suffix}",
             "record_type": "AgentIdentity",
             "schema_version": "1.0.0",
-            "tenant_id": "tenant-1",
+            "tenant_id": tenant_id,
             "boundary_ref": "boundary-1",
-            "stream_id": "collector-1",
+            "stream_id": stream_id,
             "sequence": sequence,
             "prev_digest": prev_digest,
             "source": {"collector": "sdk-python"},
@@ -140,6 +146,26 @@ def test_wrong_prev_digest_is_a_chain_break() -> None:
         verify_stream([records[0], second], public_keys={"K1": key.public_key()})
 
 
+def test_prev_digest_commits_the_previous_signature_member() -> None:
+    original_key, records = _signed_chain(1)
+    second = sign_record(
+        _record(2, prev_digest=canonical_digest(records[0])),
+        key_id="K1",
+        private_key=original_key,
+    )
+    replacement_key = Ed25519PrivateKey.generate()
+    unsigned_first = records[0].model_copy(update={"signature": {}}, deep=True)
+    resigned_first = sign_record(
+        unsigned_first, key_id="KX", private_key=replacement_key
+    )
+
+    with pytest.raises(DigestLinkError, match="prev_digest mismatch"):
+        verify_stream(
+            [resigned_first, second],
+            public_keys={"KX": replacement_key.public_key(), "K1": original_key.public_key()},
+        )
+
+
 def test_valid_key_continuity_allows_rotation() -> None:
     k1, records = _signed_chain(1)
     k2 = Ed25519PrivateKey.generate()
@@ -148,6 +174,8 @@ def test_valid_key_continuity_allows_rotation() -> None:
         predecessor_private_key=k1,
         new_key_id="K2",
         new_public_key=k2.public_key(),
+        tenant_id="tenant-1",
+        stream_id="collector-1",
     )
     second = sign_record(
         _record(2, prev_digest=canonical_digest(records[0])),
@@ -174,6 +202,8 @@ def test_continuity_for_a_different_new_key_is_refused() -> None:
         predecessor_private_key=k1,
         new_key_id="K2",
         new_public_key=substituted.public_key(),
+        tenant_id="tenant-1",
+        stream_id="collector-1",
     )
     second = sign_record(
         _record(2, prev_digest=canonical_digest(records[0])),
@@ -186,4 +216,168 @@ def test_continuity_for_a_different_new_key_is_refused() -> None:
         verify_stream(
             [records[0], second],
             public_keys={"K1": k1.public_key(), "K2": k2.public_key()},
+        )
+
+
+@pytest.mark.parametrize(
+    ("target_tenant", "target_stream", "message"),
+    [
+        ("tenant-2", "collector-1", "tenant_id does not match"),
+        ("tenant-1", "collector-2", "stream_id does not match"),
+    ],
+)
+def test_continuity_proof_cannot_be_replayed_across_context(
+    target_tenant: str, target_stream: str, message: str
+) -> None:
+    k1 = Ed25519PrivateKey.generate()
+    k2 = Ed25519PrivateKey.generate()
+    first = sign_record(
+        _record(1, tenant_id=target_tenant, stream_id=target_stream),
+        key_id="K1",
+        private_key=k1,
+    )
+    continuity = create_key_continuity(
+        predecessor_key_id="K1",
+        predecessor_private_key=k1,
+        new_key_id="K2",
+        new_public_key=k2.public_key(),
+        tenant_id="tenant-1",
+        stream_id="collector-1",
+    )
+    second = sign_record(
+        _record(
+            2,
+            prev_digest=canonical_digest(first),
+            tenant_id=target_tenant,
+            stream_id=target_stream,
+        ),
+        key_id="K2",
+        private_key=k2,
+    )
+    replayed_signature = dict(second.signature)
+    replayed_signature["key_continuity"] = continuity
+    replayed = second.model_copy(
+        update={"signature": replayed_signature}, deep=True
+    )
+
+    with pytest.raises(ChainVerificationError, match=message):
+        verify_stream(
+            [first, replayed],
+            public_keys={"K1": k1.public_key(), "K2": k2.public_key()},
+        )
+
+
+def test_continuity_context_is_covered_by_the_predecessor_signature() -> None:
+    k1 = Ed25519PrivateKey.generate()
+    k2 = Ed25519PrivateKey.generate()
+    first = sign_record(
+        _record(1, tenant_id="tenant-2"), key_id="K1", private_key=k1
+    )
+    continuity = create_key_continuity(
+        predecessor_key_id="K1",
+        predecessor_private_key=k1,
+        new_key_id="K2",
+        new_public_key=k2.public_key(),
+        tenant_id="tenant-1",
+        stream_id="collector-1",
+    )
+    forged_continuity = dict(continuity)
+    forged_continuity["tenant_id"] = "tenant-2"
+    second = sign_record(
+        _record(
+            2,
+            prev_digest=canonical_digest(first),
+            tenant_id="tenant-2",
+        ),
+        key_id="K2",
+        private_key=k2,
+        key_continuity=forged_continuity,
+    )
+
+    # The assertion and envelope agree on tenant-2, so only cryptographic
+    # coverage of the tenant binding can reject this forgery.
+    assert second.signature["key_continuity"]["tenant_id"] == second.tenant_id
+    with pytest.raises(KeyContinuityError, match="signed by the predecessor"):
+        verify_stream(
+            [first, second],
+            public_keys={"K1": k1.public_key(), "K2": k2.public_key()},
+        )
+
+
+def test_continuity_assertion_with_unknown_member_is_refused() -> None:
+    k1, records = _signed_chain(1)
+    k2 = Ed25519PrivateKey.generate()
+    continuity = create_key_continuity(
+        predecessor_key_id="K1",
+        predecessor_private_key=k1,
+        new_key_id="K2",
+        new_public_key=k2.public_key(),
+        tenant_id="tenant-1",
+        stream_id="collector-1",
+    )
+    continuity["junk"] = "not authenticated"
+    second = sign_record(
+        _record(2, prev_digest=canonical_digest(records[0])),
+        key_id="K2",
+        private_key=k2,
+    )
+    replayed_signature = dict(second.signature)
+    replayed_signature["key_continuity"] = continuity
+    replayed = second.model_copy(update={"signature": replayed_signature}, deep=True)
+
+    with pytest.raises(ChainVerificationError, match="unknown.*member"):
+        verify_stream(
+            [records[0], replayed],
+            public_keys={"K1": k1.public_key(), "K2": k2.public_key()},
+        )
+
+
+def test_continuity_assertion_is_refused_on_first_record() -> None:
+    predecessor = Ed25519PrivateKey.generate()
+    current = Ed25519PrivateKey.generate()
+    continuity = create_key_continuity(
+        predecessor_key_id="K0",
+        predecessor_private_key=predecessor,
+        new_key_id="K1",
+        new_public_key=current.public_key(),
+        tenant_id="tenant-1",
+        stream_id="collector-1",
+    )
+    first = sign_record(
+        _record(1),
+        key_id="K1",
+        private_key=current,
+        key_continuity=continuity,
+    )
+
+    with pytest.raises(KeyContinuityError, match="forbidden on the first"):
+        verify_stream(
+            [first],
+            public_keys={"K0": predecessor.public_key(), "K1": current.public_key()},
+        )
+
+
+def test_continuity_assertion_is_refused_without_key_rotation() -> None:
+    predecessor = Ed25519PrivateKey.generate()
+    current = Ed25519PrivateKey.generate()
+    continuity = create_key_continuity(
+        predecessor_key_id="K0",
+        predecessor_private_key=predecessor,
+        new_key_id="K1",
+        new_public_key=current.public_key(),
+        tenant_id="tenant-1",
+        stream_id="collector-1",
+    )
+    first = sign_record(_record(1), key_id="K1", private_key=current)
+    second = sign_record(
+        _record(2, prev_digest=canonical_digest(first)),
+        key_id="K1",
+        private_key=current,
+        key_continuity=continuity,
+    )
+
+    with pytest.raises(KeyContinuityError, match="without a key rotation"):
+        verify_stream(
+            [first, second],
+            public_keys={"K0": predecessor.public_key(), "K1": current.public_key()},
         )

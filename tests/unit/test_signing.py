@@ -158,6 +158,32 @@ def test_verifier_refuses_standard_base64_alphabet() -> None:
         )
 
 
+def test_verifier_refuses_unknown_signature_member_on_terminal_record() -> None:
+    private_key = Ed25519PrivateKey.generate()
+    signed = sign_record(_agent_record(), key_id="customer-key", private_key=private_key)
+    changed = deepcopy(signed.signature)
+    changed["junk"] = "not authenticated by signed_digest"
+    tampered = signed.model_copy(update={"signature": changed}, deep=True)
+
+    with pytest.raises(SignatureError, match="unknown signature member"):
+        verify_record_signature(
+            tampered, public_keys={"customer-key": private_key.public_key()}
+        )
+
+
+def test_verifier_refuses_null_key_continuity_member() -> None:
+    private_key = Ed25519PrivateKey.generate()
+    signed = sign_record(_agent_record(), key_id="customer-key", private_key=private_key)
+    changed = deepcopy(signed.signature)
+    changed["key_continuity"] = None
+    tampered = signed.model_copy(update={"signature": changed}, deep=True)
+
+    with pytest.raises(SignatureError, match="key_continuity must be a JSON object"):
+        verify_record_signature(
+            tampered, public_keys={"customer-key": private_key.public_key()}
+        )
+
+
 def test_attestation_counter_signature_commits_customer_signature() -> None:
     customer = Ed25519PrivateKey.generate()
     issuer = Ed25519PrivateKey.generate()
@@ -198,4 +224,21 @@ def test_two_signature_verifier_refuses_customer_only_attestation() -> None:
             customer_only,
             evidence_public_keys={"customer-key": customer.public_key()},
             issuer_public_keys={},
+        )
+
+
+def test_counter_signature_member_set_is_closed() -> None:
+    customer = Ed25519PrivateKey.generate()
+    issuer = Ed25519PrivateKey.generate()
+    signed = sign_record(_attestation_record(), key_id="customer-key", private_key=customer)
+    counter_signed = counter_sign_attestation(
+        signed, issuer_key_id="issuer-key", issuer_private_key=issuer
+    )
+    changed = deepcopy(counter_signed.signature)
+    changed["issuer"]["junk"] = "not permitted"
+    tampered = counter_signed.model_copy(update={"signature": changed}, deep=True)
+
+    with pytest.raises(SignatureError, match="unknown issuer signature member"):
+        verify_attestation_counter_signature(
+            tampered, issuer_public_keys={"issuer-key": issuer.public_key()}
         )
