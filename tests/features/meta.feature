@@ -5,7 +5,7 @@
 Feature: Test-system self-checks
 
   @QA-S-001 @QA-002
-  # source: testing-qa.md:169
+  # source: testing-qa.md:173
   Scenario: QA-S-001 Assertion without scenario fails CI
     Given a new assertion added to the catalogue
     And no scenario referencing it
@@ -14,7 +14,7 @@ Feature: Test-system self-checks
     And the failure names the unmapped assertion
 
   @QA-S-002 @QA-005 property 6
-  # source: testing-qa.md:179
+  # source: testing-qa.md:183
   Scenario: QA-S-002 Gap conservation holds
     Given any generated evidence set over window W
     When coverage is computed
@@ -23,7 +23,7 @@ Feature: Test-system self-checks
     And no interval is neither
 
   @QA-S-003 @QA-008
-  # source: testing-qa.md:189
+  # source: testing-qa.md:193
   Scenario: QA-S-003 Golden diff blocks merge
     Given a change to canonicalisation
     When golden attestations are regenerated
@@ -32,7 +32,7 @@ Feature: Test-system self-checks
     And the failure requires an explicit reviewed fixture update
 
   @QA-S-004 @QA-013
-  # source: testing-qa.md:199
+  # source: testing-qa.md:203
   Scenario: QA-S-004 Cross-implementation reproduction
     Given a PR touching the evidence schema
     When CI runs
@@ -40,7 +40,7 @@ Feature: Test-system self-checks
     And any divergence fails the build before merge
 
   @QA-S-005 @QA-003
-  # source: testing-qa.md:208
+  # source: testing-qa.md:212
   Scenario: QA-S-005 Acceptance tests assert through the verifier
     Given an acceptance test in layer L6
     When it is executed

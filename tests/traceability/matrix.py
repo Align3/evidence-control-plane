@@ -17,6 +17,8 @@ tests         pytest node ids from `--collect-only`, linked to scenarios by
               pytest-bdd decorator and by function name
 assertions    the `A-nn` catalogue table in `attestation-reliance.md` §2
 ownership     the `**Satisfies:**` fields in `docs/prd.md`
+acceptance    the `**Acceptance:**` fields in `docs/prd.md`
+story status  reachable commit subjects following the `EV-nn: ...` convention
 
 Exemptions
 ----------
@@ -112,7 +114,9 @@ DEFAULT_EXCLUDED_CITATION_PATHS = ("tests/traceability/test_matrix.py",)
 # ratchet that lets the thing it is ratcheting get worse is decorative. These
 # finding kinds therefore fail the build immediately, at every stage, whatever
 # `--mode` and `--fail-on` say.
-ALWAYS_BLOCKING = frozenset({"NEW_ASSERTION_NO_SCENARIO", "BASELINE_UNAVAILABLE"})
+ALWAYS_BLOCKING = frozenset(
+    {"NEW_ASSERTION_NO_SCENARIO", "BASELINE_UNAVAILABLE", "STORY_HISTORY_UNAVAILABLE"}
+)
 
 DEFAULT_BASELINE_REF = "origin/develop"
 
@@ -140,8 +144,11 @@ SID_TOKEN = re.compile(r"\b[A-Z]{2}-S-\d{3}\b")
 SID_IN_NAME = re.compile(r"(?:^|_)(?P<prefix>[a-z]{2})_s_(?P<num>\d{3})(?:_|$)")
 
 STORY_HEADING = re.compile(r"^####\s+(?P<story>EV-\d{2})\b")
+STORY_TOKEN = re.compile(r"\bEV-\d{2}\b")
 SATISFIES = re.compile(r"^\*\*Satisfies:\*\*\s*(?P<body>.+?)\s*$")
+ACCEPTANCE = re.compile(r"^\*\*Acceptance:\*\*\s*(?P<body>.+?)\s*$")
 RANGE = re.compile(rf"(?P<prefix>{_P})-(?P<lo>\d{{3}})[a-z]?\s*(?:…|\.\.\.)\s*(?P<hi>\d{{3}})")
+LANDED_STORY_SUBJECT = re.compile(r"^(?P<story>EV-\d{2}):(?:\s|$)")
 
 ASSERTION_ROW = re.compile(
     r"^\|\s*\*\*(?P<aid>A-\d{2})\*\*\s*\|(?P<text>[^|]*)\|(?P<basis>[^|]*)\|"
@@ -183,8 +190,8 @@ SEVERITY_RANK = {
 # loosen is not a ratchet. `medium` and `low` share 1 October, and enforcing at
 # `low` subsumes `medium`.
 ENFORCEMENT_SCHEDULE: tuple[tuple[date, Severity], ...] = (
-    (date(2026, 8, 8), Severity.CRITICAL),   # EV-25 merge
-    (date(2026, 9, 1), Severity.HIGH),       # EV-26 triage completion
+    (date(2026, 8, 8), Severity.CRITICAL),   # EV-25 target; date is unconditional
+    (date(2026, 9, 1), Severity.HIGH),       # EV-26 target; date is unconditional
     (date(2026, 10, 1), Severity.LOW),       # medium and low together
 )
 
@@ -293,8 +300,8 @@ FINDING_HELP = {
         "the published chain. The first row wins."
     ),
     "DUPLICATE_STORY": (
-        "One story has more than one Satisfies field. The first wins, so the requirements "
-        "listed in the others are attributed to nothing."
+        "A story heading, Satisfies field, or Acceptance field is duplicated. The first "
+        "wins, so content in later copies is not attributed to the story."
     ),
     "DEFERRED_UNKNOWN_STORY": (
         "A requirement is deferred to a story that does not exist. The deferral is revoked "
@@ -324,9 +331,25 @@ FINDING_HELP = {
         "requirement ID. Each comma-separated part becomes a Gherkin tag, and a tag "
         "containing whitespace makes the generated .feature file unparseable."
     ),
-    "SCENARIO_NO_TEST": (
-        "A scenario exists in the specification and no test implements it. The "
-        "requirement it covers is documented but not demonstrated."
+    "SCENARIO_NO_TEST_LANDED": (
+        "A scenario in the Acceptance field of a landed story has no test. The story "
+        "shipped without demonstrating one of its declared acceptance conditions."
+    ),
+    "SCENARIO_NO_TEST_UNBUILT": (
+        "A scenario is owned by the Acceptance field of a story that has not landed. "
+        "This is expected roadmap debt: shipping the owning story is what clears it."
+    ),
+    "SCENARIO_NO_TEST_UNOWNED": (
+        "A scenario has no test and no story lists it under Acceptance. Until ownership "
+        "is recorded, the matrix cannot distinguish roadmap debt from a shipped defect."
+    ),
+    "DANGLING_STORY_REF": (
+        "A document cites a story ID for which prd.md has no story heading. Ordinary "
+        "prose is normative too; a missing story must not become a decorative trigger."
+    ),
+    "STORY_HISTORY_UNAVAILABLE": (
+        "Reachable Git history could not be read, so the matrix cannot distinguish an "
+        "unbuilt story from a landed story that omitted acceptance tests."
     ),
     "REQUIREMENT_NO_SCENARIO_CLAIMED": (
         "A story's Satisfies field claims this requirement, but nothing tests it and "
@@ -385,6 +408,7 @@ class Scenario:
     doc: str
     line: int
     tests: tuple[str, ...] = ()
+    accepted_by: tuple[str, ...] = ()
     # The comma-separated parts exactly as written in the heading. Kept so that
     # a part which is not a bare requirement ID can be reported: extract_features
     # turns each part into a Gherkin tag, and a tag containing whitespace makes
@@ -433,6 +457,9 @@ class Matrix:
     tests: dict[str, TestNode] = field(default_factory=dict)
     assertions: dict[str, Assertion] = field(default_factory=dict)
     stories: dict[str, tuple[str, ...]] = field(default_factory=dict)
+    story_acceptance: dict[str, tuple[str, ...]] = field(default_factory=dict)
+    story_definitions: dict[str, str] = field(default_factory=dict)
+    landed_stories: tuple[str, ...] = ()
     findings: list[Finding] = field(default_factory=list)
     summary: dict[str, Any] = field(default_factory=dict)
     excluded_citation_paths: tuple[str, ...] = ()
@@ -721,14 +748,35 @@ def expand_satisfies(raw: str) -> list[str]:
     return out
 
 
-def _parse_stories(path: Path) -> tuple[dict[str, tuple[str, ...]], list[Finding]]:
+def _parse_stories(
+    path: Path,
+) -> tuple[
+    dict[str, tuple[str, ...]],
+    dict[str, tuple[str, ...]],
+    dict[str, str],
+    list[Finding],
+]:
     stories: dict[str, tuple[str, ...]] = {}
+    acceptance: dict[str, tuple[str, ...]] = {}
+    definitions: dict[str, str] = {}
     findings: list[Finding] = []
     story: str | None = None
     for n, line in enumerate(path.read_text(encoding="utf-8").splitlines(), 1):
         heading = STORY_HEADING.match(line)
         if heading:
             story = heading.group("story")
+            if story in definitions:
+                findings.append(
+                    Finding(
+                        kind="DUPLICATE_STORY",
+                        severity=Severity.HIGH,
+                        subject=story,
+                        location=f"{path.name}:{n}",
+                        detail=f"a second story heading; first defined at {definitions[story]}",
+                    )
+                )
+            else:
+                definitions[story] = f"{path.name}:{n}"
             continue
         satisfies = SATISFIES.match(line)
         if satisfies and story:
@@ -745,7 +793,22 @@ def _parse_stories(path: Path) -> tuple[dict[str, tuple[str, ...]], list[Finding
                 )
                 continue
             stories[story] = tuple(expand_satisfies(satisfies.group("body")))
-    return stories, findings
+            continue
+        accepted = ACCEPTANCE.match(line)
+        if accepted and story:
+            if story in acceptance:
+                findings.append(
+                    Finding(
+                        kind="DUPLICATE_STORY",
+                        severity=Severity.HIGH,
+                        subject=story,
+                        location=f"{path.name}:{n}",
+                        detail="a second Acceptance field for one story; the first wins",
+                    )
+                )
+                continue
+            acceptance[story] = tuple(SID_TOKEN.findall(accepted.group("body")))
+    return stories, acceptance, definitions, findings
 
 
 BDD_SCENARIO_CALL = re.compile(
@@ -884,6 +947,26 @@ def _git(repo_root: Path, *args: str) -> str | None:
     return proc.stdout if proc.returncode == 0 else None
 
 
+def landed_story_ids(repo_root: Path) -> frozenset[str] | None:
+    """Return story IDs whose implementation commits are reachable from HEAD.
+
+    PR titles and story commits use the repository convention ``EV-nn: ...``.
+    Looking only at reachable history means a story branch elsewhere in the
+    repository does not count as landed in the build being checked, while the
+    head commit of a candidate story PR does. Acceptance fields supply scenario
+    ownership; history supplies whether that owner has landed.
+    """
+
+    subjects = _git(repo_root, "log", "--format=%s", "HEAD")
+    if subjects is None:
+        return None
+    return frozenset(
+        match.group("story")
+        for subject in subjects.splitlines()
+        if (match := LANDED_STORY_SUBJECT.match(subject)) is not None
+    )
+
+
 @dataclass(frozen=True)
 class CatalogueEntry:
     """What an assertion said, as of some commit.
@@ -988,6 +1071,7 @@ def build_matrix(
     baseline: dict[str, CatalogueEntry] | None = None,
     baseline_description: str = "no baseline supplied",
     regression_gate: bool = False,
+    landed_stories: frozenset[str] | None = None,
 ) -> Matrix:
     matrix = Matrix()
     matrix.excluded_citation_paths = tuple(sorted(exclude_citations))
@@ -998,14 +1082,17 @@ def build_matrix(
         matrix.findings.extend(findings)
         for req in requirements:
             if req.rid in matrix.requirements:
-                first = matrix.requirements[req.rid]
+                first_requirement = matrix.requirements[req.rid]
                 matrix.findings.append(
                     Finding(
                         kind="DUPLICATE_REQUIREMENT",
                         severity=Severity.CRITICAL,
                         subject=req.rid,
                         location=f"{req.doc}:{req.line}",
-                        detail=f"first defined at {first.doc}:{first.line}; that one wins",
+                        detail=(
+                            f"first defined at {first_requirement.doc}:"
+                            f"{first_requirement.line}; that one wins"
+                        ),
                     )
                 )
                 continue
@@ -1014,20 +1101,22 @@ def build_matrix(
 
     # -- scenarios ----------------------------------------------------------
     for md in sorted(docs_dir.glob("*.md")):
-        for scenario in _parse_scenarios(md):
-            if scenario.sid in matrix.scenarios:
-                first = matrix.scenarios[scenario.sid]
+        for parsed_scenario in _parse_scenarios(md):
+            if parsed_scenario.sid in matrix.scenarios:
+                first_scenario = matrix.scenarios[parsed_scenario.sid]
                 matrix.findings.append(
                     Finding(
                         kind="DUPLICATE_SCENARIO",
                         severity=Severity.CRITICAL,
-                        subject=scenario.sid,
-                        location=f"{scenario.doc}:{scenario.line}",
-                        detail=f"also defined at {first.doc}:{first.line}",
+                        subject=parsed_scenario.sid,
+                        location=f"{parsed_scenario.doc}:{parsed_scenario.line}",
+                        detail=(
+                            f"also defined at {first_scenario.doc}:{first_scenario.line}"
+                        ),
                     )
                 )
                 continue
-            matrix.scenarios[scenario.sid] = scenario
+            matrix.scenarios[parsed_scenario.sid] = parsed_scenario
 
     # -- assertions and story ownership ------------------------------------
     # AR-003 closes the catalogue, so a duplicate row is worse here than
@@ -1037,28 +1126,67 @@ def build_matrix(
     # is reported.
     ar_doc = docs_dir / "attestation-reliance.md"
     if ar_doc.is_file():
-        for assertion in _parse_assertions(ar_doc):
-            if assertion.aid in matrix.assertions:
-                first = matrix.assertions[assertion.aid]
+        for parsed_assertion in _parse_assertions(ar_doc):
+            if parsed_assertion.aid in matrix.assertions:
+                first_assertion = matrix.assertions[parsed_assertion.aid]
                 matrix.findings.append(
                     Finding(
                         kind="DUPLICATE_ASSERTION",
                         severity=Severity.CRITICAL,
-                        subject=assertion.aid,
-                        location=f"{assertion.doc}:{assertion.line}",
-                        detail=f"already defined at {first.doc}:{first.line} with basis "
-                               f"{', '.join(first.basis) or '(none)'}; the first row wins and "
-                               f"this one is ignored",
+                        subject=parsed_assertion.aid,
+                        location=f"{parsed_assertion.doc}:{parsed_assertion.line}",
+                        detail=(
+                            f"already defined at {first_assertion.doc}:{first_assertion.line} "
+                            f"with basis {', '.join(first_assertion.basis) or '(none)'}; the "
+                            f"first row wins and this one is ignored"
+                        ),
                     )
                 )
                 continue
-            matrix.assertions[assertion.aid] = assertion
+            matrix.assertions[parsed_assertion.aid] = parsed_assertion
 
     prd = docs_dir / "prd.md"
     if prd.is_file():
-        stories, story_findings = _parse_stories(prd)
+        stories, acceptance, definitions, story_findings = _parse_stories(prd)
         matrix.stories = stories
+        matrix.story_acceptance = acceptance
+        matrix.story_definitions = definitions
         matrix.findings.extend(story_findings)
+
+    discovered_stories = landed_stories
+    if discovered_stories is None:
+        discovered_stories = landed_story_ids(repo_root)
+        if discovered_stories is None:
+            discovered_stories = frozenset()
+            if matrix.story_acceptance:
+                matrix.findings.append(
+                    Finding(
+                        kind="STORY_HISTORY_UNAVAILABLE",
+                        severity=Severity.CRITICAL,
+                        subject="story commit history",
+                        location=str(repo_root),
+                        detail="git log HEAD failed; scenario debt is not assumed unbuilt",
+                    )
+                )
+    matrix.landed_stories = tuple(sorted(discovered_stories))
+
+    # Every story-shaped reference in normative prose must resolve, not only
+    # the references in specially parsed deferral markers. This catches dates,
+    # gates and dependencies that name work nobody actually defined.
+    for md in sorted(docs_dir.glob("*.md")):
+        for n, line in enumerate(md.read_text(encoding="utf-8").splitlines(), 1):
+            for story_ref in STORY_TOKEN.findall(line):
+                if story_ref not in matrix.story_definitions:
+                    matrix.findings.append(
+                        Finding(
+                            kind="DANGLING_STORY_REF",
+                            severity=Severity.CRITICAL,
+                            subject=story_ref,
+                            location=f"{md.name}:{n}",
+                            detail=f"{story_ref} has no #### {story_ref} heading in prd.md",
+                        )
+                    )
+
     claims: dict[str, list[str]] = defaultdict(list)
     for story, rids in sorted(matrix.stories.items()):
         for rid in rids:
@@ -1077,7 +1205,7 @@ def build_matrix(
         exemption = req.exemption
         if exemption is None or exemption.category != "deferred" or exemption.story is None:
             continue
-        if exemption.story not in matrix.stories:
+        if exemption.story not in matrix.story_definitions:
             req.exemption = None
             matrix.findings.append(
                 Finding(
@@ -1089,7 +1217,7 @@ def build_matrix(
                            f"deferral is revoked and the requirement is reported as an orphan",
                 )
             )
-        elif rid not in matrix.stories[exemption.story]:
+        elif rid not in matrix.stories.get(exemption.story, ()):
             matrix.findings.append(
                 Finding(
                     kind="DEFERRED_STORY_DOES_NOT_CLAIM",
@@ -1113,9 +1241,9 @@ def build_matrix(
     for sid, scenario in sorted(matrix.scenarios.items()):
         for ref in scenario.refs:
             by_requirement[ref].append(sid)
-    for rid, sids in by_requirement.items():
+    for rid, scenario_ids in by_requirement.items():
         if rid in matrix.requirements:
-            matrix.requirements[rid].scenarios = tuple(sorted(set(sids)))
+            matrix.requirements[rid].scenarios = tuple(sorted(set(scenario_ids)))
 
     # -- link scenario -> test ---------------------------------------------
     by_scenario: dict[str, list[str]] = defaultdict(list)
@@ -1125,6 +1253,14 @@ def build_matrix(
     for sid, nodeids in by_scenario.items():
         if sid in matrix.scenarios:
             matrix.scenarios[sid].tests = tuple(sorted(set(nodeids)))
+
+    accepted_by: dict[str, list[str]] = defaultdict(list)
+    for story, accepted_sids in sorted(matrix.story_acceptance.items()):
+        for sid in accepted_sids:
+            accepted_by[sid].append(story)
+    for sid, owners in accepted_by.items():
+        if sid in matrix.scenarios:
+            matrix.scenarios[sid].accepted_by = tuple(sorted(set(owners)))
 
     matrix.findings.extend(_check(matrix, features_dir, module_citations, by_scenario))
     if regression_gate:
@@ -1229,16 +1365,50 @@ def _check(
                     )
                 )
 
-    # Scenarios.
+    # Acceptance fields are the ownership map for scenarios. A misspelt or
+    # retired scenario there is a broken story contract, not harmless prose.
+    for story, sids in sorted(matrix.story_acceptance.items()):
+        for sid in sids:
+            if sid not in matrix.scenarios:
+                findings.append(
+                    Finding(
+                        kind="RETIRED_SCENARIO_REF",
+                        severity=Severity.CRITICAL,
+                        subject=sid,
+                        location=matrix.story_definitions.get(story, "prd.md"),
+                        detail=f"story {story} lists a scenario no document defines",
+                    )
+                )
+
+    # Scenarios. Missing tests are not one class of debt: a landed story that
+    # omitted declared acceptance is a defect; an unlanded story is roadmap
+    # debt; and no Acceptance owner at all is a triage failure.
+    landed = set(matrix.landed_stories)
     for sid, scenario in sorted(matrix.scenarios.items()):
         if not scenario.tests:
+            landed_owners = tuple(owner for owner in scenario.accepted_by if owner in landed)
+            if landed_owners:
+                kind, severity = "SCENARIO_NO_TEST_LANDED", Severity.HIGH
+                detail = (
+                    f"no collected test implements this scenario; accepted by landed "
+                    f"story {', '.join(landed_owners)}"
+                )
+            elif scenario.accepted_by:
+                kind, severity = "SCENARIO_NO_TEST_UNBUILT", Severity.MEDIUM
+                detail = (
+                    f"no collected test yet; owned by unlanded story "
+                    f"{', '.join(scenario.accepted_by)}"
+                )
+            else:
+                kind, severity = "SCENARIO_NO_TEST_UNOWNED", Severity.HIGH
+                detail = "no collected test and no story lists this scenario under Acceptance"
             findings.append(
                 Finding(
-                    kind="SCENARIO_NO_TEST",
-                    severity=Severity.HIGH,
+                    kind=kind,
+                    severity=severity,
                     subject=sid,
                     location=f"{scenario.doc}:{scenario.line}",
-                    detail="no collected test implements this scenario",
+                    detail=detail,
                 )
             )
 
@@ -1258,8 +1428,8 @@ def _check(
     # Feature tags versus the owning document.
     if features_dir is not None:
         for sid, refs in sorted(_parse_feature_tags(features_dir).items()):
-            scenario = matrix.scenarios.get(sid)
-            if scenario is None:
+            tagged_scenario = matrix.scenarios.get(sid)
+            if tagged_scenario is None:
                 findings.append(
                     Finding(
                         kind="RETIRED_SCENARIO_REF",
@@ -1270,14 +1440,14 @@ def _check(
                     )
                 )
                 continue
-            if set(refs) != set(scenario.refs):
+            if set(refs) != set(tagged_scenario.refs):
                 findings.append(
                     Finding(
                         kind="FEATURE_TAG_DRIFT",
                         severity=Severity.HIGH,
                         subject=sid,
-                        location=f"{scenario.doc}:{scenario.line}",
-                        detail=f"document says {', '.join(scenario.refs) or '(none)'}; "
+                        location=f"{tagged_scenario.doc}:{tagged_scenario.line}",
+                        detail=f"document says {', '.join(tagged_scenario.refs) or '(none)'}; "
                                f"feature file says {', '.join(refs) or '(none)'}",
                     )
                 )
@@ -1423,6 +1593,7 @@ def _summarise(matrix: Matrix) -> dict[str, Any]:
         "tests": len(matrix.tests),
         "assertions": len(matrix.assertions),
         "stories": len(matrix.stories),
+        "landed_stories": list(matrix.landed_stories),
         "excluded_citation_paths": list(matrix.excluded_citation_paths),
         "exempt": len(exempt_ids),
         "exempt_ids": exempt_ids,
@@ -1496,6 +1667,7 @@ def render_markdown(matrix: Matrix) -> str:
     add(f"| Tests collected | {s['tests']} |")
     add(f"| Assertions in the catalogue | {s['assertions']} |")
     add(f"| Stories with a Satisfies field | {s['stories']} |")
+    add(f"| — landed in reachable history | {len(s['landed_stories'])} |")
     add("")
     if s["excluded_citation_paths"]:
         add("One exclusion applies, stated here rather than buried in configuration: "
@@ -1647,12 +1819,13 @@ def render_markdown(matrix: Matrix) -> str:
     if not untested:
         add("None.")
     else:
-        add("| Scenario | Title | Source | Requirements |")
-        add("|---|---|---|---|")
+        add("| Scenario | Title | Source | Requirements | Acceptance owner |")
+        add("|---|---|---|---|---|")
         for scenario in sorted(untested, key=lambda x: x.sid):
             add(f"| `{scenario.sid}` | {_cell(scenario.title, 70)} "
                 f"| `{scenario.doc}:{scenario.line}` "
-                f"| {', '.join(f'`{r}`' for r in scenario.refs) or '—'} |")
+                f"| {', '.join(f'`{r}`' for r in scenario.refs) or '—'} "
+                f"| {', '.join(f'`{s}`' for s in scenario.accepted_by) or '**unowned**'} |")
     add("")
     return "\n".join(out) + "\n"
 
@@ -1692,6 +1865,7 @@ def render_json(matrix: Matrix) -> str:
                 "line": scenario.line,
                 "requirements": list(scenario.refs),
                 "tests": list(scenario.tests),
+                "accepted_by": list(scenario.accepted_by),
                 "link_kind": {
                     nodeid: dict(matrix.tests[nodeid].link_kind).get(sid, "unknown")
                     for nodeid in scenario.tests
@@ -1742,6 +1916,10 @@ def render_json(matrix: Matrix) -> str:
             for rid in matrix.summary["deferred_ids"]
         ],
         "stories": {story: list(rids) for story, rids in sorted(matrix.stories.items())},
+        "story_acceptance": {
+            story: list(sids) for story, sids in sorted(matrix.story_acceptance.items())
+        },
+        "landed_stories": list(matrix.landed_stories),
         "findings": [
             {
                 "kind": f.kind,

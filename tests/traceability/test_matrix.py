@@ -15,15 +15,18 @@ excusing a requirement.
 from __future__ import annotations
 
 import json
+import shutil
 from pathlib import Path
 
 import pytest
 
+from tests.traceability import matrix as matrix_module
 from tests.traceability.matrix import (
     Severity,
     build_matrix,
     expand_basis,
     expand_satisfies,
+    landed_story_ids,
     render_json,
     render_markdown,
 )
@@ -39,6 +42,7 @@ def matrix():
         docs_dir=FIXTURE / "docs",
         features_dir=FIXTURE / "tests" / "features",
         node_ids=node_ids,
+        landed_stories=frozenset({"EV-90"}),
     )
 
 
@@ -129,11 +133,62 @@ def test_unclaimed_orphan_ranks_below_a_claimed_one(matrix):
     assert severity_of(matrix, "REQUIREMENT_NO_SCENARIO_SPEC", "CM-905") is Severity.MEDIUM
 
 
-def test_scenario_with_no_test_is_reported(matrix):
-    """CM-S-903 exists in the document and nothing implements it."""
-    assert "CM-S-903" in subjects(matrix, "SCENARIO_NO_TEST")
+def test_landed_story_scenario_with_no_test_is_a_defect(matrix):
+    """EV-90 landed, so its missing CM-S-903 acceptance test is high severity."""
+    assert "CM-S-903" in subjects(matrix, "SCENARIO_NO_TEST_LANDED")
     assert matrix.scenarios["CM-S-903"].tests == ()
-    assert severity_of(matrix, "SCENARIO_NO_TEST", "CM-S-903") is Severity.HIGH
+    assert severity_of(matrix, "SCENARIO_NO_TEST_LANDED", "CM-S-903") is Severity.HIGH
+
+
+def test_unbuilt_story_scenario_with_no_test_is_expected_debt(matrix):
+    """EV-91 owns CM-S-904 but has not landed; shipping it is what clears the debt."""
+    assert "CM-S-904" in subjects(matrix, "SCENARIO_NO_TEST_UNBUILT")
+    assert severity_of(matrix, "SCENARIO_NO_TEST_UNBUILT", "CM-S-904") is Severity.MEDIUM
+
+
+def test_unowned_scenario_with_no_test_remains_a_defect(matrix):
+    assert "CM-S-905" in subjects(matrix, "SCENARIO_NO_TEST_UNOWNED")
+    assert severity_of(matrix, "SCENARIO_NO_TEST_UNOWNED", "CM-S-905") is Severity.HIGH
+
+
+def test_acceptance_fields_are_the_scenario_ownership_source(matrix):
+    assert matrix.story_acceptance["EV-90"] == ("CM-S-901", "CM-S-903")
+    assert matrix.story_acceptance["EV-91"] == ("CM-S-904",)
+
+
+def test_story_id_in_ordinary_prose_must_resolve_to_a_prd_heading(matrix):
+    """EV-97 is prose as well as a deferral; both paths must fail closed."""
+    assert "EV-97" in subjects(matrix, "DANGLING_STORY_REF")
+    assert severity_of(matrix, "DANGLING_STORY_REF", "EV-97") is Severity.CRITICAL
+    assert "EV-90" not in subjects(matrix, "DANGLING_STORY_REF")
+
+
+def test_only_reachable_story_commit_subjects_count_as_landed(monkeypatch, tmp_path):
+    history = "\n".join(
+        [
+            "EV-90: implemented story",
+            "docs: mention EV-91 without landing it",
+            "merge follow-up for EV-92: not the story commit",
+        ]
+    )
+    monkeypatch.setattr(matrix_module, "_git", lambda *_args: history)
+    assert landed_story_ids(tmp_path) == frozenset({"EV-90"})
+
+
+def test_unavailable_story_history_fails_closed(monkeypatch):
+    monkeypatch.setattr(matrix_module, "_git", lambda *_args: None)
+    node_ids = (FIXTURE / "collected.txt").read_text(encoding="utf-8").split()
+    without_history = build_matrix(
+        repo_root=FIXTURE,
+        docs_dir=FIXTURE / "docs",
+        features_dir=FIXTURE / "tests" / "features",
+        node_ids=node_ids,
+    )
+    assert "story commit history" in subjects(without_history, "STORY_HISTORY_UNAVAILABLE")
+    assert (
+        severity_of(without_history, "STORY_HISTORY_UNAVAILABLE", "story commit history")
+        is Severity.CRITICAL
+    )
 
 
 def test_duplicate_assertion_id_does_not_overwrite_the_first(matrix):
@@ -299,9 +354,26 @@ def test_malformed_exemption_is_critical(matrix):
 # --- feature-tag agreement ------------------------------------------------
 
 
-def test_feature_tags_disagreeing_with_the_document_are_reported(matrix):
-    """coverage.feature tags CM-S-902 with CM-907; the document says CM-906."""
-    assert "CM-S-902" in subjects(matrix, "FEATURE_TAG_DRIFT")
+def test_feature_tags_disagreeing_with_the_document_are_reported(tmp_path):
+    """A generated tag is corrupted after extraction; the document still wins."""
+    root = tmp_path / "drift"
+    shutil.copytree(FIXTURE, root)
+    feature = root / "tests" / "features" / "coverage.feature"
+    feature.write_text(
+        feature.read_text(encoding="utf-8").replace(
+            "@CM-S-902 @CM-906", "@CM-S-902 @CM-907"
+        ),
+        encoding="utf-8",
+    )
+    node_ids = (root / "collected.txt").read_text(encoding="utf-8").split()
+    drifted = build_matrix(
+        repo_root=root,
+        docs_dir=root / "docs",
+        features_dir=root / "tests" / "features",
+        node_ids=node_ids,
+        landed_stories=frozenset({"EV-90"}),
+    )
+    assert "CM-S-902" in subjects(drifted, "FEATURE_TAG_DRIFT")
 
 
 def test_reference_list_carrying_prose_is_reported(matrix):
@@ -359,6 +431,7 @@ def test_markdown_and_json_are_deterministic(matrix):
         docs_dir=FIXTURE / "docs",
         features_dir=FIXTURE / "tests" / "features",
         node_ids=node_ids,
+        landed_stories=frozenset({"EV-90"}),
     )
     assert render_markdown(matrix) == render_markdown(again)
     assert render_json(matrix) == render_json(again)
@@ -369,6 +442,10 @@ def test_json_is_parseable_and_lists_every_exemption(matrix):
     exempt = {e["requirement"] for e in payload["exemptions"]}
     assert {"CM-902", "AG-901", "AG-902", "AG-903"} <= exempt
     assert payload["summary"]["exempt"] == len(payload["exemptions"])
+    assert payload["story_acceptance"]["EV-90"] == ["CM-S-901", "CM-S-903"]
+    assert payload["landed_stories"] == ["EV-90"]
+    scenarios = {scenario["id"]: scenario for scenario in payload["scenarios"]}
+    assert scenarios["CM-S-904"]["accepted_by"] == ["EV-91"]
 
 
 def test_markdown_states_the_exemption_count_and_reasons(matrix):

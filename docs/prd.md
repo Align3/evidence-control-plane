@@ -264,6 +264,20 @@ Fixed fixtures producing byte-identical bundles. Covers each denominator class, 
 **Satisfies:** QA-008, QA-009, AC-009
 **Acceptance:** QA-S-003
 
+#### EV-25 — Critical assertion-basis repair
+Repair the two critical assertion-catalogue gaps exposed by EV-22. A-09 is re-pointed to the existing confirmation and reconciliation requirements (CM-010 and ES-015). A-02 is not a citation-only edit: first add a numbered requirement for assurance-boundary immutability and window containment to `evidence-spec.md` §5.1, then add its withholding scenario and re-point A-02 to that requirement. Assign the new scenario to the product story that will implement it; do not disguise executable debt as a non-testable exemption.
+**Touches:** `docs/evidence-spec.md`, `docs/attestation-reliance.md`, `docs/prd.md`
+**Depends on:** EV-22
+**Satisfies:** AR-003, QA-011
+**Acceptance:** The generated matrix contains no `ASSERTION_NO_SCENARIO` finding for A-02 or A-09, and every scenario introduced by this repair has an owning story in a PRD `Acceptance:` field.
+
+#### EV-26 — Traceability backlog triage and ownership
+Triage the backlog exposed by EV-22 without pretending that unbuilt product stories are defects. Every requirement without a scenario receives either a scenario, a source-adjacent reasoned exemption, or an explicit deferral to a real owning story. Every scenario is assigned to a story through that story's `Acceptance:` field. Correct malformed scenario references, including QA-S-002. This story does not implement the product scenarios owned by EV-05 through EV-21; those remain visible as unbuilt-story debt until their owners land.
+**Touches:** `docs/`, `tests/traceability/`
+**Depends on:** EV-22, EV-25
+**Satisfies:** QA-011
+**Acceptance:** The generated matrix contains no `REQUIREMENT_NO_SCENARIO_CLAIMED`, `SCENARIO_NO_TEST_UNOWNED`, `MALFORMED_SCENARIO_REF`, or `DANGLING_STORY_REF` finding; untested scenarios owned by unlanded stories remain reported as `SCENARIO_NO_TEST_UNBUILT`.
+
 ---
 
 ## 4. Build order
@@ -276,7 +290,7 @@ Parallelisable once EV-07 lands (disjoint Touches):
 |---|---|
 | A — collection | EV-08, EV-09 |
 | B — review surface | EV-10, EV-11 |
-| C — test infra | EV-22, EV-23, EV-24 |
+| C — test infra | EV-22 → EV-25 → EV-26; EV-23, EV-24 after their product dependencies |
 | D — denominator | EV-12 → EV-16 |
 
 EV-13 is the only story blocked on an external decision. Everything before it can proceed now.
