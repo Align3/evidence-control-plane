@@ -45,11 +45,19 @@ untested scenario.
 from __future__ import annotations
 
 import shutil
+from datetime import date
 from pathlib import Path
 
 import pytest
 
-from tests.traceability.matrix import main
+from tests.traceability.matrix import (
+    ENFORCEMENT_SCHEDULE,
+    SEVERITY_RANK,
+    Severity,
+    effective_threshold,
+    main,
+    mandated_threshold,
+)
 
 FIXTURES = Path(__file__).parent / "fixtures"
 
@@ -120,3 +128,95 @@ def test_enforce_respects_the_severity_threshold(
 
     code = _run(root, "--mode", "enforce", "--fail-on", "medium")
     assert code == 1, "the same finding must fail once the threshold reaches it"
+
+
+# --- QA-011 staged enforcement -------------------------------------------
+#
+# The schedule is compiled into the generator, not passed on the command line,
+# because a ratchet any CI argument can loosen is not a ratchet. These lock the
+# dates and the one-way property to the text in docs/testing-qa.md §7.
+
+
+def test_schedule_matches_the_dates_qa_011_states() -> None:
+    """If this fails, the spec and its implementation have drifted apart."""
+    assert ENFORCEMENT_SCHEDULE == (
+        (date(2026, 8, 8), Severity.CRITICAL),
+        (date(2026, 9, 1), Severity.HIGH),
+        (date(2026, 10, 1), Severity.LOW),
+    )
+
+
+@pytest.mark.parametrize(
+    ("today", "expected"),
+    [
+        (date(2026, 8, 7), None),
+        (date(2026, 8, 8), Severity.CRITICAL),
+        (date(2026, 8, 31), Severity.CRITICAL),
+        (date(2026, 9, 1), Severity.HIGH),
+        (date(2026, 9, 30), Severity.HIGH),
+        (date(2026, 10, 1), Severity.LOW),
+        (date(2027, 1, 1), Severity.LOW),
+    ],
+)
+def test_mandate_advances_by_date_alone(today: date, expected: Severity | None) -> None:
+    """Expiry is by date, not by condition.
+
+    Nothing here consults whether EV-25 merged, whether EV-26 triage finished,
+    or whether any backfill happened. Slipping a story does not slip the gate.
+    """
+    assert mandated_threshold(today) is expected
+
+
+def test_a_weaker_request_is_overridden_by_the_schedule() -> None:
+    """The one-way ratchet. Asking for less than is mandated gets you the mandate."""
+    threshold, why = effective_threshold(Severity.CRITICAL, date(2026, 10, 1))
+    assert threshold is Severity.LOW
+    assert "one-way ratchet" in why
+
+
+def test_report_only_is_overridden_once_a_stage_is_live() -> None:
+    """`--mode report` stops being an escape hatch the moment a date passes."""
+    threshold, why = effective_threshold(None, date(2026, 8, 8))
+    assert threshold is Severity.CRITICAL
+    assert "overridden" in why
+
+
+def test_a_stronger_request_is_honoured_and_not_walked_back() -> None:
+    """Enforcing early is always allowed; the schedule is a floor, not a ceiling."""
+    threshold, _ = effective_threshold(Severity.LOW, date(2026, 8, 8))
+    assert threshold is Severity.LOW
+
+
+def test_report_only_is_permitted_only_before_the_first_stage() -> None:
+    threshold, why = effective_threshold(None, date(2026, 8, 7))
+    assert threshold is None
+    assert "before 2026-08-08" in why
+
+
+def test_the_gate_bites_on_the_expiry_date(
+    tmp_path: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
+    """End to end through the CLI: same corpus, green before, red after."""
+    root = _corpus(tmp_path, "assertion_without_scenario")
+
+    assert _run(root, "--mode", "report", "--today", "2026-08-07") == 0
+    assert "report-only" in capsys.readouterr().out
+
+    assert _run(root, "--mode", "report", "--today", "2026-08-08") == 1
+    output = capsys.readouterr().out
+    assert "ASSERTION_NO_SCENARIO" in output
+    assert "FAIL" in output
+
+
+def test_today_can_rehearse_the_future_but_not_undo_the_present() -> None:
+    """`--today` must not become the loophole that defeats the schedule.
+
+    It exists to test a stage before it lands. Allowing it to name a past date
+    would hand every build a way to switch the gate off, so the CLI evaluates
+    the strictest of the real calendar and the supplied date.
+    """
+    real = date(2026, 10, 1)
+    pretend = date(2026, 8, 7)
+    assert SEVERITY_RANK[mandated_threshold(real)] > SEVERITY_RANK[
+        mandated_threshold(pretend) or Severity.CRITICAL
+    ]

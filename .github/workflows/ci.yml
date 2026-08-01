@@ -63,15 +63,24 @@ jobs:
       - uses: actions/setup-python@v5
         with: {python-version: "3.12"}
       - run: pip install -e ".[dev]"
-      # EV-22 / QA-010..012. REPORT-ONLY: `--mode report` always exits 0, so
-      # this job prints the matrix and the orphan list without blocking merges.
-      # 163 of 222 requirements have no scenario today, which is what the
-      # exemption markings and the story backlog are for; a gate that fails on
-      # the day it lands gets disabled, and a disabled gate is worse than none.
+      # EV-22 / QA-010..012, under the QA-011 staged-enforcement schedule.
       #
-      # To make it blocking, change `--mode report` to
-      # `--mode enforce --fail-on critical`, then tighten `--fail-on` to `high`,
-      # `medium`, `low` as each class is cleared. Nothing else needs to change.
+      # `--mode report` is NOT an off switch and does not need editing later.
+      # The schedule is compiled into the generator (ENFORCEMENT_SCHEDULE) and
+      # overrides this argument the moment each date passes:
+      #
+      #   from 2026-08-08  fails on critical   (EV-25 merge)
+      #   from 2026-09-01  fails on high       (EV-26 triage completion)
+      #   from 2026-10-01  fails on medium+low
+      #
+      # Expiry is by date, not by condition: the gate tightens whether or not
+      # the backfill is done and whether or not the owning story merged. The
+      # ratchet is one-way -- this argument may only strengthen the mandate, so
+      # weakening it here has no effect and deferring a date means changing code
+      # that shows up in review.
+      #
+      # To enforce a stage EARLY, strengthen it here, e.g.
+      #   --mode enforce --fail-on critical
       - run: >-
           python -m tests.traceability.matrix
           --out-md "$RUNNER_TEMP/traceability-matrix.md"

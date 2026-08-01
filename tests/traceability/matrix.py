@@ -71,6 +71,7 @@ import subprocess
 import sys
 from collections import defaultdict
 from dataclasses import dataclass, field
+from datetime import date
 from enum import StrEnum
 from pathlib import Path
 from typing import Any
@@ -155,6 +156,67 @@ SEVERITY_RANK = {
     Severity.MEDIUM: 2,
     Severity.LOW: 3,
 }
+
+# QA-011 staged enforcement. `--fail-on X` fails on every finding at or above X,
+# so a *higher* rank is a stricter gate: `low` fails on everything, `critical`
+# only on criticals.
+#
+# These dates are hard expiries, not targets. On each one CI begins failing at
+# that severity whether or not the backfill is done and whether or not the
+# owning story has merged -- slipping EV-25 does not slip the gate. The schedule
+# lives here rather than in the CI invocation precisely so that deferring a date
+# is a code change that shows up in review; a ratchet that any argument can
+# loosen is not a ratchet. `medium` and `low` share 1 October, and enforcing at
+# `low` subsumes `medium`.
+ENFORCEMENT_SCHEDULE: tuple[tuple[date, Severity], ...] = (
+    (date(2026, 8, 8), Severity.CRITICAL),   # EV-25 merge
+    (date(2026, 9, 1), Severity.HIGH),       # EV-26 triage completion
+    (date(2026, 10, 1), Severity.LOW),       # medium and low together
+)
+
+
+def mandated_threshold(today: date) -> Severity | None:
+    """The strictest `--fail-on` level QA-011 requires on this date, if any."""
+    mandated: Severity | None = None
+    for effective_from, severity in ENFORCEMENT_SCHEDULE:
+        if today >= effective_from and (
+            mandated is None or SEVERITY_RANK[severity] > SEVERITY_RANK[mandated]
+        ):
+            mandated = severity
+    return mandated
+
+
+def effective_threshold(
+    requested: Severity | None, today: date
+) -> tuple[Severity | None, str]:
+    """Resolve the requested gate against the schedule. The stricter one wins.
+
+    Returns the threshold to enforce (None means report-only) and a sentence
+    saying which input decided it, so the build log states why it is failing or
+    not failing rather than leaving a reader to infer it.
+    """
+    mandated = mandated_threshold(today)
+    if mandated is None and requested is None:
+        return None, "report-only: QA-011 mandates no severity before 2026-08-08"
+    if mandated is None:
+        assert requested is not None
+        return requested, f"requested {requested.value}; QA-011 mandates nothing yet"
+    if requested is None:
+        return mandated, (
+            f"QA-011 mandates {mandated.value} from "
+            f"{_mandate_date(mandated).isoformat()}; report-only was requested and is "
+            f"overridden"
+        )
+    if SEVERITY_RANK[requested] >= SEVERITY_RANK[mandated]:
+        return requested, f"requested {requested.value}, at or above the mandated {mandated.value}"
+    return mandated, (
+        f"requested {requested.value} is weaker than the {mandated.value} QA-011 mandates "
+        f"from {_mandate_date(mandated).isoformat()}; the schedule wins (one-way ratchet)"
+    )
+
+
+def _mandate_date(severity: Severity) -> date:
+    return min(d for d, s in ENFORCEMENT_SCHEDULE if SEVERITY_RANK[s] >= SEVERITY_RANK[severity])
 
 # What each finding means, in words an auditor can read without the codebase.
 FINDING_HELP = {
@@ -1495,13 +1557,17 @@ def _print_report(matrix: Matrix) -> None:
     print(f"  assertions         {s['assertions']:4}")
     if s["excluded_citation_paths"]:
         print("  citations not read from: " + ", ".join(s["excluded_citation_paths"]))
+    # QA-011: the orphan count and the severity breakdown print on every build,
+    # at every stage, enforced or not. Staging changes what fails, never what is
+    # reported.
+    print()
+    print(f"Orphans: {orphans} requirement(s) with no scenario and no exemption.")
+    counts = s["findings_by_severity"]
+    print("Findings: " + ", ".join(f"{counts[k.value]} {k.value}" for k in Severity))
     print()
     if not matrix.findings:
         print("No findings.")
         return
-    counts = s["findings_by_severity"]
-    print("Findings: " + ", ".join(f"{counts[k.value]} {k.value}" for k in Severity))
-    print()
     for severity in Severity:
         group = [f for f in matrix.findings if f.severity is severity]
         if not group:
@@ -1528,9 +1594,16 @@ def main(argv: list[str] | None = None) -> int:
     ap.add_argument("--out-md", type=Path, default=None)
     ap.add_argument("--out-json", type=Path, default=None)
     ap.add_argument("--mode", choices=("report", "enforce"), default="report",
-                    help="report (default) always exits 0; enforce exits 1 on findings")
+                    help="report exits 0; enforce exits 1 on findings. Either way the "
+                         "QA-011 schedule applies once its dates pass, and a request "
+                         "weaker than the schedule mandates is overridden")
     ap.add_argument("--fail-on", choices=[s.value for s in Severity], default="low",
-                    help="in enforce mode, the least severe finding that fails the build")
+                    help="in enforce mode, the least severe finding that fails the build. "
+                         "May only strengthen the QA-011 schedule, never weaken it")
+    ap.add_argument("--today", type=date.fromisoformat, default=None, metavar="YYYY-MM-DD",
+                    help="evaluate the QA-011 schedule as of this date instead of today. "
+                         "For testing the ratchet; it cannot weaken a mandate that has "
+                         "already taken effect in the real calendar")
     args = ap.parse_args(argv)
 
     root = args.repo_root.resolve()
@@ -1567,17 +1640,31 @@ def main(argv: list[str] | None = None) -> int:
 
     _print_report(matrix)
 
-    if args.mode == "report":
-        print("\nMode: report-only. No finding fails the build.")
-        print("To make this blocking: --mode enforce --fail-on <severity>.")
+    # The QA-011 ratchet. `--today` may only bring a future stage forward, never
+    # push a live one back: the strictest of (real calendar, supplied date) is
+    # what the schedule is evaluated against, so the flag can rehearse September
+    # but cannot pretend it is July.
+    real_today = date.today()
+    asof = args.today or real_today
+    if args.today is not None and SEVERITY_RANK.get(
+        mandated_threshold(real_today) or Severity.CRITICAL, -1
+    ) > SEVERITY_RANK.get(mandated_threshold(asof) or Severity.CRITICAL, -1):
+        asof = real_today
+
+    requested = Severity(args.fail_on) if args.mode == "enforce" else None
+    threshold, why = effective_threshold(requested, asof)
+
+    print(f"\nQA-011 enforcement as of {asof.isoformat()}: {why}.")
+    if threshold is None:
+        print("No finding fails this build. Every finding above is still counted, named,")
+        print("and written to the matrix. Next stage: critical from 2026-08-08.")
         return 0
 
-    threshold = SEVERITY_RANK[Severity(args.fail_on)]
-    blocking = [f for f in matrix.findings if SEVERITY_RANK[f.severity] <= threshold]
+    blocking = [f for f in matrix.findings if SEVERITY_RANK[f.severity] <= SEVERITY_RANK[threshold]]
     if blocking:
-        print(f"\nFAIL: {len(blocking)} finding(s) at or above {args.fail_on}.")
+        print(f"FAIL: {len(blocking)} finding(s) at or above {threshold.value}.")
         return 1
-    print(f"\nOK: no finding at or above {args.fail_on}.")
+    print(f"OK: no finding at or above {threshold.value}.")
     return 0
 
 

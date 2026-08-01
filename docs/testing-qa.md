@@ -121,6 +121,21 @@ On a normal project this matrix is internal QA hygiene. Here it is **evidence fo
 
 **QA-011** — CI fails on: a requirement with no scenario, a scenario with no test, an assertion with no requirement, or a test referencing a retired requirement ID.
 
+**Staged enforcement.** QA-011 was drafted before the requirement-to-scenario ratio was known. The first generated matrix (EV-22) found 222 requirements against 55 scenarios: 163 requirements had no scenario, and two catalogued assertions rested on requirements that had none. QA-011 as drafted was therefore unsatisfiable on the day its implementation landed, and a gate that cannot pass on day one is switched off rather than satisfied — which is strictly worse than no gate, because a disabled check still appears in the pipeline. Enforcement is staged by severity:
+
+| Severity | Enforced on | Hard expiry |
+|---|---|---|
+| critical | EV-25 merge — target 8 August 2026 | 8 August 2026 |
+| high | EV-26 triage completion | 1 September 2026 |
+| medium | — | 1 October 2026 |
+| low | — | 1 October 2026 |
+
+**Expiry is by date, not by condition.** On each date CI begins failing at that severity whether or not the backfill is complete, whether or not the owning story has merged, and whether or not anyone has triaged the findings. Slipping EV-25 does not slip the gate. The schedule is compiled into the generator rather than passed on the command line, so deferring a date is a code change that appears in review and cannot be done by editing a CI argument.
+
+**The ratchet is one-way.** A severity that has become enforced is never relaxed. Where a CI invocation requests a weaker threshold than the schedule mandates, the schedule wins and the request is ignored; where it requests a stronger one, the stronger one applies and cannot later be walked back below the mandated level.
+
+**Every build prints the orphan count and the severity breakdown**, at every stage, enforced or not. Staging changes only what fails the build. It never changes what is looked for, and never changes what is reported: an orphan that does not yet fail CI is still counted, still named, and still published in the matrix.
+
 **QA-012** — The matrix is generated, never hand-maintained. A hand-maintained traceability matrix is wrong within a month and worse than none, because it invites misplaced confidence.
 
 ---
