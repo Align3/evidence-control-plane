@@ -92,7 +92,9 @@ def verification_succeeds(context: dict[str, Any]) -> None:
 
 @then("the unknown field is included in the digest computation")
 def unknown_body_field_changes_digest(context: dict[str, Any]) -> None:
-    assert context["validated"].body.model_extra == {
-        "future_body_field": {"retained": True}
-    }
+    # QA-003: assert through the verifier's canonical output and digest, not
+    # through the model's internal extras.
+    from sdk_python.evidence.canonical import canonicalize
+
+    assert b'"future_body_field":{"retained":true}' in canonicalize(context["validated"])
     assert context["digest"] != context["baseline_digest"]

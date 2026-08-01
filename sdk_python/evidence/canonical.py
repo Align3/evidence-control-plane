@@ -1,9 +1,16 @@
 """RFC 8785 JSON Canonicalization Scheme (JCS) for evidence records.
 
-Evidence records deliberately exclude IEEE-754 values (ES-002), so the
-ECMAScript number-serialization portion of JCS reduces to interoperable safe
-integers. The remaining rules are implemented directly: UTF-16 property
-ordering, minimal string escaping, UTF-8 output, and whitespace-free syntax.
+Evidence records deliberately exclude IEEE-754 values (ES-002), and ES-002a
+requires a conformant canonicalizer to *reject* rather than serialize any
+non-integer number, any integer outside the interoperable safe range, and the
+non-JSON tokens NaN/Infinity. The ECMAScript number-serialization portion of
+JCS therefore reduces to safe integers and never executes against conformant
+input, which is what lets an independent implementation agree with this one
+without either side implementing floating-point formatting. The remaining
+rules are implemented directly: UTF-16 property ordering, minimal string
+escaping, UTF-8 output, and whitespace-free syntax.
+
+This module MUST NOT be shared with the Go verifier (AC-011).
 """
 
 from __future__ import annotations
@@ -65,9 +72,12 @@ def _serialize(value: object) -> str:
         return "false"
     if isinstance(value, int):
         if not -MAX_SAFE_INTEGER <= value <= MAX_SAFE_INTEGER:
-            raise CanonicalizationError("integer is outside the interoperable JCS range")
+            raise CanonicalizationError(
+                "ES-002a: integer is outside the interoperable JCS range"
+            )
         return str(value)
     if isinstance(value, float):
+        # ES-002a: reject rather than apply RFC 8785 ECMAScript number rules.
         raise CanonicalizationError("IEEE-754 floats are forbidden in signed records")
     if isinstance(value, str):
         return _quote(value)

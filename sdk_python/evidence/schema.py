@@ -6,7 +6,7 @@ import json
 import re
 from collections.abc import Mapping
 from datetime import date
-from typing import Annotated, Literal, Never
+from typing import Annotated, ClassVar, Literal, Never
 from uuid import UUID
 
 from pydantic import AfterValidator, BaseModel, ConfigDict, Field, model_validator
@@ -124,16 +124,57 @@ SemVer = Annotated[str, AfterValidator(_semver)]
 Timestamp = Annotated[str, AfterValidator(_timestamp)]
 PositiveInteger = Annotated[int, Field(ge=1, le=MAX_SAFE_INTEGER)]
 NonNegativeInteger = Annotated[int, Field(ge=0, le=MAX_SAFE_INTEGER)]
+SafeInteger = Annotated[int, Field(ge=-MAX_SAFE_INTEGER, le=MAX_SAFE_INTEGER)]
 
 
 class JsonModel(BaseModel):
     model_config = ConfigDict(strict=True)
 
+    #: Fields the specification marks optional *by presence*, as opposed to the
+    #: fields that are required but nullable by lifecycle state. Absence and an
+    #: explicit null would otherwise be two encodings of one meaning, and since
+    #: canonicalisation serializes with ``exclude_unset`` they would produce
+    #: different canonical bytes — hence different digests — for records that
+    #: are semantically identical and compare equal. Only one encoding is
+    #: canonical: omit the member.
+    presence_optional_fields: ClassVar[frozenset[str]] = frozenset()
+
     @model_validator(mode="before")
     @classmethod
     def contains_only_json_values(cls, value: object) -> object:
         _assert_json_value(value)
+        if isinstance(value, dict):
+            for name in cls.presence_optional_fields:
+                if name in value and value[name] is None:
+                    raise ValueError(
+                        f"{name} is optional by presence: omit the member rather than "
+                        "encoding it as null, so that one record has one canonical form"
+                    )
         return value
+
+    @model_validator(mode="after")
+    def absent_optional_fields_are_never_serialized(self) -> JsonModel:
+        # Direct Python construction with ``field=None`` reaches this point with
+        # the field marked as set. Clearing it keeps the canonical bytes a pure
+        # function of the record's content rather than of how it was built.
+        for name in self.presence_optional_fields:
+            if getattr(self, name, None) is None:
+                self.__pydantic_fields_set__.discard(name)
+        return self
+
+
+class ClocksModel(JsonModel):
+    """ES-019 clock fields. Part of the closed envelope, so extras are refused."""
+
+    model_config = ConfigDict(strict=True, extra="forbid")
+
+    presence_optional_fields: ClassVar[frozenset[str]] = frozenset({"authoritative_time"})
+
+    source_time: Timestamp
+    ingest_time: Timestamp
+    clock_skew_ms: SafeInteger
+    # ES-020: present only where the destination supplies one.
+    authoritative_time: Timestamp | None = None
 
 
 class BodyModel(JsonModel):
@@ -174,6 +215,10 @@ class QualificationRecordBody(BodyModel):
 
 
 class PopulationRecordBody(BodyModel):
+    presence_optional_fields: ClassVar[frozenset[str]] = frozenset(
+        {"record_identifiers", "identifier_digest"}
+    )
+
     action_family: str
     destination_system: str
     window_start: Timestamp
@@ -206,6 +251,9 @@ class AgentIdentityBody(BodyModel):
 
 
 class ActionProposalBody(BodyModel):
+    # ES-025: cleartext parameters are absent unless configured in, never null.
+    presence_optional_fields: ClassVar[frozenset[str]] = frozenset({"parameters"})
+
     action_family: str
     action_id: str
     tool: str
@@ -357,7 +405,7 @@ class RecordEnvelope(JsonModel):
     sequence: PositiveInteger
     prev_digest: Digest | None
     source: JsonObject
-    clocks: JsonObject
+    clocks: ClocksModel
     body: BodyModel
     signature: JsonObject
 
@@ -470,22 +518,26 @@ _RECORD_MODELS: dict[str, type[RecordEnvelope]] = {
 def validate_record(value: Mapping[str, object]) -> EvidenceRecord:
     """Validate a parsed object and dispatch it to its typed §5 record model."""
 
-    non_string_fields = [key for key in value if not isinstance(key, str)]
+    # Materialise once: a Mapping whose __iter__ and keys() disagree must not be
+    # able to show one set of members to the ES-005 check and another to the model.
+    fields = dict(value)
+
+    non_string_fields = [key for key in fields if not isinstance(key, str)]
     if non_string_fields:
         raise EnvelopeValidationError(
             f"unknown envelope field: {', '.join(repr(key) for key in non_string_fields)}"
         )
-    unknown_fields = sorted(set(value) - ENVELOPE_FIELDS)
+    unknown_fields = sorted(set(fields) - ENVELOPE_FIELDS)
     if unknown_fields:
         raise EnvelopeValidationError(f"unknown envelope field: {', '.join(unknown_fields)}")
 
-    record_type = value.get("record_type")
+    record_type = fields.get("record_type")
     if not isinstance(record_type, str):
         raise EnvelopeValidationError("record_type is required and must be a string")
     model = _RECORD_MODELS.get(record_type)
     if model is None:
         raise EnvelopeValidationError(f"unknown record_type: {record_type}")
-    return model.model_validate(dict(value))  # type: ignore[return-value]
+    return model.model_validate(fields)  # type: ignore[return-value]
 
 
 def _duplicate_safe_object(pairs: list[tuple[str, object]]) -> dict[str, object]:

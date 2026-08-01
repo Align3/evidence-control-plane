@@ -333,6 +333,12 @@ def test_parse_serialize_round_trip_for_every_record_type(
     extended_body["future_extension"] = extension_value
     original = validate_record(_record(record_type, extended_body))
 
-    reparsed = parse_record(serialize_record(original))
+    canonical = serialize_record(original)
+    reparsed = parse_record(canonical)
 
     assert reparsed == original
+    # Model equality is strictly weaker than byte equality: pydantic __eq__
+    # ignores model_fields_set, so a member dropped from serialization would
+    # still compare equal after a round trip. The digest is computed over the
+    # bytes, so the bytes are what has to be stable.
+    assert serialize_record(reparsed) == canonical
