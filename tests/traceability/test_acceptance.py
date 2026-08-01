@@ -45,6 +45,7 @@ untested scenario.
 from __future__ import annotations
 
 import shutil
+import subprocess
 from datetime import date
 from pathlib import Path
 
@@ -78,42 +79,158 @@ def _run(root: Path, *extra: str) -> int:
             "--docs", str(root / "docs"),
             "--features", str(root / "no-features"),
             "--collect-from", str(root / "collected.txt"),
+            "--no-baseline",
             *extra,
         ]
+    )
+
+
+REGRESSION = FIXTURES / "regression"
+
+
+def _git_corpus(tmp_path: Path, baseline: str, current: str) -> Path:
+    """A real repository: `baseline` committed on branch `base`, `current` live.
+
+    Both name a file under `fixtures/regression/`. The QA-S-001 gate reads the
+    previous catalogue with `git show`, so proving it works needs real history
+    rather than a hand-passed dict -- this runs the code path CI runs. The
+    corpora are files rather than inline strings because the matrix reads
+    requirement IDs written in test modules as citations.
+    """
+    root = tmp_path / "repo"
+    docs = root / "docs"
+    docs.mkdir(parents=True)
+    (root / "collected.txt").write_text("", encoding="utf-8")
+    shutil.copy(REGRESSION / "requirements.md", docs / "coverage-methodology.md")
+    shutil.copy(REGRESSION / baseline, docs / "attestation-reliance.md")
+
+    git = shutil.which("git")
+    assert git is not None, "the QA-S-001 gate reads history; git is required to test it"
+    author = ["-c", "user.email=t@example.com", "-c", "user.name=t"]
+
+    def run(*args: str) -> None:
+        subprocess.run([git, *args], cwd=root, check=True)  # noqa: S603 - resolved path
+
+    run("init", "-q", "-b", "base")
+    run("add", "-A")
+    run(*author, "commit", "-q", "-m", "baseline")
+    run("checkout", "-q", "-b", "work")
+
+    shutil.copy(REGRESSION / current, docs / "attestation-reliance.md")
+    return root
+
+
+def _run_as_ci(root: Path) -> int:
+    """Exactly what .github/workflows/ci.yml invokes: --mode report."""
+    return main(
+        [
+            "--repo-root", str(root),
+            "--docs", str(root / "docs"),
+            "--features", str(root / "no-features"),
+            "--collect-from", str(root / "collected.txt"),
+            "--baseline-ref", "base",
+            "--mode", "report",
+        ],
+        real_today=date(2026, 8, 1),
     )
 
 
 def test_qa_s_001_assertion_without_scenario_fails_ci(
     tmp_path: Path, capsys: pytest.CaptureFixture[str]
 ) -> None:
-    """An assertion nothing demonstrates must stop the build, and be named."""
-    root = _corpus(tmp_path, "assertion_without_scenario")
+    """QA-S-001, through the CI invocation, at today's date.
 
-    code = _run(root, "--mode", "enforce", "--fail-on", "critical")
+    The earlier version of this test substituted `--mode enforce --fail-on
+    critical`, which is not what CI runs -- so it proved the tool could fail
+    without proving the pipeline would. This runs `--mode report`, the literal
+    ci.yml argument, before any QA-011 stage is live.
+    """
+    root = _git_corpus(
+        tmp_path,
+        baseline="catalogue-empty.md",
+        current="catalogue-unmapped.md",
+    )
+
+    code = _run_as_ci(root)
     output = capsys.readouterr().out
 
-    assert code == 1, "an assertion with no scenario must fail the build in enforce mode"
+    assert code == 1, "a newly unmapped assertion must fail the real CI invocation today"
     assert "A-01" in output, "the failure must name the assertion, not merely count it"
-    assert "ASSERTION_NO_SCENARIO" in output
+    assert "NEW_ASSERTION_NO_SCENARIO" in output
+    assert "outside the QA-011 schedule" in output
 
 
-def test_report_mode_reports_the_same_finding_and_exits_zero(
+def test_a_pre_existing_unmapped_assertion_is_staged_not_immediate(
     tmp_path: Path, capsys: pytest.CaptureFixture[str]
 ) -> None:
-    """The staged gate EV-22 lands behind.
+    """The distinction the gate turns on.
 
-    Report-only must be a difference in consequence, not in detection. A mode
-    that also stopped looking would be a disabled gate wearing a flag.
+    An assertion already unmapped at the baseline is backlog, and backlog is
+    what QA-011 stages. Failing on it today would put the build red on day one,
+    which is the outcome the staging exists to avoid.
+    """
+    root = _git_corpus(
+        tmp_path, baseline="catalogue-unmapped.md", current="catalogue-unmapped.md"
+    )
+
+    code = _run_as_ci(root)
+    output = capsys.readouterr().out
+
+    assert code == 0, "existing backlog must follow the QA-011 schedule"
+    assert "ASSERTION_NO_SCENARIO" in output, "and must still be reported"
+    assert "NEW_ASSERTION_NO_SCENARIO" not in output
+
+
+def test_repointing_an_assertion_is_a_regression_too(
+    tmp_path: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
+    """Otherwise the gate is one rename away from useless.
+
+    An assertion that existed at the baseline but has been re-pointed at a
+    requirement with nothing demonstrating it is newly unmapped, whatever its
+    id says.
+    """
+    root = _git_corpus(
+        tmp_path,
+        baseline="catalogue-mapped.md",
+        current="catalogue-unmapped.md",
+    )
+
+    code = _run_as_ci(root)
+    output = capsys.readouterr().out
+
+    assert code == 1, "re-pointing an assertion onto an undemonstrated basis is a regression"
+    assert "NEW_ASSERTION_NO_SCENARIO" in output
+    assert "basis changed" in output
+
+
+def test_an_unreadable_baseline_blocks_rather_than_passing(
+    tmp_path: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
+    """Fail closed.
+
+    Without the previous catalogue the gate cannot tell a regression from
+    backlog. Assuming clean is how a check like this stops working without
+    anyone noticing.
     """
     root = _corpus(tmp_path, "assertion_without_scenario")
 
-    code = _run(root, "--mode", "report")
+    code = main(
+        [
+            "--repo-root", str(root),
+            "--docs", str(root / "docs"),
+            "--features", str(root / "no-features"),
+            "--collect-from", str(root / "collected.txt"),
+            "--baseline-ref", "no-such-ref",
+            "--mode", "report",
+        ],
+        real_today=date(2026, 8, 1),
+    )
     output = capsys.readouterr().out
 
-    assert code == 0
-    assert "ASSERTION_NO_SCENARIO" in output, "report mode must still find it"
-    assert "A-01" in output
-    assert "report-only" in output
+    assert code == 1
+    assert "BASELINE_UNAVAILABLE" in output
+    assert "fetch-depth: 0" in output
 
 
 def test_enforce_respects_the_severity_threshold(
@@ -241,6 +358,7 @@ def test_today_cannot_disable_a_live_stage_through_the_cli(
             "--docs", str(root / "docs"),
             "--features", str(root / "no-features"),
             "--collect-from", str(root / "collected.txt"),
+            "--no-baseline",
             "--mode", "report",
             "--today", supplied.isoformat(),
         ],
@@ -281,6 +399,7 @@ def test_a_future_today_may_still_bring_a_stage_forward(
             "--docs", str(root / "docs"),
             "--features", str(root / "no-features"),
             "--collect-from", str(root / "collected.txt"),
+            "--no-baseline",
             "--mode", "report",
             "--today", "2026-10-01",
         ],

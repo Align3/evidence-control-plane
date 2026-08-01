@@ -134,6 +134,8 @@ On a normal project this matrix is internal QA hygiene. Here it is **evidence fo
 
 **The ratchet is one-way.** A severity that has become enforced is never relaxed. Where a CI invocation requests a weaker threshold than the schedule mandates, the schedule wins and the request is ignored; where it requests a stronger one, the stronger one applies and cannot later be walked back below the mandated level.
 
+**Staging applies to the existing backlog, never to regressions.** A change that makes the situation worse fails immediately at every stage, whatever the schedule currently mandates. Concretely, and per QA-S-001: an assertion that this change adds to the catalogue, or re-points onto a requirement nothing demonstrates, fails the build now. Backlog is what a schedule is for; a ratchet that lets the thing it is ratcheting get worse is decorative. The comparison is against the merge base, so CI requires full history, and where the previous state cannot be read the build fails rather than assuming nothing is new.
+
 **Every build prints the orphan count and the severity breakdown**, at every stage, enforced or not. Staging changes only what fails the build. It never changes what is looked for, and never changes what is reported: an orphan that does not yet fail CI is still counted, still named, and still published in the matrix.
 
 **QA-012** — The matrix is generated, never hand-maintained. A hand-maintained traceability matrix is wrong within a month and worse than none, because it invites misplaced confidence.

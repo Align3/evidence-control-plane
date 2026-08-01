@@ -59,7 +59,13 @@ jobs:
     runs-on: ubuntu-latest
     needs: spec-drift
     steps:
+      # fetch-depth: 0 is REQUIRED, not an optimisation. The QA-S-001 regression
+      # gate reads the previous assertion catalogue from the merge base to tell a
+      # newly unmapped assertion from existing backlog. Without history the
+      # baseline cannot be established, and the tool reports BASELINE_UNAVAILABLE
+      # and fails rather than assuming clean.
       - uses: actions/checkout@v4
+        with: {fetch-depth: 0}
       - uses: actions/setup-python@v5
         with: {python-version: "3.12"}
       - run: pip install -e ".[dev]"

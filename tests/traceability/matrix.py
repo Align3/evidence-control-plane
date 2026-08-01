@@ -104,6 +104,18 @@ MIN_REASON = 40
 # printed with every run so the hole stays arguable.
 DEFAULT_EXCLUDED_CITATION_PATHS = ("tests/traceability/test_matrix.py",)
 
+# QA-011 stages the *existing* backlog. It does not stage regressions.
+#
+# QA-S-001 is about a **new** assertion added to the catalogue -- a claim this
+# pull request makes emittable without anything demonstrating it. That is not
+# backlog to be worked off on a schedule, it is the backlog growing, and a
+# ratchet that lets the thing it is ratcheting get worse is decorative. These
+# finding kinds therefore fail the build immediately, at every stage, whatever
+# `--mode` and `--fail-on` say.
+ALWAYS_BLOCKING = frozenset({"NEW_ASSERTION_NO_SCENARIO", "BASELINE_UNAVAILABLE"})
+
+DEFAULT_BASELINE_REF = "origin/develop"
+
 _P = "|".join(PREFIXES)
 
 # A definition is a bold run that *starts* with the id and then either closes
@@ -296,6 +308,16 @@ FINDING_HELP = {
     "UNKNOWN_PREFIX": (
         "A requirement-shaped ID uses a prefix the matrix does not track, so it is "
         "invisible to this gate."
+    ),
+    "NEW_ASSERTION_NO_SCENARIO": (
+        "This change adds an assertion, or re-points an existing one, so that a claim the "
+        "attestation may emit has nothing demonstrating it. QA-S-001 fails the build for "
+        "this now, at every stage: QA-011 stages the existing backlog, not new defects."
+    ),
+    "BASELINE_UNAVAILABLE": (
+        "The previous assertion catalogue could not be read, so new unmapped assertions "
+        "cannot be told apart from existing backlog. Reported and blocking rather than "
+        "assumed clean."
     ),
     "MALFORMED_SCENARIO_REF": (
         "A scenario heading's requirement list contains something that is not a bare "
@@ -847,6 +869,51 @@ def _link_tests(
     return tests, module_citations, findings
 
 
+def _git(repo_root: Path, *args: str) -> str | None:
+    """Run a read-only git command. None if git or the ref is unavailable."""
+    try:
+        proc = subprocess.run(  # noqa: S603 - fixed argv, no shell, no user input
+            ["git", *args],  # noqa: S607 - git resolved from PATH by design
+            cwd=repo_root,
+            capture_output=True,
+            text=True,
+            check=False,
+        )
+    except OSError:
+        return None
+    return proc.stdout if proc.returncode == 0 else None
+
+
+def baseline_assertions(
+    repo_root: Path, ref: str, ar_relpath: str = "docs/attestation-reliance.md"
+) -> tuple[dict[str, tuple[str, ...]] | None, str]:
+    """The assertion catalogue as of the merge base with `ref`.
+
+    Returns {assertion id: basis} and a sentence describing what was compared.
+    None means the baseline could not be established -- which is reported and
+    blocks, never silently treated as "nothing is new". A gate that cannot see
+    the previous state cannot tell a regression from backlog, and guessing in
+    the permissive direction is how this check would quietly stop working.
+    """
+    base = (_git(repo_root, "merge-base", "HEAD", ref) or "").strip()
+    if not base:
+        resolved = (_git(repo_root, "rev-parse", "--verify", f"{ref}^{{commit}}") or "").strip()
+        if not resolved:
+            return None, f"{ref} could not be resolved"
+        base = resolved
+    blob = _git(repo_root, "show", f"{base}:{ar_relpath}")
+    if blob is None:
+        # The file not existing at the baseline is a real answer: every
+        # assertion in it today is new.
+        return {}, f"{ar_relpath} did not exist at {base[:12]}"
+    catalogue = {
+        m.group("aid"): tuple(expand_basis(m.group("basis")))
+        for line in blob.splitlines()
+        if (m := ASSERTION_ROW.match(line))
+    }
+    return catalogue, f"merge base {base[:12]} with {ref}"
+
+
 def collect_node_ids(repo_root: Path, target: str = "tests") -> list[str]:
     """Ask pytest what it would run. Sorted, so the matrix is deterministic."""
     proc = subprocess.run(  # noqa: S603 - fixed argv, no shell, no user input
@@ -879,6 +946,9 @@ def build_matrix(
     features_dir: Path | None,
     node_ids: list[str],
     exclude_citations: tuple[str, ...] = (),
+    baseline: dict[str, tuple[str, ...]] | None = None,
+    baseline_description: str = "no baseline supplied",
+    regression_gate: bool = False,
 ) -> Matrix:
     matrix = Matrix()
     matrix.excluded_citation_paths = tuple(sorted(exclude_citations))
@@ -1018,6 +1088,10 @@ def build_matrix(
             matrix.scenarios[sid].tests = tuple(sorted(set(nodeids)))
 
     matrix.findings.extend(_check(matrix, features_dir, module_citations, by_scenario))
+    if regression_gate:
+        matrix.findings.extend(
+            _check_regressions(matrix, baseline, baseline_description)
+        )
     matrix.findings.sort(key=Finding.sort_key)
     matrix.summary = _summarise(matrix)
     return matrix
@@ -1207,6 +1281,71 @@ def _check(
             )
         )
 
+    return findings
+
+
+def _check_regressions(
+    matrix: Matrix,
+    baseline: dict[str, tuple[str, ...]] | None,
+    description: str,
+) -> list[Finding]:
+    """QA-S-001: a newly unmapped assertion fails CI now, not on a schedule.
+
+    "Newly unmapped" is either of:
+
+      - an assertion id that did not exist at the baseline, or
+      - an existing id whose Basis column changed.
+
+    The second case matters as much as the first. Without it, re-pointing an
+    assertion at a requirement with no scenario would slip through as backlog,
+    and the gate would be one rename away from useless. Comparing the basis
+    rather than the baseline's whole scenario graph keeps this cheap: an
+    assertion whose id and basis are both unchanged and unmapped was already
+    unmapped, and is exactly what QA-011 stages.
+    """
+    if baseline is None:
+        return [
+            Finding(
+                kind="BASELINE_UNAVAILABLE",
+                severity=Severity.CRITICAL,
+                subject="assertion catalogue",
+                location=description,
+                detail="cannot tell a new unmapped assertion from existing backlog without "
+                       "the previous catalogue. Fetch enough history for the baseline ref "
+                       "(actions/checkout needs fetch-depth: 0) or pass --baseline-ref. "
+                       "Not assumed clean: that is how this gate would stop working quietly",
+            )
+        ]
+
+    unmapped = {
+        f.subject for f in matrix.findings
+        if f.kind in ("ASSERTION_NO_SCENARIO", "ASSERTION_NO_REQUIREMENT")
+    }
+    findings: list[Finding] = []
+    for aid in sorted(unmapped):
+        assertion = matrix.assertions.get(aid)
+        if assertion is None:
+            continue
+        if aid not in baseline:
+            why = "added to the catalogue"
+        elif baseline[aid] != assertion.basis:
+            why = (
+                f"basis changed from {', '.join(baseline[aid]) or '(none)'} to "
+                f"{', '.join(assertion.basis) or '(none)'}"
+            )
+        else:
+            continue  # unmapped before this change: QA-011 backlog, staged.
+        findings.append(
+            Finding(
+                kind="NEW_ASSERTION_NO_SCENARIO",
+                severity=Severity.CRITICAL,
+                subject=aid,
+                location=f"{assertion.doc}:{assertion.line}",
+                detail=f"{why} and nothing demonstrates it (baseline: {description}). "
+                       f"QA-S-001: this fails CI now. QA-011 stages the existing backlog, "
+                       f"it does not stage making the backlog bigger",
+            )
+        )
     return findings
 
 
@@ -1639,6 +1778,14 @@ def main(argv: list[str] | None = None, *, real_today: date | None = None) -> in
     ap.add_argument("--fail-on", choices=[s.value for s in Severity], default="low",
                     help="in enforce mode, the least severe finding that fails the build. "
                          "May only strengthen the QA-011 schedule, never weaken it")
+    ap.add_argument("--baseline-ref", default=DEFAULT_BASELINE_REF, metavar="REF",
+                    help="ref whose merge base supplies the previous assertion catalogue, "
+                         "used to tell a new unmapped assertion from existing backlog "
+                         f"(default: {DEFAULT_BASELINE_REF})")
+    ap.add_argument("--no-baseline", action="store_true",
+                    help="skip the QA-S-001 regression gate by treating every assertion as "
+                         "pre-existing. For running against a corpus with no git history; "
+                         "it is printed prominently and must never be used in CI")
     ap.add_argument("--today", type=date.fromisoformat, default=None, metavar="YYYY-MM-DD",
                     help="evaluate the QA-011 schedule as of this date instead of today. "
                          "For testing the ratchet; it cannot weaken a mandate that has "
@@ -1660,12 +1807,24 @@ def main(argv: list[str] | None = None, *, real_today: date | None = None) -> in
         args.exclude_citations if args.exclude_citations is not None
         else DEFAULT_EXCLUDED_CITATION_PATHS
     )
+
+    baseline: dict[str, tuple[str, ...]] | None = None
+    if args.no_baseline:
+        baseline_description = "--no-baseline: QA-S-001 regression gate DISABLED"
+    else:
+        baseline, baseline_description = baseline_assertions(
+            root, args.baseline_ref, str(Path(docs.name) / "attestation-reliance.md")
+        )
+
     matrix = build_matrix(
         repo_root=root,
         docs_dir=docs,
         features_dir=features,
         node_ids=node_ids,
         exclude_citations=exclude,
+        baseline=baseline,
+        baseline_description=baseline_description,
+        regression_gate=not args.no_baseline,
     )
 
     if args.out_md:
@@ -1688,20 +1847,40 @@ def main(argv: list[str] | None = None, *, real_today: date | None = None) -> in
     requested = Severity(args.fail_on) if args.mode == "enforce" else None
     threshold, why = effective_threshold(requested, asof, real)
 
-    print(f"\nQA-011 enforcement as of {real.isoformat()}: {why}.")
+    print(f"\nBaseline for the QA-S-001 regression gate: {baseline_description}.")
+    if args.no_baseline:
+        print("WARNING: --no-baseline disables the QA-S-001 regression gate. Never use "
+              "this in CI.")
+    print(f"QA-011 enforcement as of {real.isoformat()}: {why}.")
     if asof != real:
         print(f"(--today {asof.isoformat()} supplied; it may bring a stage forward, "
               f"never defer one.)")
-    if threshold is None:
-        print("No finding fails this build. Every finding above is still counted, named,")
-        print("and written to the matrix. Next stage: critical from 2026-08-08.")
-        return 0
 
-    blocking = [f for f in matrix.findings if SEVERITY_RANK[f.severity] <= SEVERITY_RANK[threshold]]
+    # QA-S-001 is not staged. A regression blocks whatever the schedule says.
+    immediate = [f for f in matrix.findings if f.kind in ALWAYS_BLOCKING]
+    staged = (
+        []
+        if threshold is None
+        else [f for f in matrix.findings if SEVERITY_RANK[f.severity] <= SEVERITY_RANK[threshold]]
+    )
+    blocking = immediate + [f for f in staged if f.kind not in ALWAYS_BLOCKING]
+
+    if immediate:
+        print(f"\n{len(immediate)} finding(s) fail immediately, outside the QA-011 schedule:")
+        for finding in immediate:
+            print(f"   {finding.kind:28} {finding.subject:10} {finding.location}")
+            print(f"      {finding.detail}")
+
     if blocking:
-        print(f"FAIL: {len(blocking)} finding(s) at or above {threshold.value}.")
+        print(f"\nFAIL: {len(blocking)} blocking finding(s) "
+              f"({len(immediate)} immediate, {len(blocking) - len(immediate)} staged).")
         return 1
-    print(f"OK: no finding at or above {threshold.value}.")
+    if threshold is None:
+        print("\nNo finding fails this build. Every finding above is still counted, named,")
+        print("and written to the matrix. Next stage: critical from "
+              f"{ENFORCEMENT_SCHEDULE[0][0].isoformat()}.")
+        return 0
+    print(f"\nOK: no finding at or above {threshold.value}, and no regression.")
     return 0
 
 
