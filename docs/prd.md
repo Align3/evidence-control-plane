@@ -74,11 +74,15 @@ Monorepo: `services/`, `sdk_python/`, `sdk-typescript/`, `verifier-go/`, `docs/`
 **Acceptance:** CI green on an empty PR; `docker compose up` yields a working dev environment.
 
 #### EV-02 — Evidence schema types and canonicalisation (Python)
-Typed record models for every type in `evidence-spec.md` §5. RFC 8785 JCS canonicalisation. Digest computation. Envelope validation including unknown-field rules.
+Typed record models for every type in `evidence-spec.md` §5. RFC 8785 JCS canonicalisation. Digest computation. Envelope validation including unknown-field rules. Typed `clocks` member carrying the ES-019 fields.
 **Touches:** `sdk_python/evidence/schema.py`, `canonical.py`
 **Depends on:** EV-01
-**Satisfies:** ES-001…005
+**Satisfies:** ES-001…005, ES-002a, ES-002b, ES-019 (record-shape portion — see note)
 **Acceptance:** ES-S-008
+
+**Note on ES-002a / ES-002b.** Both were added to `evidence-spec.md` §2 during review of EV-02, which found that the rule they state existed only in the Python implementation. ES-002a requires a conformant canonicalizer to reject rather than serialize non-integer numbers, out-of-range integers, and `NaN`/`Infinity`; ES-002b requires optional members to be encoded by absence rather than explicit `null`. Both bind EV-05 as much as EV-02 — the Go verifier must reach the same conclusions independently, and until it does, ES-S-007 cannot detect a disagreement. **Neither has an acceptance scenario in `evidence-spec.md` §12.** One is not invented here; writing it is a documentation change and belongs to whoever next amends that document.
+
+**Note on ES-019.** The requirement splits across two stories. The *record-shape* half — that every record carries `source_time`, `ingest_time`, `clock_skew_ms`, and `authoritative_time` where applicable, correctly typed and required — is schema and is claimed here. The *runtime* half is claimed by EV-07. **ES-019 has no acceptance scenario in `evidence-spec.md` §12**; as above, one is not invented here.
 
 #### EV-03 — Signing and chain primitives (Python)
 Ed25519 sign/verify. Envelope signature construction. Chain linking via `prev_digest`. Sequence validation. Fork detection. Key continuity assertions.
@@ -116,8 +120,10 @@ Append-only evidence table per `data-model.md`. Per-tenant partitioning. Applica
 FastAPI. Validate schema, verify signature, check collector registration, check sequence, durable append, acknowledge. **No queue anywhere in this path** (AC-001). Out-of-order arrival reconciled by sequence.
 **Touches:** `services/ingestion/`
 **Depends on:** EV-03, EV-06
-**Satisfies:** AC-001, AC-010, IN-003, IN-012, SE-018
+**Satisfies:** AC-001, AC-010, IN-003, IN-012, SE-018, ES-019 (runtime portion — see note), ES-020
 **Acceptance:** AC-S-001, IN-S-001, IN-S-003, SE-S-006
+
+**Note on ES-019 / ES-020.** EV-02 types and requires the clock fields on the record; it cannot populate them. Stamping `ingest_time` at the moment of receipt, computing `clock_skew_ms` between source and ingest rather than trusting a collector-supplied value, and applying the ES-020 precedence — `authoritative_time` governs reconciliation ordering where present, and where it is absent and skew exceeds the boundary's declared threshold the affected records are excluded from the numerator and counted as unknown per CM-018 — are runtime behaviours of this path and are claimed here. A collector that supplies its own `clock_skew_ms` is asserting something ingestion is in a position to check; treating that field as attacker-controlled is the correct posture.
 
 ---
 
