@@ -54,6 +54,37 @@ jobs:
         with: {go-version: "1.23"}
       - run: cd verifier-go && go build ./... && go test ./...
 
+  traceability:
+    name: Traceability matrix (report-only)
+    runs-on: ubuntu-latest
+    needs: spec-drift
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with: {python-version: "3.12"}
+      - run: pip install -e ".[dev]"
+      # EV-22 / QA-010..012. REPORT-ONLY: `--mode report` always exits 0, so
+      # this job prints the matrix and the orphan list without blocking merges.
+      # 163 of 222 requirements have no scenario today, which is what the
+      # exemption markings and the story backlog are for; a gate that fails on
+      # the day it lands gets disabled, and a disabled gate is worse than none.
+      #
+      # To make it blocking, change `--mode report` to
+      # `--mode enforce --fail-on critical`, then tighten `--fail-on` to `high`,
+      # `medium`, `low` as each class is cleared. Nothing else needs to change.
+      - run: >-
+          python -m tests.traceability.matrix
+          --out-md "$RUNNER_TEMP/traceability-matrix.md"
+          --out-json "$RUNNER_TEMP/traceability-matrix.json"
+          --mode report
+      # QA-010 publishes the matrix as evidence for the auditor. It is uploaded
+      # as a build artifact rather than committed, per QA-012: nothing a human
+      # can hand-edit.
+      - uses: actions/upload-artifact@v4
+        with:
+          name: traceability-matrix
+          path: ${{ runner.temp }}/traceability-matrix.*
+
   conformance:
     name: Cross-implementation conformance
     runs-on: ubuntu-latest
