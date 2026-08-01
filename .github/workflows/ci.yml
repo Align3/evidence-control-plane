@@ -63,6 +63,52 @@ jobs:
         with: {go-version: "1.23"}
       - run: cd verifier-go && go build ./... && go test ./...
 
+  traceability:
+    name: Traceability matrix (QA-011 staged)
+    runs-on: ubuntu-latest
+    needs: spec-drift
+    steps:
+      # fetch-depth: 0 is REQUIRED, not an optimisation. The QA-S-001 regression
+      # gate reads the previous assertion catalogue from the merge base to tell a
+      # newly unmapped assertion from existing backlog. Without history the
+      # baseline cannot be established, and the tool reports BASELINE_UNAVAILABLE
+      # and fails rather than assuming clean.
+      - uses: actions/checkout@v4
+        with: {fetch-depth: 0}
+      - uses: actions/setup-python@v5
+        with: {python-version: "3.12"}
+      - run: pip install -e ".[dev]"
+      # EV-22 / QA-010..012, under the QA-011 staged-enforcement schedule.
+      #
+      # `--mode report` is NOT an off switch and does not need editing later.
+      # The schedule is compiled into the generator (ENFORCEMENT_SCHEDULE) and
+      # overrides this argument the moment each date passes:
+      #
+      #   from 2026-08-08  fails on critical   (EV-25 merge)
+      #   from 2026-09-01  fails on high       (EV-26 triage completion)
+      #   from 2026-10-01  fails on medium+low
+      #
+      # Expiry is by date, not by condition: the gate tightens whether or not
+      # the backfill is done and whether or not the owning story merged. The
+      # ratchet is one-way -- this argument may only strengthen the mandate, so
+      # weakening it here has no effect and deferring a date means changing code
+      # that shows up in review.
+      #
+      # To enforce a stage EARLY, strengthen it here, e.g.
+      #   --mode enforce --fail-on critical
+      - run: >-
+          python -m tests.traceability.matrix
+          --out-md "$RUNNER_TEMP/traceability-matrix.md"
+          --out-json "$RUNNER_TEMP/traceability-matrix.json"
+          --mode report
+      # QA-010 publishes the matrix as evidence for the auditor. It is uploaded
+      # as a build artifact rather than committed, per QA-012: nothing a human
+      # can hand-edit.
+      - uses: actions/upload-artifact@v4
+        with:
+          name: traceability-matrix
+          path: ${{ runner.temp }}/traceability-matrix.*
+
   conformance:
     name: Cross-implementation conformance
     runs-on: ubuntu-latest

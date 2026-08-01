@@ -25,7 +25,7 @@ Most products test that the system does the right thing. Here the dangerous fail
 
 **QA-001** — For every coverage level, denominator class, and assertion, there MUST be at least one scenario proving the system **withholds** the claim under conditions that do not warrant it. Negative scenarios outnumber positive ones by design.
 
-**QA-002** — A pull request adding a new claimable assertion without its withholding scenario fails review. This is a CI-enforceable check, not a convention.
+**QA-002** — A pull request adding a new claimable assertion without its withholding scenario fails review. This is a CI-enforceable check, not a convention. The review requirement is unconditional and applies now. Automatic CI enforcement of it follows the staged schedule in QA-011, which is the single source of those dates.
 
 ---
 
@@ -121,17 +121,42 @@ On a normal project this matrix is internal QA hygiene. Here it is **evidence fo
 
 **QA-011** — CI fails on: a requirement with no scenario, a scenario with no test, an assertion with no requirement, or a test referencing a retired requirement ID.
 
+**Staged enforcement.** QA-011 was drafted before the requirement-to-scenario ratio was known. The first generated matrix (EV-22) found 222 requirements against 55 scenarios: 163 requirements had no scenario, and two catalogued assertions rested on requirements that had none. QA-011 as drafted was therefore unsatisfiable on the day its implementation landed, and a gate that cannot pass on day one is switched off rather than satisfied — which is strictly worse than no gate, because a disabled check still appears in the pipeline. Enforcement is staged by severity:
+
+| Severity | Enforced on | Hard expiry |
+|---|---|---|
+| critical | A-02/A-09 basis repair (EV-25 target) | 8 August 2026 |
+| high | claimed-requirement triage and landed-story defects (EV-26 target) | 1 September 2026 |
+| medium | — | 1 October 2026 |
+| low | — | 1 October 2026 |
+
+**Expiry is by date, not by condition.** On each date CI begins failing at that severity whether or not the backfill is complete, whether or not the owning story has merged, and whether or not anyone has triaged the findings. Slipping EV-25 does not slip the gate. The schedule is compiled into the generator rather than passed on the command line, so deferring a date is a code change that appears in review and cannot be done by editing a CI argument.
+
+**The ratchet is one-way.** A severity that has become enforced is never relaxed. Where a CI invocation requests a weaker threshold than the schedule mandates, the schedule wins and the request is ignored; where it requests a stronger one, the stronger one applies and cannot later be walked back below the mandated level.
+
+**Staging applies to the existing backlog, never to regressions.** A change that makes the situation worse fails immediately at every stage, whatever the schedule currently mandates. Concretely, and per QA-S-001: an assertion that this change adds to the catalogue, or re-points onto a requirement nothing demonstrates, fails the build now. Backlog is what a schedule is for; a ratchet that lets the thing it is ratcheting get worse is decorative. The comparison is against the merge base, so CI requires full history, and where the previous state cannot be read the build fails rather than assuming nothing is new.
+
+**Every build prints the orphan count and the severity breakdown**, at every stage, enforced or not. Staging changes only what fails the build. It never changes what is looked for, and never changes what is reported: an orphan that does not yet fail CI is still counted, still named, and still published in the matrix.
+
+**Untested scenarios are classified by ownership, not treated as one backlog.** A story owns a scenario by listing it in its `Acceptance:` field. A story is landed when an `EV-nn:` implementation commit is reachable from the build's `HEAD`. An untested scenario owned by a landed story is a high-severity defect. One owned only by an unlanded story is medium-severity expected roadmap debt: shipping that story is what clears it. An untested scenario with no `Acceptance:` owner is high severity because the matrix cannot tell whether it is roadmap debt or an omitted implementation. If reachable Git history cannot be read, the check fails immediately rather than assuming every owner is unbuilt. This distinction makes the 1 September high gate enforce shipped commitments and completed triage without requiring EV-05 through EV-21 to have landed.
+
+**Story references are closed over `prd.md`.** Any `EV-nn` token in `docs/` must have a matching `#### EV-nn` story heading. This applies to ordinary prose and schedule annotations as well as structured deferral markers; a conditional trigger naming nonexistent work is a defect even when the date ratchet remains effective without it.
+
 **QA-012** — The matrix is generated, never hand-maintained. A hand-maintained traceability matrix is wrong within a month and worse than none, because it invites misplaced confidence.
 
 ---
 
 ## 8. CI gates
 
-**QA-013** — A PR merges only when: L1–L7 pass, the traceability matrix is complete, the adversarial suite passes, and — for changes to the schema, signing, canonicalisation, or coverage computation — the Go verifier independently reproduces the Python writer's output.
+**QA-013** — A PR merges only when: L1–L7 pass, the traceability matrix is complete to the severity QA-011 currently enforces, the adversarial suite passes, and — for changes to the schema, signing, canonicalisation, or coverage computation — the Go verifier independently reproduces the Python writer's output. "Complete" tightens on the staged schedule in QA-011 and is unconditional once its final stage is live. Every other clause here is unconditional now.
 
 **QA-014** — Following the DamDam convention, promotion from `staging` to `main` requires a signoff artifact with a CI-enforced blocker, plus for this product a recorded independent verifier reproduction over staging evidence (IN-022).
 
-**QA-015** — Coverage-of-code targets are secondary and deliberately unspecified here. Coverage of *requirements* is the metric that matters, and it is binary: every requirement has a passing scenario, or the build fails.
+**QA-015** — Coverage-of-code targets are secondary and deliberately unspecified here. Coverage of *requirements* is the metric that matters.
+
+This requirement originally read: *"…and it is binary: every requirement has a passing scenario, or the build fails."* That was written before the requirement-to-scenario ratio was known, and it was unsatisfiable as drafted — the first generated matrix (EV-22) found 222 requirements against 55 scenarios. It is corrected here rather than quietly relaxed, and the original wording is quoted above so that a reader comparing versions can see we were wrong and fixed it, not that a standard was softened when it became inconvenient.
+
+The binary framing was wrong in two specific ways. It admitted no requirement that genuinely cannot carry a scenario — a process rule, a statement about what a document says — and it admitted no interval during which a known backlog is worked off. What survives is the part that mattered: requirement coverage remains the metric, and it remains binary **per requirement** — a requirement either has a passing scenario or is explicitly marked non-testable with a stated reason, and there is no third state. The build fails on everything else at the severity QA-011 currently enforces; QA-011 is the single source of that schedule.
 
 ---
 
