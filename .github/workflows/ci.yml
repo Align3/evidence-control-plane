@@ -42,7 +42,16 @@ jobs:
       # Gating since EV-02 landed on develop. The `|| true` this replaces
       # was commented as lasting exactly until then; strict mypy is clean.
       - run: mypy services sdk_python
+      # The ledger tests talk to the real Postgres above -- role grants and
+      # row-level isolation cannot be observed against a mock (AC-012). The
+      # service container is useless to them unless they are told where it
+      # is, and without this every DB-backed test errors in its fixture while
+      # the pure-Python ones still pass, which reads as a partial failure
+      # rather than an unrun suite. AC-S-004, AC-S-006 and SE-S-003 are all
+      # in that set: EV-06's entire acceptance surface runs only here.
       - run: pytest -q
+        env:
+          DATABASE_URL: postgresql://evidence:devonly@localhost:5432/evidence
 
   go:
     name: Go verifier

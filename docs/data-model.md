@@ -24,7 +24,24 @@ This is the shared contract between concurrently working agents. On DamDam, a re
 
 **DM-005** — `canonical_bytes` is authoritative. Every parsed column is a projection and must be rebuildable from it (AC-015). A migration that changes a projection column does not touch `canonical_bytes`.
 
-**DM-006** — Per-tenant partitioning on `evidence_records`. Cross-tenant reads must be inexpressible at the query layer, not filtered in application code (SE-011).
+"Every parsed column" is the whole list, not the droppable subset. Columns split three ways: **droppable** ones are dropped and rebuilt outright; **repairable** ones are recomputed in place, because no identity or uniqueness guarantee hangs off them; and **verified-only** ones — the record identity, the partition key, and the fork-detection key `(stream_id, sequence)` — are checked but never rewritten, because rewriting them would relocate rows between partitions or silently resolve a fork that ES-006 says must be reported. Review found the earlier implementation verifying eight of sixteen derived columns, which let a `source_time` edited away from the bytes go undetected and survive a rebuild. `ingest_time` is deliberately not derived — it records our receipt, not anything the writer signed — as are `key_id` and `signature`, which live in the signature member `canonical_bytes` excludes (ES-021).
+
+**DM-006** — Cross-tenant reads must be inexpressible at the query layer, not filtered in application code (SE-011). Two mechanisms, because two access patterns:
+
+| Tables | Mechanism | Why |
+|---|---|---|
+| `evidence_records` | Per-tenant `LIST` partitioning; no role holds any privilege on the parent | Evidence is always read in a tenant's context, so partitioning costs the query nothing and buys the strongest statement available: the other tenant's rows sit in a relation the role cannot name |
+| `tenants`, `collectors`, `keys` | Row-level security policy scoped to `current_user` | The registry is read **by id** — ingestion resolves a collector from the `collector_id` on an incoming record (SE-018). Partitioning would require knowing the tenant before it could name the relation that tells it the tenant |
+
+Neither is a `WHERE` clause in application code, which is what SE-011 forbids. Application-layer filtering is defeated by any code path that forgets it, and there is always one.
+
+#### §1 amendment 1 — registry isolation (EV-06)
+
+**DM-022** — Row-level security on the registry tables was added after review of EV-06 found that a `SELECT` grant on `tenants` alone let any tenant role enumerate every customer, and `collectors` exposed other customers' deployment topology. `keys` holds public keys and so carries little confidentiality weight, but is covered for consistency: a registry table without a policy invites the question of which others lack one.
+
+Policies are `ENABLE`, not `FORCE`, so the owner bypasses them. That is what keeps provisioning and cross-tenant administration possible through the separately-credentialed path (SE-012 §6); those operations are logged and surfaced to the affected tenant under SE-013.
+
+The policy predicate names the role directly — `current_user = 'evidence_tenant_' || tenant_id` — rather than reading a session variable. A session variable is settable by the session, which would make the isolation advisory.
 
 **DM-007** — No `ON DELETE CASCADE` anywhere touching evidence. Deletion of evidence is blocked while a covering attestation is valid (SE-017), and cascades make that invariant unenforceable.
 
@@ -148,6 +165,34 @@ Unique on `(tenant_id, stream_id, sequence)` — this constraint is what makes f
 
 Indexes: `(tenant_id, action_id)`, `(tenant_id, action_family, source_time)`, `(tenant_id, record_type, ingest_time)`.
 
+#### §2.6 amendment 1 — as built by migration 0002 (EV-06)
+
+**DM-015** — The primary key is `(tenant_id, record_id)`, not `record_id` alone. Postgres requires the partition key in every unique constraint on a partitioned table, and `evidence-spec.md` §3 specifies `record_id` as unique *within tenant* — so this is the correct key rather than a concession to the partitioning.
+
+**DM-016** — `collector_id` and `key_id` are **composite** foreign keys on `(tenant_id, collector_id)` and `(tenant_id, key_id)`. A single-column reference would let a record attribute itself to another tenant's collector or key, which SE-011 forbids and which no application check would reliably catch.
+
+**DM-017** — `boundary_ref` is created as a plain `NOT NULL` column by migration 0002. The foreign key to `boundaries` is deferred to migration 0003, because `boundaries` is created by EV-12 and building it early would cross that story's table set (DM-003). The reference becomes enforceable when 0003 lands; until then `boundary_ref` is unvalidated.
+
+**DM-018** — Partitions are created by `provision_tenant`, one per tenant, and there is **no DEFAULT partition**. Evidence naming an unprovisioned tenant is rejected outright rather than pooled into a shared relation that no tenant role could safely be granted.
+
+**DM-019** — Grants. No role holds any privilege on the parent `evidence_records`; naming it is how a cross-tenant read would be spelled, so it must fail before a predicate is evaluated (SE-011). Each tenant has a role `evidence_tenant_{tenant_id}` holding `INSERT` and `SELECT` on its own partition and nothing else.
+
+Each tenant role is itself a **login** role with its own credential, and is granted to nobody. An application session authenticates *as* the tenant rather than authenticating as a shared login and then assuming the tenant with `SET ROLE`.
+
+The distinction is not stylistic. Membership in a role cannot be scoped to a connection: a login that may assume two tenants may assume the second at any point in any statement that reaches the database on that connection — including a statement introduced by SQL injection, which is precisely the query-layer crossing SE-011 requires be impossible rather than merely unused. Review of the shared-login design demonstrated it: a single stacked driver call moved an Acme session to Globex and read its evidence. With no membership to exercise, the server refuses the switch instead of the application being trusted not to attempt it.
+
+The trust boundary remains the application process, which holds the secret each tenant password is derived from and can therefore open a connection as any tenant. What it cannot do is cross tenants *on a connection it already holds*. `evidence_app` is retained as a login that is a member of nothing and holds nothing, so that "an authenticated session with no tenant credential reaches nothing" is a property the suite asserts rather than one that follows from an absent role.
+
+**DM-020** — `tenant_id` is constrained by CHECK to `^[a-z0-9]([a-z0-9_]{0,44}[a-z0-9])?$`. The tenant id reaches SQL identifiers in `CREATE TABLE ... PARTITION OF` and `CREATE ROLE`, neither of which accepts a bind parameter; restricting it to characters that are already a legal identifier makes the tenant → partition-name mapping injective, so two tenants can never derive one partition.
+
+The **length** bound carries as much of that guarantee as the alphabet does, and for a less obvious reason. Postgres truncates an identifier longer than `NAMEDATALEN - 1` (63 bytes) **silently** — no error, no warning. Injectivity therefore has to hold on the truncated name, not on the string the application computed. The longest prefix in use is `evidence_records_` at 17 bytes, so a tenant id may be at most 46. At the original bound of 48, `evidence_records_` + `tenant_id` was 65 bytes and `evidence_tenant_` + `tenant_id` was 64: two tenant ids agreeing on their first 47 characters truncated to **one partition and one role**, and either tenant's ordinary session could read the other's evidence. Any future prefix must be counted against the same 63-byte budget; `services/ledger/naming.py` derives the bound rather than restating it, and raises if a derived identifier would not fit.
+
+**DM-023** — `canonical_bytes` holds the JCS-canonical record **excluding** the `signature` field: the exact bytes that were signed (ES-021). The signature itself is decomposed into the `signature` and `key_id` columns. Storing what was signed, verbatim, means verification never re-canonicalises — and re-canonicalisation is precisely where two independent implementations diverge, which is what makes `ES-S-007` achievable at EV-05.
+
+The consequence is a reassembly step: an export bundle must carry the **full** record including `signature`, so EV-19 needs a defined, tested reconstruction from `canonical_bytes` + `signature` + `key_id` back to the wire form. Not built here; recorded so it is not discovered late.
+
+**DM-021** — Writing the projection requires `UPDATE`, which SE-012 grants to no application role. Projection rebuild (`services/ledger/projection.py`) therefore runs under the migrator credential and is unreachable from any service handling traffic. This is the design and not a workaround: a rebuild path the ingestion role could execute would mean that role held `UPDATE`, and AC-012 would be false.
+
 ### 2.7 `population_records`
 
 The denominator. Distinct table because CM-002 forbids conflating population with denominator.
@@ -261,8 +306,8 @@ Claim a number here before writing the migration (DM-001).
 
 | # | Story | Description | Status |
 |---|---|---|---|
-| 0001 | EV-06 | Tenants, collectors, keys | unclaimed |
-| 0002 | EV-06 | `evidence_records` + partitioning + role grants | unclaimed |
+| 0001 | EV-06 | Tenants, collectors, keys; registry row-level security (DM-022) | applied |
+| 0002 | EV-06 | `evidence_records` + partitioning + role grants | applied |
 | 0003 | EV-12 | Boundaries, qualification records | unclaimed |
 | 0004 | EV-14 | Population records | unclaimed |
 | 0005 | EV-15 | Reconciliation results | unclaimed |
