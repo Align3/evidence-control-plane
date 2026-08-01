@@ -148,6 +148,22 @@ Unique on `(tenant_id, stream_id, sequence)` — this constraint is what makes f
 
 Indexes: `(tenant_id, action_id)`, `(tenant_id, action_family, source_time)`, `(tenant_id, record_type, ingest_time)`.
 
+#### §2.6 amendment 1 — as built by migration 0002 (EV-06)
+
+**DM-015** — The primary key is `(tenant_id, record_id)`, not `record_id` alone. Postgres requires the partition key in every unique constraint on a partitioned table, and `evidence-spec.md` §3 specifies `record_id` as unique *within tenant* — so this is the correct key rather than a concession to the partitioning.
+
+**DM-016** — `collector_id` and `key_id` are **composite** foreign keys on `(tenant_id, collector_id)` and `(tenant_id, key_id)`. A single-column reference would let a record attribute itself to another tenant's collector or key, which SE-011 forbids and which no application check would reliably catch.
+
+**DM-017** — `boundary_ref` is created as a plain `NOT NULL` column by migration 0002. The foreign key to `boundaries` is deferred to migration 0003, because `boundaries` is created by EV-12 and building it early would cross that story's table set (DM-003). The reference becomes enforceable when 0003 lands; until then `boundary_ref` is unvalidated.
+
+**DM-018** — Partitions are created by `provision_tenant`, one per tenant, and there is **no DEFAULT partition**. Evidence naming an unprovisioned tenant is rejected outright rather than pooled into a shared relation that no tenant role could safely be granted.
+
+**DM-019** — Grants. No role holds any privilege on the parent `evidence_records`; naming it is how a cross-tenant read would be spelled, so it must fail before a predicate is evaluated (SE-011). Each tenant has a role `evidence_tenant_{tenant_id}` holding `INSERT` and `SELECT` on its own partition and nothing else. The login role `evidence_app` is **NOINHERIT** and is a member of every tenant role: without NOINHERIT, one session would inherit every tenant's privileges and the partitioning would buy nothing.
+
+**DM-020** — `tenant_id` is constrained by CHECK to `^[a-z0-9]([a-z0-9_]{0,46}[a-z0-9])?$`. The tenant id reaches SQL identifiers in `CREATE TABLE ... PARTITION OF` and `CREATE ROLE`, neither of which accepts a bind parameter; restricting it to characters that are already a legal identifier makes the tenant → partition-name mapping injective, so two tenants can never derive one partition.
+
+**DM-021** — Writing the projection requires `UPDATE`, which SE-012 grants to no application role. Projection rebuild (`services/ledger/projection.py`) therefore runs under the migrator credential and is unreachable from any service handling traffic. This is the design and not a workaround: a rebuild path the ingestion role could execute would mean that role held `UPDATE`, and AC-012 would be false.
+
 ### 2.7 `population_records`
 
 The denominator. Distinct table because CM-002 forbids conflating population with denominator.
@@ -261,8 +277,8 @@ Claim a number here before writing the migration (DM-001).
 
 | # | Story | Description | Status |
 |---|---|---|---|
-| 0001 | EV-06 | Tenants, collectors, keys | claimed |
-| 0002 | EV-06 | `evidence_records` + partitioning + role grants | claimed |
+| 0001 | EV-06 | Tenants, collectors, keys | applied |
+| 0002 | EV-06 | `evidence_records` + partitioning + role grants | applied |
 | 0003 | EV-12 | Boundaries, qualification records | unclaimed |
 | 0004 | EV-14 | Population records | unclaimed |
 | 0005 | EV-15 | Reconciliation results | unclaimed |
