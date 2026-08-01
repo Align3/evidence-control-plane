@@ -1,0 +1,269 @@
+"""Ed25519 record signatures and issuer counter-signatures (ES-021..023).
+
+Record signatures sign the raw 32-byte SHA-256 value named by
+``signed_digest``.  The digest is computed from RFC 8785 canonical bytes with
+the complete top-level ``signature`` member removed.  Signing the digest keeps
+the Python and future Go implementations independent of an in-memory record
+representation while binding every canonical envelope and body member.
+
+An AttestationWindow counter-signature is deliberately different: it commits
+the already-present customer signature.  Its digest excludes only the nested
+issuer proof, not the complete top-level signature object.
+"""
+
+from __future__ import annotations
+
+import base64
+import binascii
+import hmac
+import re
+from collections.abc import Mapping
+from copy import deepcopy
+from typing import Any, Final
+
+from cryptography.exceptions import InvalidSignature
+from cryptography.hazmat.primitives.asymmetric.ed25519 import (
+    Ed25519PrivateKey,
+    Ed25519PublicKey,
+)
+
+from sdk_python.evidence.canonical import canonical_digest
+from sdk_python.evidence.schema import AttestationWindowRecord, RecordEnvelope
+
+ALGORITHM: Final = "ed25519"
+ISSUER_SIGNATURE_MEMBER: Final = "issuer"
+
+class SignatureError(ValueError):
+    """Base class for malformed or unverifiable evidence signatures."""
+
+
+class UnsupportedAlgorithmError(SignatureError):
+    """Raised rather than negotiating an algorithm other than Ed25519."""
+
+
+class UnknownKeyError(SignatureError):
+    """Raised when the declared signing key is not in the supplied keyring."""
+
+
+class InvalidSignatureError(SignatureError):
+    """Raised when a signature or its claimed digest does not verify."""
+
+
+def _record_mapping(record: RecordEnvelope) -> dict[str, Any]:
+    value = record.model_dump(mode="json", exclude_unset=True)
+    if not isinstance(value, dict):  # pragma: no cover - Pydantic contract
+        raise SignatureError("record must serialize as a JSON object")
+    return value
+
+
+def _unsigned_mapping(record: RecordEnvelope) -> dict[str, Any]:
+    value = _record_mapping(record)
+    value.pop("signature", None)
+    return value
+
+
+def _digest_bytes(digest: str) -> bytes:
+    prefix = "sha256:"
+    if not digest.startswith(prefix):
+        raise SignatureError("signed_digest must use sha256:<lowercase hex>")
+    encoded = digest.removeprefix(prefix)
+    if len(encoded) != 64 or encoded.lower() != encoded:
+        raise SignatureError("signed_digest must use sha256:<lowercase hex>")
+    try:
+        return bytes.fromhex(encoded)
+    except ValueError as exc:
+        raise SignatureError("signed_digest must use sha256:<lowercase hex>") from exc
+
+
+def _encode_base64url(value: bytes) -> str:
+    return base64.urlsafe_b64encode(value).rstrip(b"=").decode("ascii")
+
+
+def _decode_base64url(value: object, *, label: str, expected_length: int) -> bytes:
+    if (
+        not isinstance(value, str)
+        or not value
+        or re.fullmatch(r"[A-Za-z0-9_-]+", value) is None
+    ):
+        raise SignatureError(f"{label} must be unpadded base64url")
+    try:
+        raw = base64.b64decode(
+            value + "=" * (-len(value) % 4), altchars=b"-_", validate=True
+        )
+    except (ValueError, binascii.Error) as exc:
+        raise SignatureError(f"{label} must be unpadded base64url") from exc
+    if len(raw) != expected_length:
+        raise SignatureError(f"{label} has the wrong Ed25519 length")
+    return raw
+
+
+def _required_text(value: object, *, label: str) -> str:
+    if not isinstance(value, str) or not value:
+        raise SignatureError(f"{label} must be a non-empty string")
+    return value
+
+
+def _signature_object(record: RecordEnvelope) -> dict[str, Any]:
+    if not isinstance(record.signature, dict):
+        raise SignatureError("signature must be a JSON object")
+    return deepcopy(record.signature)
+
+
+def _algorithm(signature: Mapping[str, object]) -> None:
+    algorithm = signature.get("alg")
+    if algorithm != ALGORITHM:
+        raise UnsupportedAlgorithmError(
+            f"unsupported signature algorithm {algorithm!r}; v0.1 accepts only ed25519"
+        )
+
+
+def signing_digest(record: RecordEnvelope) -> str:
+    """Return the ES-021 digest of a record with ``signature`` excluded."""
+
+    return canonical_digest(_unsigned_mapping(record))
+
+
+def sign_record[RecordT: RecordEnvelope](
+    record: RecordT,
+    *,
+    key_id: str,
+    private_key: Ed25519PrivateKey,
+    key_continuity: Mapping[str, object] | None = None,
+) -> RecordT:
+    """Return a copy signed by the customer's evidence key.
+
+    ``key_continuity`` is attached only on the first record using a new key.
+    It is a separately authenticated assertion created by ``chain`` and is
+    carried in the existing signature object because v0.1 defines no separate
+    KeyContinuity record type.
+    """
+
+    if record.signature:
+        raise SignatureError("record already carries a signature; refusing to overwrite it")
+    key_id = _required_text(key_id, label="key_id")
+    digest = signing_digest(record)
+    signature: dict[str, object] = {
+        "alg": ALGORITHM,
+        "key_id": key_id,
+        "sig": _encode_base64url(private_key.sign(_digest_bytes(digest))),
+        "signed_digest": digest,
+    }
+    if key_continuity is not None:
+        signature["key_continuity"] = deepcopy(dict(key_continuity))
+    return record.model_copy(update={"signature": signature}, deep=True)
+
+
+def verify_record_signature(
+    record: RecordEnvelope,
+    *,
+    public_keys: Mapping[str, Ed25519PublicKey],
+) -> str:
+    """Verify the customer signature and return its key ID."""
+
+    signature = _signature_object(record)
+    _algorithm(signature)
+    key_id = _required_text(signature.get("key_id"), label="key_id")
+    public_key = public_keys.get(key_id)
+    if public_key is None:
+        raise UnknownKeyError(f"unknown evidence signing key: {key_id}")
+
+    claimed_digest = _required_text(signature.get("signed_digest"), label="signed_digest")
+    actual_digest = signing_digest(record)
+    if not hmac.compare_digest(claimed_digest, actual_digest):
+        raise InvalidSignatureError("signed_digest does not match the canonical record")
+
+    encoded_signature = _decode_base64url(
+        signature.get("sig"), label="sig", expected_length=64
+    )
+    try:
+        public_key.verify(encoded_signature, _digest_bytes(actual_digest))
+    except InvalidSignature as exc:
+        raise InvalidSignatureError("Ed25519 record signature verification failed") from exc
+    return key_id
+
+
+def _counter_signing_mapping(record: AttestationWindowRecord) -> dict[str, Any]:
+    value = _record_mapping(record)
+    signature = value.get("signature")
+    if not isinstance(signature, dict):
+        raise SignatureError("signature must be a JSON object")
+    signature.pop(ISSUER_SIGNATURE_MEMBER, None)
+    return value
+
+
+def counter_signing_digest(record: AttestationWindowRecord) -> str:
+    """Digest an attestation including its customer signature."""
+
+    return canonical_digest(_counter_signing_mapping(record))
+
+
+def counter_sign_attestation(
+    record: AttestationWindowRecord,
+    *,
+    issuer_key_id: str,
+    issuer_private_key: Ed25519PrivateKey,
+) -> AttestationWindowRecord:
+    """Add the issuer's ES-023 counter-signature without replacing customer proof."""
+
+    signature = _signature_object(record)
+    if not {"alg", "key_id", "sig", "signed_digest"}.issubset(signature):
+        raise SignatureError("customer signature must exist before issuer counter-signing")
+    if ISSUER_SIGNATURE_MEMBER in signature:
+        raise SignatureError("attestation already carries an issuer counter-signature")
+    issuer_key_id = _required_text(issuer_key_id, label="issuer key_id")
+    digest = counter_signing_digest(record)
+    signature[ISSUER_SIGNATURE_MEMBER] = {
+        "alg": ALGORITHM,
+        "key_id": issuer_key_id,
+        "sig": _encode_base64url(issuer_private_key.sign(_digest_bytes(digest))),
+        "signed_digest": digest,
+    }
+    return record.model_copy(update={"signature": signature}, deep=True)
+
+
+def verify_attestation_counter_signature(
+    record: AttestationWindowRecord,
+    *,
+    issuer_public_keys: Mapping[str, Ed25519PublicKey],
+) -> str:
+    """Verify the issuer proof and return its key ID."""
+
+    signature = _signature_object(record)
+    issuer = signature.get(ISSUER_SIGNATURE_MEMBER)
+    if not isinstance(issuer, dict):
+        raise InvalidSignatureError("attestation has no issuer counter-signature")
+    _algorithm(issuer)
+    key_id = _required_text(issuer.get("key_id"), label="issuer key_id")
+    public_key = issuer_public_keys.get(key_id)
+    if public_key is None:
+        raise UnknownKeyError(f"unknown issuer signing key: {key_id}")
+
+    claimed_digest = _required_text(issuer.get("signed_digest"), label="signed_digest")
+    actual_digest = counter_signing_digest(record)
+    if not hmac.compare_digest(claimed_digest, actual_digest):
+        raise InvalidSignatureError(
+            "counter-signature signed_digest does not match the customer-signed attestation"
+        )
+    encoded_signature = _decode_base64url(
+        issuer.get("sig"), label="issuer sig", expected_length=64
+    )
+    try:
+        public_key.verify(encoded_signature, _digest_bytes(actual_digest))
+    except InvalidSignature as exc:
+        raise InvalidSignatureError("Ed25519 counter-signature verification failed") from exc
+    return key_id
+
+
+def verify_attestation_signatures(
+    record: AttestationWindowRecord,
+    *,
+    evidence_public_keys: Mapping[str, Ed25519PublicKey],
+    issuer_public_keys: Mapping[str, Ed25519PublicKey],
+) -> tuple[str, str]:
+    """Require and verify both sides of the ES-023 two-signature model."""
+
+    evidence_key_id = verify_record_signature(record, public_keys=evidence_public_keys)
+    issuer_key_id = verify_attestation_counter_signature(
+        record, issuer_public_keys=issuer_public_keys
+    )
+    return evidence_key_id, issuer_key_id
