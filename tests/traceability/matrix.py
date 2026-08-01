@@ -937,12 +937,20 @@ def baseline_assertions(
             f"no merge base between HEAD and {ref} -- unrelated histories, or the common "
             f"ancestor was not fetched (actions/checkout needs fetch-depth: 0)"
         )
+    # A merge base equal to HEAD means the catalogue is being compared against
+    # itself, so nothing can ever be new. That is the legitimate state on a push
+    # build to the integration branch -- the PR was gated before it merged -- but
+    # it is a vacuous check either way, and a vacuous check that reads as a clean
+    # one is how every other seam in this gate went wrong. Say so plainly.
+    head = (_git(repo_root, "rev-parse", "HEAD") or "").strip()
+    vacuous = " -- this IS HEAD, so nothing can be new in this build" if base == head else ""
+
     blob = _git(repo_root, "show", f"{base}:{ar_relpath}")
     if blob is None:
         # The file not existing at the baseline is a real answer, not a
         # failure: every assertion in it today is new.
-        return {}, f"{ar_relpath} did not exist at merge base {base[:12]}"
-    return _parse_catalogue(blob), f"merge base {base[:12]} with {ref}"
+        return {}, f"{ar_relpath} did not exist at merge base {base[:12]}{vacuous}"
+    return _parse_catalogue(blob), f"merge base {base[:12]} with {ref}{vacuous}"
 
 
 def collect_node_ids(repo_root: Path, target: str = "tests") -> list[str]:
@@ -1343,7 +1351,7 @@ def _check_regressions(
                 location=description,
                 detail="cannot tell a new unmapped assertion from existing backlog without "
                        "the previous catalogue. Fetch enough history for the baseline ref "
-                       "(actions/checkout needs fetch-depth: 0) or pass --baseline-ref. "
+                       "(actions/checkout needs fetch-depth: 0). "
                        "Not assumed clean: that is how this gate would stop working quietly",
             )
         ]
@@ -1793,14 +1801,27 @@ def main(
     *,
     real_today: date | None = None,
     regression_gate: bool = True,
+    baseline_ref: str = DEFAULT_BASELINE_REF,
+    today: date | None = None,
 ) -> int:
-    """`real_today` and `regression_gate` are test seams, not command-line flags.
+    """These three are test seams, deliberately not command-line flags.
 
-    Both were argparse options once. Exposing either hands every build the
-    escape hatch the gate exists to prevent -- `--no-baseline` in particular
-    switched QA-S-001 off entirely, which is a public off switch for an
-    acceptance criterion. `--baseline-ref` remains, because pointing the
-    comparison at a different commit is not the same as skipping it.
+These four are test seams, deliberately not command-line flags.
+
+    Each was an argparse option once, and every one of them turned out to be, or
+    to be one bug away from, an off switch for a gate that exists precisely so it
+    cannot be switched off:
+
+      --no-baseline    disabled QA-S-001 outright
+      --baseline-ref   pointed at HEAD, compared the catalogue against itself
+      --today          held a live stage back, until the sentinel bug was fixed
+
+    `--today` was the last survivor and was arguably safe: the real calendar is a
+    floor, so it could only ever strengthen. It is gone anyway. Defending the one
+    remaining knob on the grounds that this one is provably fine is how the
+    previous three were justified too, and the invariant is worth more as a
+    structural fact than as an argument: **no command-line input can weaken
+    either gate.** argv selects what to read and where to write, nothing else.
     """
     ap = argparse.ArgumentParser(description=__doc__.splitlines()[0] if __doc__ else None)
     ap.add_argument("--repo-root", type=Path, default=Path.cwd())
@@ -1823,14 +1844,6 @@ def main(
     ap.add_argument("--fail-on", choices=[s.value for s in Severity], default="low",
                     help="in enforce mode, the least severe finding that fails the build. "
                          "May only strengthen the QA-011 schedule, never weaken it")
-    ap.add_argument("--baseline-ref", default=DEFAULT_BASELINE_REF, metavar="REF",
-                    help="ref whose merge base supplies the previous assertion catalogue, "
-                         "used to tell a new unmapped assertion from existing backlog "
-                         f"(default: {DEFAULT_BASELINE_REF})")
-    ap.add_argument("--today", type=date.fromisoformat, default=None, metavar="YYYY-MM-DD",
-                    help="evaluate the QA-011 schedule as of this date instead of today. "
-                         "For testing the ratchet; it cannot weaken a mandate that has "
-                         "already taken effect in the real calendar")
     args = ap.parse_args(argv)
 
     root = args.repo_root.resolve()
@@ -1852,7 +1865,7 @@ def main(
     baseline: dict[str, CatalogueEntry] | None = None
     if regression_gate:
         baseline, baseline_description = baseline_assertions(
-            root, args.baseline_ref, str(Path(docs.name) / "attestation-reliance.md")
+            root, baseline_ref, str(Path(docs.name) / "attestation-reliance.md")
         )
     else:
         baseline_description = "QA-S-001 regression gate disabled by the caller"
@@ -1883,7 +1896,7 @@ def main(
     # push a live one back. effective_threshold() takes the real calendar as a
     # floor, so there is no comparison here to get wrong.
     real = real_today if real_today is not None else date.today()
-    asof = args.today or real
+    asof = today or real
 
     requested = Severity(args.fail_on) if args.mode == "enforce" else None
     threshold, why = effective_threshold(requested, asof, real)
@@ -1894,8 +1907,8 @@ def main(
               "from Python, never from the command line.")
     print(f"QA-011 enforcement as of {real.isoformat()}: {why}.")
     if asof != real:
-        print(f"(--today {asof.isoformat()} supplied; it may bring a stage forward, "
-              f"never defer one.)")
+        print(f"(evaluated as of {asof.isoformat()}; a supplied date may bring a stage "
+              f"forward, never defer one.)")
 
     # QA-S-001 is not staged. A regression blocks whatever the schedule says.
     immediate = [f for f in matrix.findings if f.kind in ALWAYS_BLOCKING]

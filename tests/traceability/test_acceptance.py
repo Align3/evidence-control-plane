@@ -72,7 +72,7 @@ def _corpus(tmp_path: Path, name: str) -> Path:
     return root
 
 
-def _run(root: Path, *extra: str) -> int:
+def _run(root: Path, *extra: str, today: date | None = None) -> int:
     return main(
         [
             "--repo-root", str(root),
@@ -81,6 +81,7 @@ def _run(root: Path, *extra: str) -> int:
             "--collect-from", str(root / "collected.txt"),
             *extra,
         ],
+        today=today,
         regression_gate=False,
     )
 
@@ -120,18 +121,25 @@ def _git_corpus(tmp_path: Path, baseline: str, current: str) -> Path:
     return root
 
 
-def _run_as_ci(root: Path) -> int:
-    """Exactly what .github/workflows/ci.yml invokes: --mode report."""
+def _run_as_ci(root: Path, *, baseline_ref: str = "base") -> int:
+    """The argv .github/workflows/ci.yml invokes, verbatim: --mode report.
+
+    `baseline_ref` is passed as a keyword because it is no longer a command-line
+    option -- pointed at HEAD it compared the catalogue against itself, which is
+    an off switch spelled differently. The fixture repository has no
+    `origin/develop`, so tests redirect it through the same Python seam the
+    calendar uses. The argv itself stays exactly what CI runs.
+    """
     return main(
         [
             "--repo-root", str(root),
             "--docs", str(root / "docs"),
             "--features", str(root / "no-features"),
             "--collect-from", str(root / "collected.txt"),
-            "--baseline-ref", "base",
             "--mode", "report",
         ],
         real_today=date(2026, 8, 1),
+        baseline_ref=baseline_ref,
     )
 
 
@@ -221,10 +229,10 @@ def test_an_unreadable_baseline_blocks_rather_than_passing(
             "--docs", str(root / "docs"),
             "--features", str(root / "no-features"),
             "--collect-from", str(root / "collected.txt"),
-            "--baseline-ref", "no-such-ref",
             "--mode", "report",
         ],
         real_today=date(2026, 8, 1),
+        baseline_ref="no-such-ref",
     )
     output = capsys.readouterr().out
 
@@ -317,10 +325,10 @@ def test_the_gate_bites_on_the_expiry_date(
     """End to end through the CLI: same corpus, green before, red after."""
     root = _corpus(tmp_path, "assertion_without_scenario")
 
-    assert _run(root, "--mode", "report", "--today", "2026-08-07") == 0
+    assert _run(root, "--mode", "report", today=date(2026, 8, 7)) == 0
     assert "report-only" in capsys.readouterr().out
 
-    assert _run(root, "--mode", "report", "--today", "2026-08-08") == 1
+    assert _run(root, "--mode", "report", today=date(2026, 8, 8)) == 1
     output = capsys.readouterr().out
     assert "ASSERTION_NO_SCENARIO" in output
     assert "FAIL" in output
@@ -359,9 +367,9 @@ def test_today_cannot_disable_a_live_stage_through_the_cli(
             "--features", str(root / "no-features"),
             "--collect-from", str(root / "collected.txt"),
             "--mode", "report",
-            "--today", supplied.isoformat(),
         ],
         real_today=real,
+        today=supplied,
         regression_gate=False,
     )
     output = capsys.readouterr().out
@@ -400,9 +408,9 @@ def test_a_future_today_may_still_bring_a_stage_forward(
             "--features", str(root / "no-features"),
             "--collect-from", str(root / "collected.txt"),
             "--mode", "report",
-            "--today", "2026-10-01",
         ],
         real_today=date(2026, 8, 1),
+        today=date(2026, 10, 1),
         regression_gate=False,
     )
     output = capsys.readouterr().out
@@ -429,7 +437,6 @@ def test_no_baseline_is_not_a_command_line_option(
                 "--repo-root", str(root),
                 "--docs", str(root / "docs"),
                 "--collect-from", str(root / "collected.txt"),
-                "--baseline-ref", "base",
                 "--no-baseline",
             ]
         )
@@ -489,3 +496,73 @@ def test_changing_the_claim_text_alone_is_a_regression(
     assert code == 1, "a rewritten claim on an unmapped assertion is newly unmapped"
     assert "NEW_ASSERTION_NO_SCENARIO" in output
     assert "claim text changed" in output
+
+
+def test_baseline_ref_is_not_a_command_line_option(tmp_path: Path) -> None:
+    """PR #6 review, final finding: the last CLI input to the gate.
+
+    `--baseline-ref HEAD` compared the catalogue against itself and suppressed a
+    committed new unmapped assertion. An arbitrary ref is not a weaker knob than
+    an off switch, it *is* the off switch spelled differently. Removed, so no
+    command-line input can weaken either gate: argv selects what to read and
+    where to write, and nothing else.
+    """
+    root = _git_corpus(
+        tmp_path, baseline="catalogue-empty.md", current="catalogue-unmapped.md"
+    )
+    with pytest.raises(SystemExit) as exit_info:
+        main(
+            [
+                "--repo-root", str(root),
+                "--docs", str(root / "docs"),
+                "--collect-from", str(root / "collected.txt"),
+                "--baseline-ref", "HEAD",
+            ]
+        )
+    assert exit_info.value.code == 2, "argparse must reject the removed flag"
+
+
+def test_no_cli_argument_can_weaken_either_gate(tmp_path: Path) -> None:
+    """The property the three removals buy, asserted directly.
+
+    If this fails, someone has reintroduced a knob. The check is deliberately
+    against the parser rather than behaviour: a new option that happens to be
+    harmless today is still the shape of every finding in this review.
+    """
+    import argparse
+    import contextlib
+    import io
+
+    from tests.traceability import matrix as module
+
+    parser_help = io.StringIO()
+    with contextlib.redirect_stdout(parser_help), contextlib.suppress(SystemExit):
+        module.main(["--help"])
+    text = parser_help.getvalue()
+
+    for forbidden in ("--today", "--no-baseline", "--baseline-ref"):
+        assert forbidden not in text, f"{forbidden} must not be a command-line option"
+    assert isinstance(argparse.ArgumentParser(), argparse.ArgumentParser)
+
+
+def test_a_baseline_equal_to_head_is_reported_as_vacuous(
+    tmp_path: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
+    """A comparison that cannot find anything must not read as a clean one.
+
+    On a push build to the integration branch the merge base is HEAD, so nothing
+    can be new. That is legitimate -- the PR was gated before it merged -- but a
+    vacuous check reading as a passing one is how every other seam here went
+    wrong, so it is labelled.
+    """
+    root = _git_corpus(
+        tmp_path, baseline="catalogue-unmapped.md", current="catalogue-unmapped.md"
+    )
+
+    code = _run_as_ci(root, baseline_ref="HEAD")
+    output = capsys.readouterr().out
+
+    assert code == 0
+    assert "this IS HEAD, so nothing can be new" in output, (
+        "a self-comparison must say so rather than reporting a clean gate"
+    )
