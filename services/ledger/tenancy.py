@@ -23,6 +23,7 @@ from .naming import (
     partition_name,
     validate_tenant_id,
 )
+from .registry import assert_registry_isolated
 
 #: Privileges the tenant role must never hold on evidence, restated as an
 #: explicit REVOKE. They are never granted; revoking as well means an
@@ -99,6 +100,10 @@ def provision_tenant(
         connection.execute(text(statement))
 
     _assert_append_only(connection, role=role, partition=partition)
+    # The new tenant role gains SELECT on the registry through
+    # REGISTRY_READER_ROLE. If row-level isolation were missing, that grant
+    # would let it enumerate every other tenant (SE-011).
+    assert_registry_isolated(connection)
 
 
 def _assert_append_only(connection: Connection, *, role: str, partition: str) -> None:

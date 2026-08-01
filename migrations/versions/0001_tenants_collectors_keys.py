@@ -38,6 +38,12 @@ APP_LOGIN_ROLE = "evidence_app"
 REGISTRY_READER_ROLE = "evidence_registry_reader"
 REGISTRY_TABLES = ("tenants", "collectors", "keys")
 
+# Mirrors services.ledger.naming. Every tenant role is named by prefixing
+# the tenant id, which is what lets the RLS predicate below identify the
+# row's tenant from `current_user` without a lookup.
+TENANT_ROLE_PREFIX = "evidence_tenant_"
+POLICY_NAME = "tenant_isolation"
+
 # Mirrors services.ledger.naming.TENANT_ID_SQL_PATTERN. Constraining the
 # tenant id to characters that are already a legal SQL identifier makes the
 # tenant -> partition-name mapping the identity function, so two tenants can
@@ -207,9 +213,39 @@ def upgrade() -> None:
             f'FROM "{REGISTRY_READER_ROLE}", "{APP_LOGIN_ROLE}"'
         )
 
+    # --- registry row-level security (SE-011, DM-006 amendment 1) --------
+    #
+    # A SELECT grant on `tenants` alone lets any tenant enumerate every
+    # customer we have; `collectors` exposes another customer's deployment
+    # topology. Both are confidentiality failures on their face, and for a
+    # product sold on trustworthiness they are the kind an enterprise
+    # security reviewer finds in five minutes.
+    #
+    # RLS rather than partitioning, deliberately. Ingestion resolves a
+    # collector by id (SE-018) and must not have to determine the tenant
+    # first in order to know which relation to name -- partitioning would
+    # invert that dependency. RLS keeps the query shape and still makes the
+    # other tenant's rows structurally invisible rather than filtered by
+    # application code.
+    #
+    # The predicate names the role directly instead of calling a helper
+    # function: there is no function for a later migration to redefine, and
+    # nothing to shadow.
+    for table in REGISTRY_TABLES:
+        op.execute(f"ALTER TABLE {table} ENABLE ROW LEVEL SECURITY")
+        op.execute(
+            f"CREATE POLICY {POLICY_NAME} ON {table}"
+            f"  FOR SELECT USING (current_user = '{TENANT_ROLE_PREFIX}' || tenant_id)"
+        )
+    # NOT FORCE ROW LEVEL SECURITY: the owner bypasses these policies, which
+    # is what leaves provisioning and cross-tenant administration possible
+    # through the separately-credentialed path (SE-012 §6, SE-013).
+
 
 def downgrade() -> None:
     for table in REGISTRY_TABLES:
+        op.execute(f"DROP POLICY IF EXISTS {POLICY_NAME} ON {table}")
+        op.execute(f"ALTER TABLE {table} DISABLE ROW LEVEL SECURITY")
         op.execute(f'REVOKE ALL ON TABLE {table} FROM "{REGISTRY_READER_ROLE}"')
     op.drop_index("ix_collectors_tenant", table_name="collectors")
     op.drop_index("ix_keys_tenant_namespace", table_name="keys")

@@ -142,8 +142,12 @@ def _no_application_filter(
             {"pattern": f"{EVIDENCE_PARENT_TABLE}%"},
         ).all()
         assert policies == [], (
-            "a row-level security policy is present; SE-011 requires structural "
-            "inexpressibility, and a policy is a filter by another name"
+            "a row-level security policy is present on the evidence tables. "
+            "Evidence is always read in a tenant's context, so partitioning "
+            "costs nothing and gives the stronger guarantee -- the relation "
+            "cannot be named at all. A policy here would be a weaker "
+            "mechanism chosen for no reason. (The registry tables do use "
+            "RLS, because they are read by id: DM-006, DM-022.)"
         )
 
 

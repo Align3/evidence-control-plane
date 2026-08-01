@@ -52,6 +52,12 @@ from .projection import (
     rebuild_projection,
     verify_projection,
 )
+from .registry import (
+    REGISTRY_TABLES,
+    TENANT_ISOLATION_POLICY,
+    assert_registry_isolated,
+    registry_isolation_status,
+)
 from .schema import (
     PROJECTION_COLUMNS,
     VERIFIED_HEADER_COLUMNS,
@@ -73,12 +79,15 @@ __all__ = [
     "FORBIDDEN_GRANTS",
     "PROJECTION_COLUMNS",
     "REGISTRY_READER_ROLE",
+    "REGISTRY_TABLES",
     "TENANT_ID_SQL_PATTERN",
+    "TENANT_ISOLATION_POLICY",
     "VERIFIED_HEADER_COLUMNS",
     "LedgerConfig",
     "ProjectionMismatch",
     "app_engine",
     "application_role",
+    "assert_registry_isolated",
     "collectors",
     "deprovision_tenant",
     "digest_bytes",
@@ -94,6 +103,7 @@ __all__ = [
     "projection_columns_present",
     "provision_tenant",
     "rebuild_projection",
+    "registry_isolation_status",
     "tenant_connection",
     "tenants",
     "validate_tenant_id",

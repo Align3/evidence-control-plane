@@ -24,7 +24,22 @@ This is the shared contract between concurrently working agents. On DamDam, a re
 
 **DM-005** — `canonical_bytes` is authoritative. Every parsed column is a projection and must be rebuildable from it (AC-015). A migration that changes a projection column does not touch `canonical_bytes`.
 
-**DM-006** — Per-tenant partitioning on `evidence_records`. Cross-tenant reads must be inexpressible at the query layer, not filtered in application code (SE-011).
+**DM-006** — Cross-tenant reads must be inexpressible at the query layer, not filtered in application code (SE-011). Two mechanisms, because two access patterns:
+
+| Tables | Mechanism | Why |
+|---|---|---|
+| `evidence_records` | Per-tenant `LIST` partitioning; no role holds any privilege on the parent | Evidence is always read in a tenant's context, so partitioning costs the query nothing and buys the strongest statement available: the other tenant's rows sit in a relation the role cannot name |
+| `tenants`, `collectors`, `keys` | Row-level security policy scoped to `current_user` | The registry is read **by id** — ingestion resolves a collector from the `collector_id` on an incoming record (SE-018). Partitioning would require knowing the tenant before it could name the relation that tells it the tenant |
+
+Neither is a `WHERE` clause in application code, which is what SE-011 forbids. Application-layer filtering is defeated by any code path that forgets it, and there is always one.
+
+#### §1 amendment 1 — registry isolation (EV-06)
+
+**DM-022** — Row-level security on the registry tables was added after review of EV-06 found that a `SELECT` grant on `tenants` alone let any tenant role enumerate every customer, and `collectors` exposed other customers' deployment topology. `keys` holds public keys and so carries little confidentiality weight, but is covered for consistency: a registry table without a policy invites the question of which others lack one.
+
+Policies are `ENABLE`, not `FORCE`, so the owner bypasses them. That is what keeps provisioning and cross-tenant administration possible through the separately-credentialed path (SE-012 §6); those operations are logged and surfaced to the affected tenant under SE-013.
+
+The policy predicate names the role directly — `current_user = 'evidence_tenant_' || tenant_id` — rather than reading a session variable. A session variable is settable by the session, which would make the isolation advisory.
 
 **DM-007** — No `ON DELETE CASCADE` anywhere touching evidence. Deletion of evidence is blocked while a covering attestation is valid (SE-017), and cascades make that invariant unenforceable.
 
@@ -162,6 +177,10 @@ Indexes: `(tenant_id, action_id)`, `(tenant_id, action_family, source_time)`, `(
 
 **DM-020** — `tenant_id` is constrained by CHECK to `^[a-z0-9]([a-z0-9_]{0,46}[a-z0-9])?$`. The tenant id reaches SQL identifiers in `CREATE TABLE ... PARTITION OF` and `CREATE ROLE`, neither of which accepts a bind parameter; restricting it to characters that are already a legal identifier makes the tenant → partition-name mapping injective, so two tenants can never derive one partition.
 
+**DM-023** — `canonical_bytes` holds the JCS-canonical record **excluding** the `signature` field: the exact bytes that were signed (ES-021). The signature itself is decomposed into the `signature` and `key_id` columns. Storing what was signed, verbatim, means verification never re-canonicalises — and re-canonicalisation is precisely where two independent implementations diverge, which is what makes `ES-S-007` achievable at EV-05.
+
+The consequence is a reassembly step: an export bundle must carry the **full** record including `signature`, so EV-19 needs a defined, tested reconstruction from `canonical_bytes` + `signature` + `key_id` back to the wire form. Not built here; recorded so it is not discovered late.
+
 **DM-021** — Writing the projection requires `UPDATE`, which SE-012 grants to no application role. Projection rebuild (`services/ledger/projection.py`) therefore runs under the migrator credential and is unreachable from any service handling traffic. This is the design and not a workaround: a rebuild path the ingestion role could execute would mean that role held `UPDATE`, and AC-012 would be false.
 
 ### 2.7 `population_records`
@@ -277,7 +296,7 @@ Claim a number here before writing the migration (DM-001).
 
 | # | Story | Description | Status |
 |---|---|---|---|
-| 0001 | EV-06 | Tenants, collectors, keys | applied |
+| 0001 | EV-06 | Tenants, collectors, keys; registry row-level security (DM-022) | applied |
 | 0002 | EV-06 | `evidence_records` + partitioning + role grants | applied |
 | 0003 | EV-12 | Boundaries, qualification records | unclaimed |
 | 0004 | EV-14 | Population records | unclaimed |
