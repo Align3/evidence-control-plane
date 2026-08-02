@@ -52,7 +52,7 @@ class SignedIngestionReceipt:
     signature: bytes
 
 
-def _parse_timestamp(value: str) -> datetime:
+def parse_timestamp(value: str) -> datetime:
     leap_second = _LEAP_SECOND.search(value) is not None
     normalized = _LEAP_SECOND.sub(":59", value).replace("Z", "+00:00")
     try:
@@ -84,7 +84,7 @@ def _whole_milliseconds(delta: timedelta) -> int:
 def measure_clock_skew_ms(*, source_time: str, ingest_time: str) -> int:
     """Return ``ingest_time - source_time`` in whole milliseconds."""
 
-    return _whole_milliseconds(_parse_timestamp(ingest_time) - _parse_timestamp(source_time))
+    return _whole_milliseconds(parse_timestamp(ingest_time) - parse_timestamp(source_time))
 
 
 def create_ingestion_receipt(

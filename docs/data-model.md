@@ -81,6 +81,7 @@ Registered collection sources. Records from unregistered collectors are rejected
 |---|---|---|
 | `key_id` | text PK | |
 | `tenant_id` | text FK | |
+| `collector_id` | text FK null | Required for `evidence`; forbidden for `issuer` |
 | `namespace` | enum | `evidence` \| `issuer` — structurally distinct (SE-003) |
 | `public_key` | bytea | |
 | `custody` | enum | `client_held` \| `hosted_kms` |
@@ -91,6 +92,8 @@ Registered collection sources. Records from unregistered collectors are rejected
 | `compromised_from` | timestamptz null | SE-009 |
 
 **DM-008** — A key in namespace `issuer` may never sign an evidence record; a key in namespace `evidence` may never counter-sign an attestation. Enforced by a check at ingestion and at issuance, tested by SE-S-001.
+
+For SE-018, every `evidence` key is bound to exactly one registered collector by the composite foreign key `(tenant_id, collector_id)`; an `issuer` key is bound to none. Key rotation may create multiple evidence keys for one collector, but one evidence key cannot authenticate two collector identities. The database refuses both an unbound evidence key and an issuer key carrying a collector binding. Ingestion requires the record's declared `source.collector_id` to equal the signing key's binding.
 
 ### 2.4 `boundaries`
 

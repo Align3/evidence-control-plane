@@ -116,14 +116,15 @@ def record_factories(owner_engine: Engine, tenants: list[str]) -> dict[str, Reco
             )
             conn.execute(
                 text(
-                    "INSERT INTO keys (key_id, tenant_id, namespace, public_key,"
-                    " custody, valid_from)"
-                    " VALUES (:kid, :tid, 'evidence', :pk, 'client_held', now())"
+                    "INSERT INTO keys (key_id, tenant_id, collector_id, namespace,"
+                    " public_key, custody, valid_from)"
+                    " VALUES (:kid, :tid, :cid, 'evidence', :pk, 'client_held', now())"
                     " ON CONFLICT (key_id) DO NOTHING"
                 ),
                 {
                     "kid": key_id,
                     "tid": tenant_id,
+                    "cid": collector_id,
                     "pk": private_key.public_key().public_bytes_raw(),
                 },
             )
