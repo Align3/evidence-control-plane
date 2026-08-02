@@ -1,0 +1,2238 @@
+{
+  "encoding": {
+    "binary": "base64url-unpadded",
+    "digest": "sha256:<lowercase-hex>",
+    "json": "UTF-8"
+  },
+  "format": "evidence-control-plane-conformance-vectors",
+  "format_version": "1.0.0",
+  "spec_version": "0.1",
+  "vectors": [
+    {
+      "expected": {
+        "accepted": true,
+        "canonical_json": "{\"a\":[3,2,1],\"nested\":{\"a\":null,\"b\":true},\"z\":0}",
+        "canonical_utf8_hex": "7b2261223a5b332c322c315d2c226e6573746564223a7b2261223a6e756c6c2c2262223a747275657d2c227a223a307d",
+        "digest": "sha256:f9ecae05d66d7919e788ef4146a301a9b98df03877f524a6d615b32a46eef224"
+      },
+      "id": "canonical-object-order",
+      "input_json": "{\"z\":0,\"a\":[3,2,1],\"nested\":{\"b\":true,\"a\":null}}",
+      "operation": "canonicalize"
+    },
+    {
+      "expected": {
+        "accepted": true,
+        "canonical_json": "{\"😀\":2,\"\":1}",
+        "canonical_utf8_hex": "7b22f09f9880223a322c22ee8080223a317d",
+        "digest": "sha256:28c95d1bbb2209223307e62f489020e8f9e0cfa16adf2daf6d88127a1e8dd22a"
+      },
+      "id": "canonical-utf16-order",
+      "input_json": "{\"\\ue000\":1,\"\\ud83d\\ude00\":2}",
+      "operation": "canonicalize"
+    },
+    {
+      "expected": {
+        "accepted": true,
+        "canonical_json": "{\"text\":\"\\b\\t\\n\\f\\r\\u0000\\u001f\\\\\\\"/€\"}",
+        "canonical_utf8_hex": "7b2274657874223a225c625c745c6e5c665c725c75303030305c75303031665c5c5c222fe282ac227d",
+        "digest": "sha256:639c0c39c9dd2ddd64cd0bea1c15126d0e3d273132e63ec7377e319dce048124"
+      },
+      "id": "canonical-string-escaping",
+      "input_json": "{\"text\":\"\\b\\t\\n\\f\\r\\u0000\\u001f\\\\\\\"/€\"}",
+      "operation": "canonicalize"
+    },
+    {
+      "expected": {
+        "accepted": true,
+        "canonical_json": "{\"max\":9007199254740991,\"min\":-9007199254740991,\"zero\":0}",
+        "canonical_utf8_hex": "7b226d6178223a393030373139393235343734303939312c226d696e223a2d393030373139393235343734303939312c227a65726f223a307d",
+        "digest": "sha256:b7b2401ddca2165824e98c61890c0aaec470258d3119dd265d02be9438bf47e6"
+      },
+      "id": "canonical-safe-integers",
+      "input_json": "{\"max\":9007199254740991,\"min\":-9007199254740991,\"zero\":0}",
+      "operation": "canonicalize"
+    },
+    {
+      "expected": {
+        "accepted": true,
+        "canonical_json": "{\"á\":2,\"á\":1}",
+        "canonical_utf8_hex": "7b2261cc81223a322c22c3a1223a317d",
+        "digest": "sha256:b46e2cb8568bd9153c898cdd7e9243b44f9a937741a3508700759b5631817839"
+      },
+      "id": "canonical-preserves-unicode-normalization",
+      "input_json": "{\"á\":1,\"á\":2}",
+      "operation": "canonicalize"
+    },
+    {
+      "expected": {
+        "accepted": false,
+        "error_code": "canonicalization.float_forbidden"
+      },
+      "id": "reject-fraction",
+      "input_json": "{\"value\":1.5}",
+      "operation": "canonicalize"
+    },
+    {
+      "expected": {
+        "accepted": false,
+        "error_code": "canonicalization.float_forbidden"
+      },
+      "id": "reject-exponent",
+      "input_json": "{\"value\":1e0}",
+      "operation": "canonicalize"
+    },
+    {
+      "expected": {
+        "accepted": false,
+        "error_code": "canonicalization.integer_out_of_range"
+      },
+      "id": "reject-too-large-integer",
+      "input_json": "{\"value\":9007199254740992}",
+      "operation": "canonicalize"
+    },
+    {
+      "expected": {
+        "accepted": false,
+        "error_code": "canonicalization.integer_out_of_range"
+      },
+      "id": "reject-too-small-integer",
+      "input_json": "{\"value\":-9007199254740992}",
+      "operation": "canonicalize"
+    },
+    {
+      "expected": {
+        "accepted": false,
+        "error_code": "canonicalization.float_forbidden"
+      },
+      "id": "reject-nan",
+      "input_json": "{\"value\":NaN}",
+      "operation": "canonicalize"
+    },
+    {
+      "expected": {
+        "accepted": false,
+        "error_code": "canonicalization.float_forbidden"
+      },
+      "id": "reject-positive-infinity",
+      "input_json": "{\"value\":Infinity}",
+      "operation": "canonicalize"
+    },
+    {
+      "expected": {
+        "accepted": false,
+        "error_code": "canonicalization.float_forbidden"
+      },
+      "id": "reject-negative-infinity",
+      "input_json": "{\"value\":-Infinity}",
+      "operation": "canonicalize"
+    },
+    {
+      "expected": {
+        "accepted": false,
+        "error_code": "canonicalization.lone_surrogate"
+      },
+      "id": "reject-lone-surrogate",
+      "input_json": "{\"value\":\"\\ud800\"}",
+      "operation": "canonicalize"
+    },
+    {
+      "expected": {
+        "accepted": true,
+        "signature": {
+          "alg": "ed25519",
+          "key_id": "K1",
+          "sig": "VyP7Q-We7hCN2vfu_WD8nmZqiwAs5pSomWUQCsXu2lR1_OS3EX3-vMk-sNzygrFpQL4V8dNglLJ56MAV5QsPAw",
+          "signed_digest": "sha256:e9bd1182289f80078f989a3a01f086083770aae7b22ac1a80ac32e684dc42316"
+        },
+        "signed_digest": "sha256:e9bd1182289f80078f989a3a01f086083770aae7b22ac1a80ac32e684dc42316",
+        "signed_record": {
+          "body": {
+            "agent_id": "agent-1",
+            "credential_ref": "service_identity",
+            "deployment": "prod",
+            "model_versions": [
+              "model-1"
+            ],
+            "runtime": "python-3.12",
+            "service_identity": "collector@example.invalid",
+            "tenant_scope": "tenant-1",
+            "tool_versions": [
+              "tool-1"
+            ]
+          },
+          "boundary_ref": "boundary-1",
+          "clocks": {
+            "clock_skew_ms": 0,
+            "ingest_time": "2026-08-01T12:00:00.000+01:00",
+            "source_time": "2026-08-01T12:00:00.000+01:00"
+          },
+          "prev_digest": null,
+          "record_id": "01890f47-2f58-7cc0-98c4-000000000001",
+          "record_type": "AgentIdentity",
+          "schema_version": "1.0.0",
+          "sequence": 1,
+          "signature": {
+            "alg": "ed25519",
+            "key_id": "K1",
+            "sig": "VyP7Q-We7hCN2vfu_WD8nmZqiwAs5pSomWUQCsXu2lR1_OS3EX3-vMk-sNzygrFpQL4V8dNglLJ56MAV5QsPAw",
+            "signed_digest": "sha256:e9bd1182289f80078f989a3a01f086083770aae7b22ac1a80ac32e684dc42316"
+          },
+          "source": {
+            "collector": "vector-generator",
+            "version": "0.1.0"
+          },
+          "stream_id": "stream-1",
+          "tenant_id": "tenant-1"
+        },
+        "signed_record_digest": "sha256:3868726b98f9e45cc02cfc6c3cd13d513b1a5209e67a4398e2afbd9f80e503f6"
+      },
+      "id": "sign-customer-record",
+      "key_id": "K1",
+      "operation": "sign_record",
+      "private_key_seed": "AAECAwQFBgcICQoLDA0ODxAREhMUFRYXGBkaGxwdHh8",
+      "public_key": "A6EHv_POEL4dcN0Y50vAmWfk1jCbpQ1fHdyGZBJVMbg",
+      "unsigned_record": {
+        "body": {
+          "agent_id": "agent-1",
+          "credential_ref": "service_identity",
+          "deployment": "prod",
+          "model_versions": [
+            "model-1"
+          ],
+          "runtime": "python-3.12",
+          "service_identity": "collector@example.invalid",
+          "tenant_scope": "tenant-1",
+          "tool_versions": [
+            "tool-1"
+          ]
+        },
+        "boundary_ref": "boundary-1",
+        "clocks": {
+          "clock_skew_ms": 0,
+          "ingest_time": "2026-08-01T12:00:00.000+01:00",
+          "source_time": "2026-08-01T12:00:00.000+01:00"
+        },
+        "prev_digest": null,
+        "record_id": "01890f47-2f58-7cc0-98c4-000000000001",
+        "record_type": "AgentIdentity",
+        "schema_version": "1.0.0",
+        "sequence": 1,
+        "signature": {},
+        "source": {
+          "collector": "vector-generator",
+          "version": "0.1.0"
+        },
+        "stream_id": "stream-1",
+        "tenant_id": "tenant-1"
+      }
+    },
+    {
+      "expected": {
+        "accepted": true,
+        "signature": {
+          "alg": "ed25519",
+          "key_id": "K1",
+          "sig": "OdoL6bpuhaLNn0jGNvFvgRCpxxlHlZ-KFndaB0HZh5KJC5p4fsbr6-vus4NKeevToyyAXsirlD14SHZ9RtOwAw",
+          "signed_digest": "sha256:a1fc4e960d31d4e9e40f30e639a133b8af600d2dcb4eba28aeddb5aa4863b4c5"
+        },
+        "signed_digest": "sha256:a1fc4e960d31d4e9e40f30e639a133b8af600d2dcb4eba28aeddb5aa4863b4c5",
+        "signed_record": {
+          "body": {
+            "agent_id": "agent-1",
+            "credential_ref": "service_identity",
+            "deployment": "prod",
+            "future_extension": {
+              "included_in_signature": true,
+              "version": 2
+            },
+            "model_versions": [
+              "model-1"
+            ],
+            "runtime": "python-3.12",
+            "service_identity": "collector@example.invalid",
+            "tenant_scope": "tenant-1",
+            "tool_versions": [
+              "tool-1"
+            ]
+          },
+          "boundary_ref": "boundary-1",
+          "clocks": {
+            "clock_skew_ms": 0,
+            "ingest_time": "2026-08-01T12:00:00.000+01:00",
+            "source_time": "2026-08-01T12:00:00.000+01:00"
+          },
+          "prev_digest": null,
+          "record_id": "01890f47-2f58-7cc0-98c4-000000000001",
+          "record_type": "AgentIdentity",
+          "schema_version": "1.0.0",
+          "sequence": 1,
+          "signature": {
+            "alg": "ed25519",
+            "key_id": "K1",
+            "sig": "OdoL6bpuhaLNn0jGNvFvgRCpxxlHlZ-KFndaB0HZh5KJC5p4fsbr6-vus4NKeevToyyAXsirlD14SHZ9RtOwAw",
+            "signed_digest": "sha256:a1fc4e960d31d4e9e40f30e639a133b8af600d2dcb4eba28aeddb5aa4863b4c5"
+          },
+          "source": {
+            "collector": "vector-generator",
+            "version": "0.1.0"
+          },
+          "stream_id": "stream-1",
+          "tenant_id": "tenant-1"
+        },
+        "signed_record_digest": "sha256:abd91eec22a490e597cd21684f5e041bb74d305be6d81c0e42222564373d9f7a"
+      },
+      "id": "sign-record-preserves-unknown-body-member",
+      "key_id": "K1",
+      "operation": "sign_record",
+      "private_key_seed": "AAECAwQFBgcICQoLDA0ODxAREhMUFRYXGBkaGxwdHh8",
+      "public_key": "A6EHv_POEL4dcN0Y50vAmWfk1jCbpQ1fHdyGZBJVMbg",
+      "unsigned_record": {
+        "body": {
+          "agent_id": "agent-1",
+          "credential_ref": "service_identity",
+          "deployment": "prod",
+          "future_extension": {
+            "included_in_signature": true,
+            "version": 2
+          },
+          "model_versions": [
+            "model-1"
+          ],
+          "runtime": "python-3.12",
+          "service_identity": "collector@example.invalid",
+          "tenant_scope": "tenant-1",
+          "tool_versions": [
+            "tool-1"
+          ]
+        },
+        "boundary_ref": "boundary-1",
+        "clocks": {
+          "clock_skew_ms": 0,
+          "ingest_time": "2026-08-01T12:00:00.000+01:00",
+          "source_time": "2026-08-01T12:00:00.000+01:00"
+        },
+        "prev_digest": null,
+        "record_id": "01890f47-2f58-7cc0-98c4-000000000001",
+        "record_type": "AgentIdentity",
+        "schema_version": "1.0.0",
+        "sequence": 1,
+        "signature": {},
+        "source": {
+          "collector": "vector-generator",
+          "version": "0.1.0"
+        },
+        "stream_id": "stream-1",
+        "tenant_id": "tenant-1"
+      }
+    },
+    {
+      "expected": {
+        "accepted": false,
+        "error_code": "signature.unknown_customer_member"
+      },
+      "id": "reject-unknown-customer-signature-member",
+      "operation": "verify_signature",
+      "public_keys": {
+        "K1": "A6EHv_POEL4dcN0Y50vAmWfk1jCbpQ1fHdyGZBJVMbg"
+      },
+      "record": {
+        "body": {
+          "agent_id": "agent-1",
+          "credential_ref": "service_identity",
+          "deployment": "prod",
+          "model_versions": [
+            "model-1"
+          ],
+          "runtime": "python-3.12",
+          "service_identity": "collector@example.invalid",
+          "tenant_scope": "tenant-1",
+          "tool_versions": [
+            "tool-1"
+          ]
+        },
+        "boundary_ref": "boundary-1",
+        "clocks": {
+          "clock_skew_ms": 0,
+          "ingest_time": "2026-08-01T12:00:00.000+01:00",
+          "source_time": "2026-08-01T12:00:00.000+01:00"
+        },
+        "prev_digest": null,
+        "record_id": "01890f47-2f58-7cc0-98c4-000000000001",
+        "record_type": "AgentIdentity",
+        "schema_version": "1.0.0",
+        "sequence": 1,
+        "signature": {
+          "alg": "ed25519",
+          "junk": "not-authenticated",
+          "key_id": "K1",
+          "sig": "VyP7Q-We7hCN2vfu_WD8nmZqiwAs5pSomWUQCsXu2lR1_OS3EX3-vMk-sNzygrFpQL4V8dNglLJ56MAV5QsPAw",
+          "signed_digest": "sha256:e9bd1182289f80078f989a3a01f086083770aae7b22ac1a80ac32e684dc42316"
+        },
+        "source": {
+          "collector": "vector-generator",
+          "version": "0.1.0"
+        },
+        "stream_id": "stream-1",
+        "tenant_id": "tenant-1"
+      }
+    },
+    {
+      "expected": {
+        "accepted": false,
+        "error_code": "signature.missing_customer_member"
+      },
+      "id": "reject-missing-customer-signature-member",
+      "operation": "verify_signature",
+      "public_keys": {
+        "K1": "A6EHv_POEL4dcN0Y50vAmWfk1jCbpQ1fHdyGZBJVMbg"
+      },
+      "record": {
+        "body": {
+          "agent_id": "agent-1",
+          "credential_ref": "service_identity",
+          "deployment": "prod",
+          "model_versions": [
+            "model-1"
+          ],
+          "runtime": "python-3.12",
+          "service_identity": "collector@example.invalid",
+          "tenant_scope": "tenant-1",
+          "tool_versions": [
+            "tool-1"
+          ]
+        },
+        "boundary_ref": "boundary-1",
+        "clocks": {
+          "clock_skew_ms": 0,
+          "ingest_time": "2026-08-01T12:00:00.000+01:00",
+          "source_time": "2026-08-01T12:00:00.000+01:00"
+        },
+        "prev_digest": null,
+        "record_id": "01890f47-2f58-7cc0-98c4-000000000001",
+        "record_type": "AgentIdentity",
+        "schema_version": "1.0.0",
+        "sequence": 1,
+        "signature": {
+          "alg": "ed25519",
+          "key_id": "K1",
+          "sig": "VyP7Q-We7hCN2vfu_WD8nmZqiwAs5pSomWUQCsXu2lR1_OS3EX3-vMk-sNzygrFpQL4V8dNglLJ56MAV5QsPAw"
+        },
+        "source": {
+          "collector": "vector-generator",
+          "version": "0.1.0"
+        },
+        "stream_id": "stream-1",
+        "tenant_id": "tenant-1"
+      }
+    },
+    {
+      "expected": {
+        "accepted": false,
+        "error_code": "signature.algorithm_unsupported"
+      },
+      "id": "reject-unsupported-signature-algorithm",
+      "operation": "verify_signature",
+      "public_keys": {
+        "K1": "A6EHv_POEL4dcN0Y50vAmWfk1jCbpQ1fHdyGZBJVMbg"
+      },
+      "record": {
+        "body": {
+          "agent_id": "agent-1",
+          "credential_ref": "service_identity",
+          "deployment": "prod",
+          "model_versions": [
+            "model-1"
+          ],
+          "runtime": "python-3.12",
+          "service_identity": "collector@example.invalid",
+          "tenant_scope": "tenant-1",
+          "tool_versions": [
+            "tool-1"
+          ]
+        },
+        "boundary_ref": "boundary-1",
+        "clocks": {
+          "clock_skew_ms": 0,
+          "ingest_time": "2026-08-01T12:00:00.000+01:00",
+          "source_time": "2026-08-01T12:00:00.000+01:00"
+        },
+        "prev_digest": null,
+        "record_id": "01890f47-2f58-7cc0-98c4-000000000001",
+        "record_type": "AgentIdentity",
+        "schema_version": "1.0.0",
+        "sequence": 1,
+        "signature": {
+          "alg": "ed448",
+          "key_id": "K1",
+          "sig": "VyP7Q-We7hCN2vfu_WD8nmZqiwAs5pSomWUQCsXu2lR1_OS3EX3-vMk-sNzygrFpQL4V8dNglLJ56MAV5QsPAw",
+          "signed_digest": "sha256:e9bd1182289f80078f989a3a01f086083770aae7b22ac1a80ac32e684dc42316"
+        },
+        "source": {
+          "collector": "vector-generator",
+          "version": "0.1.0"
+        },
+        "stream_id": "stream-1",
+        "tenant_id": "tenant-1"
+      }
+    },
+    {
+      "expected": {
+        "accepted": false,
+        "error_code": "signature.encoding_invalid"
+      },
+      "id": "reject-padded-signature-encoding",
+      "operation": "verify_signature",
+      "public_keys": {
+        "K1": "A6EHv_POEL4dcN0Y50vAmWfk1jCbpQ1fHdyGZBJVMbg"
+      },
+      "record": {
+        "body": {
+          "agent_id": "agent-1",
+          "credential_ref": "service_identity",
+          "deployment": "prod",
+          "model_versions": [
+            "model-1"
+          ],
+          "runtime": "python-3.12",
+          "service_identity": "collector@example.invalid",
+          "tenant_scope": "tenant-1",
+          "tool_versions": [
+            "tool-1"
+          ]
+        },
+        "boundary_ref": "boundary-1",
+        "clocks": {
+          "clock_skew_ms": 0,
+          "ingest_time": "2026-08-01T12:00:00.000+01:00",
+          "source_time": "2026-08-01T12:00:00.000+01:00"
+        },
+        "prev_digest": null,
+        "record_id": "01890f47-2f58-7cc0-98c4-000000000001",
+        "record_type": "AgentIdentity",
+        "schema_version": "1.0.0",
+        "sequence": 1,
+        "signature": {
+          "alg": "ed25519",
+          "key_id": "K1",
+          "sig": "VyP7Q-We7hCN2vfu_WD8nmZqiwAs5pSomWUQCsXu2lR1_OS3EX3-vMk-sNzygrFpQL4V8dNglLJ56MAV5QsPAw=",
+          "signed_digest": "sha256:e9bd1182289f80078f989a3a01f086083770aae7b22ac1a80ac32e684dc42316"
+        },
+        "source": {
+          "collector": "vector-generator",
+          "version": "0.1.0"
+        },
+        "stream_id": "stream-1",
+        "tenant_id": "tenant-1"
+      }
+    },
+    {
+      "evidence_public_keys": {
+        "K1": "A6EHv_POEL4dcN0Y50vAmWfk1jCbpQ1fHdyGZBJVMbg"
+      },
+      "expected": {
+        "accepted": true,
+        "evidence_key_id": "K1",
+        "issuer_key_id": "ISSUER1",
+        "record_digest": "sha256:c07839ba1080c2c29281635160ee539f84a1a955a788e971cd6292476fd76e5a"
+      },
+      "id": "verify-customer-and-issuer-signatures",
+      "issuer_public_keys": {
+        "ISSUER1": "F0VTtFbd38aQjsqxwQH-arIeK6oGF3lbfUOmNIKZP9U"
+      },
+      "operation": "verify_attestation_signatures",
+      "private_key_seeds": {
+        "ISSUER1": "YGFiY2RlZmdoaWprbG1ub3BxcnN0dXZ3eHl6e3x9fn8",
+        "K1": "AAECAwQFBgcICQoLDA0ODxAREhMUFRYXGBkaGxwdHh8"
+      },
+      "record": {
+        "body": {
+          "assertions": [],
+          "boundary_ref": "boundary-1",
+          "counts": {},
+          "coverage_level": "observed",
+          "coverage_ratio": "1.0",
+          "denominator_class": "C1",
+          "exclusions": [],
+          "gaps": [],
+          "issued_at": "2026-08-01T12:00:00.000+01:00",
+          "issuer": "issuer-1",
+          "liability_ref": "terms-1",
+          "methodology_version": "1.0.0",
+          "population_record_refs": [],
+          "relying_parties": [],
+          "validity_from": "2026-08-01T12:00:00.000+01:00",
+          "validity_until": "2026-08-01T12:00:00.000+01:00",
+          "verification_status": "self_computed",
+          "verifier_version": "0.1.0",
+          "window_end": "2026-08-01T12:00:00.000+01:00",
+          "window_start": "2026-08-01T12:00:00.000+01:00"
+        },
+        "boundary_ref": "boundary-1",
+        "clocks": {
+          "clock_skew_ms": 0,
+          "ingest_time": "2026-08-01T12:00:00.000+01:00",
+          "source_time": "2026-08-01T12:00:00.000+01:00"
+        },
+        "prev_digest": null,
+        "record_id": "01890f47-2f58-7cc0-98c4-000000000064",
+        "record_type": "AttestationWindow",
+        "schema_version": "1.0.0",
+        "sequence": 1,
+        "signature": {
+          "alg": "ed25519",
+          "issuer": {
+            "alg": "ed25519",
+            "key_id": "ISSUER1",
+            "sig": "cQmySyqS83q3G2JbhFwRrv5f_YLI-SUnzd7IfQ2TNVlwiTmgcz_l7XM74WLSCgj_Ue7uyq2Fqbx_z4k0L2ZOBA",
+            "signed_digest": "sha256:b1d79fc4973a7b9895b24767d55989e7b92afc2e573fcf9213dd4209d33a781e"
+          },
+          "key_id": "K1",
+          "sig": "J2rABcDaV3pRk2YE-iwyBQeRSkX9VaTYACD7uEvF92W5ZdW7e2w329dFA2BAu433xBuR0N4YwJ8Tcc6Bmap9Aw",
+          "signed_digest": "sha256:62cf178b226ef6c5bc137cbaacbf28b25c528eafb8d7576ccb7f5c1cef94f500"
+        },
+        "source": {
+          "collector": "vector-generator",
+          "version": "0.1.0"
+        },
+        "stream_id": "attestation-1",
+        "tenant_id": "tenant-1"
+      }
+    },
+    {
+      "evidence_public_keys": {
+        "K1": "A6EHv_POEL4dcN0Y50vAmWfk1jCbpQ1fHdyGZBJVMbg"
+      },
+      "expected": {
+        "accepted": false,
+        "error_code": "signature.unknown_issuer_member"
+      },
+      "id": "reject-unknown-issuer-signature-member",
+      "issuer_public_keys": {
+        "ISSUER1": "F0VTtFbd38aQjsqxwQH-arIeK6oGF3lbfUOmNIKZP9U"
+      },
+      "operation": "verify_attestation_signatures",
+      "record": {
+        "body": {
+          "assertions": [],
+          "boundary_ref": "boundary-1",
+          "counts": {},
+          "coverage_level": "observed",
+          "coverage_ratio": "1.0",
+          "denominator_class": "C1",
+          "exclusions": [],
+          "gaps": [],
+          "issued_at": "2026-08-01T12:00:00.000+01:00",
+          "issuer": "issuer-1",
+          "liability_ref": "terms-1",
+          "methodology_version": "1.0.0",
+          "population_record_refs": [],
+          "relying_parties": [],
+          "validity_from": "2026-08-01T12:00:00.000+01:00",
+          "validity_until": "2026-08-01T12:00:00.000+01:00",
+          "verification_status": "self_computed",
+          "verifier_version": "0.1.0",
+          "window_end": "2026-08-01T12:00:00.000+01:00",
+          "window_start": "2026-08-01T12:00:00.000+01:00"
+        },
+        "boundary_ref": "boundary-1",
+        "clocks": {
+          "clock_skew_ms": 0,
+          "ingest_time": "2026-08-01T12:00:00.000+01:00",
+          "source_time": "2026-08-01T12:00:00.000+01:00"
+        },
+        "prev_digest": null,
+        "record_id": "01890f47-2f58-7cc0-98c4-000000000064",
+        "record_type": "AttestationWindow",
+        "schema_version": "1.0.0",
+        "sequence": 1,
+        "signature": {
+          "alg": "ed25519",
+          "issuer": {
+            "alg": "ed25519",
+            "junk": "not-permitted",
+            "key_id": "ISSUER1",
+            "sig": "cQmySyqS83q3G2JbhFwRrv5f_YLI-SUnzd7IfQ2TNVlwiTmgcz_l7XM74WLSCgj_Ue7uyq2Fqbx_z4k0L2ZOBA",
+            "signed_digest": "sha256:b1d79fc4973a7b9895b24767d55989e7b92afc2e573fcf9213dd4209d33a781e"
+          },
+          "key_id": "K1",
+          "sig": "J2rABcDaV3pRk2YE-iwyBQeRSkX9VaTYACD7uEvF92W5ZdW7e2w329dFA2BAu433xBuR0N4YwJ8Tcc6Bmap9Aw",
+          "signed_digest": "sha256:62cf178b226ef6c5bc137cbaacbf28b25c528eafb8d7576ccb7f5c1cef94f500"
+        },
+        "source": {
+          "collector": "vector-generator",
+          "version": "0.1.0"
+        },
+        "stream_id": "attestation-1",
+        "tenant_id": "tenant-1"
+      }
+    },
+    {
+      "evidence_public_keys": {
+        "K1": "A6EHv_POEL4dcN0Y50vAmWfk1jCbpQ1fHdyGZBJVMbg"
+      },
+      "expected": {
+        "accepted": false,
+        "error_code": "signature.missing_issuer_member"
+      },
+      "id": "reject-missing-issuer-signature-member",
+      "issuer_public_keys": {
+        "ISSUER1": "F0VTtFbd38aQjsqxwQH-arIeK6oGF3lbfUOmNIKZP9U"
+      },
+      "operation": "verify_attestation_signatures",
+      "record": {
+        "body": {
+          "assertions": [],
+          "boundary_ref": "boundary-1",
+          "counts": {},
+          "coverage_level": "observed",
+          "coverage_ratio": "1.0",
+          "denominator_class": "C1",
+          "exclusions": [],
+          "gaps": [],
+          "issued_at": "2026-08-01T12:00:00.000+01:00",
+          "issuer": "issuer-1",
+          "liability_ref": "terms-1",
+          "methodology_version": "1.0.0",
+          "population_record_refs": [],
+          "relying_parties": [],
+          "validity_from": "2026-08-01T12:00:00.000+01:00",
+          "validity_until": "2026-08-01T12:00:00.000+01:00",
+          "verification_status": "self_computed",
+          "verifier_version": "0.1.0",
+          "window_end": "2026-08-01T12:00:00.000+01:00",
+          "window_start": "2026-08-01T12:00:00.000+01:00"
+        },
+        "boundary_ref": "boundary-1",
+        "clocks": {
+          "clock_skew_ms": 0,
+          "ingest_time": "2026-08-01T12:00:00.000+01:00",
+          "source_time": "2026-08-01T12:00:00.000+01:00"
+        },
+        "prev_digest": null,
+        "record_id": "01890f47-2f58-7cc0-98c4-000000000064",
+        "record_type": "AttestationWindow",
+        "schema_version": "1.0.0",
+        "sequence": 1,
+        "signature": {
+          "alg": "ed25519",
+          "issuer": {
+            "alg": "ed25519",
+            "key_id": "ISSUER1",
+            "sig": "cQmySyqS83q3G2JbhFwRrv5f_YLI-SUnzd7IfQ2TNVlwiTmgcz_l7XM74WLSCgj_Ue7uyq2Fqbx_z4k0L2ZOBA"
+          },
+          "key_id": "K1",
+          "sig": "J2rABcDaV3pRk2YE-iwyBQeRSkX9VaTYACD7uEvF92W5ZdW7e2w329dFA2BAu433xBuR0N4YwJ8Tcc6Bmap9Aw",
+          "signed_digest": "sha256:62cf178b226ef6c5bc137cbaacbf28b25c528eafb8d7576ccb7f5c1cef94f500"
+        },
+        "source": {
+          "collector": "vector-generator",
+          "version": "0.1.0"
+        },
+        "stream_id": "attestation-1",
+        "tenant_id": "tenant-1"
+      }
+    },
+    {
+      "expected": {
+        "accepted": true,
+        "end_sequence": 2,
+        "last_digest": "sha256:1761449c298574ab34af3ac18f1fed3f028c2f3db81616d7ff81979050dbcb30",
+        "last_key_id": "K1",
+        "sequence_2_prev_digest": "sha256:3868726b98f9e45cc02cfc6c3cd13d513b1a5209e67a4398e2afbd9f80e503f6",
+        "signature_excluded_digest_must_differ": "sha256:e9bd1182289f80078f989a3a01f086083770aae7b22ac1a80ac32e684dc42316",
+        "start_sequence": 1
+      },
+      "id": "chain-valid-signature-inclusive-prev-digest",
+      "operation": "verify_stream",
+      "public_keys": {
+        "K1": "A6EHv_POEL4dcN0Y50vAmWfk1jCbpQ1fHdyGZBJVMbg"
+      },
+      "records": [
+        {
+          "body": {
+            "agent_id": "agent-1",
+            "credential_ref": "service_identity",
+            "deployment": "prod",
+            "model_versions": [
+              "model-1"
+            ],
+            "runtime": "python-3.12",
+            "service_identity": "collector@example.invalid",
+            "tenant_scope": "tenant-1",
+            "tool_versions": [
+              "tool-1"
+            ]
+          },
+          "boundary_ref": "boundary-1",
+          "clocks": {
+            "clock_skew_ms": 0,
+            "ingest_time": "2026-08-01T12:00:00.000+01:00",
+            "source_time": "2026-08-01T12:00:00.000+01:00"
+          },
+          "prev_digest": null,
+          "record_id": "01890f47-2f58-7cc0-98c4-000000000001",
+          "record_type": "AgentIdentity",
+          "schema_version": "1.0.0",
+          "sequence": 1,
+          "signature": {
+            "alg": "ed25519",
+            "key_id": "K1",
+            "sig": "VyP7Q-We7hCN2vfu_WD8nmZqiwAs5pSomWUQCsXu2lR1_OS3EX3-vMk-sNzygrFpQL4V8dNglLJ56MAV5QsPAw",
+            "signed_digest": "sha256:e9bd1182289f80078f989a3a01f086083770aae7b22ac1a80ac32e684dc42316"
+          },
+          "source": {
+            "collector": "vector-generator",
+            "version": "0.1.0"
+          },
+          "stream_id": "stream-1",
+          "tenant_id": "tenant-1"
+        },
+        {
+          "body": {
+            "agent_id": "agent-1",
+            "credential_ref": "service_identity",
+            "deployment": "prod",
+            "model_versions": [
+              "model-1"
+            ],
+            "runtime": "python-3.12",
+            "service_identity": "collector@example.invalid",
+            "tenant_scope": "tenant-1",
+            "tool_versions": [
+              "tool-1"
+            ]
+          },
+          "boundary_ref": "boundary-1",
+          "clocks": {
+            "clock_skew_ms": 0,
+            "ingest_time": "2026-08-01T12:00:00.000+01:00",
+            "source_time": "2026-08-01T12:00:00.000+01:00"
+          },
+          "prev_digest": "sha256:3868726b98f9e45cc02cfc6c3cd13d513b1a5209e67a4398e2afbd9f80e503f6",
+          "record_id": "01890f47-2f58-7cc0-98c4-000000000002",
+          "record_type": "AgentIdentity",
+          "schema_version": "1.0.0",
+          "sequence": 2,
+          "signature": {
+            "alg": "ed25519",
+            "key_id": "K1",
+            "sig": "h99YUA4UCdqWvp1lao6ni4KUmqc4CDc-vgBLOK76GTurCLU7jvQWa-92aaXDrN7zlPkAEnEroiMMbNnvj6DtBA",
+            "signed_digest": "sha256:1755b51ecf273077be426b96bb7d136546fc82e98e3f81b14850fb271d5bc821"
+          },
+          "source": {
+            "collector": "vector-generator",
+            "version": "0.1.0"
+          },
+          "stream_id": "stream-1",
+          "tenant_id": "tenant-1"
+        }
+      ]
+    },
+    {
+      "expected": {
+        "accepted": false,
+        "break_sequence": 2,
+        "error_code": "chain.prev_digest_mismatch",
+        "valid_through_sequence": 1
+      },
+      "id": "reject-validly-resigned-predecessor",
+      "operation": "verify_stream",
+      "public_keys": {
+        "K1": "A6EHv_POEL4dcN0Y50vAmWfk1jCbpQ1fHdyGZBJVMbg",
+        "KX": "JUO5L_EJVRFHatyDadtt3JM2ZaEZeN2hQE7hBmypVZ0"
+      },
+      "records": [
+        {
+          "body": {
+            "agent_id": "agent-1",
+            "credential_ref": "service_identity",
+            "deployment": "prod",
+            "model_versions": [
+              "model-1"
+            ],
+            "runtime": "python-3.12",
+            "service_identity": "collector@example.invalid",
+            "tenant_scope": "tenant-1",
+            "tool_versions": [
+              "tool-1"
+            ]
+          },
+          "boundary_ref": "boundary-1",
+          "clocks": {
+            "clock_skew_ms": 0,
+            "ingest_time": "2026-08-01T12:00:00.000+01:00",
+            "source_time": "2026-08-01T12:00:00.000+01:00"
+          },
+          "prev_digest": null,
+          "record_id": "01890f47-2f58-7cc0-98c4-000000000001",
+          "record_type": "AgentIdentity",
+          "schema_version": "1.0.0",
+          "sequence": 1,
+          "signature": {
+            "alg": "ed25519",
+            "key_id": "KX",
+            "sig": "tZXGtnE6GUASO_DcuBCpyJS1RBK1qn1Ygg_BsESAy-fDj2e_7EpDxsrxeAXlW4VBIpj40OS-DQCmVM3aAfaEBg",
+            "signed_digest": "sha256:e9bd1182289f80078f989a3a01f086083770aae7b22ac1a80ac32e684dc42316"
+          },
+          "source": {
+            "collector": "vector-generator",
+            "version": "0.1.0"
+          },
+          "stream_id": "stream-1",
+          "tenant_id": "tenant-1"
+        },
+        {
+          "body": {
+            "agent_id": "agent-1",
+            "credential_ref": "service_identity",
+            "deployment": "prod",
+            "model_versions": [
+              "model-1"
+            ],
+            "runtime": "python-3.12",
+            "service_identity": "collector@example.invalid",
+            "tenant_scope": "tenant-1",
+            "tool_versions": [
+              "tool-1"
+            ]
+          },
+          "boundary_ref": "boundary-1",
+          "clocks": {
+            "clock_skew_ms": 0,
+            "ingest_time": "2026-08-01T12:00:00.000+01:00",
+            "source_time": "2026-08-01T12:00:00.000+01:00"
+          },
+          "prev_digest": "sha256:3868726b98f9e45cc02cfc6c3cd13d513b1a5209e67a4398e2afbd9f80e503f6",
+          "record_id": "01890f47-2f58-7cc0-98c4-000000000002",
+          "record_type": "AgentIdentity",
+          "schema_version": "1.0.0",
+          "sequence": 2,
+          "signature": {
+            "alg": "ed25519",
+            "key_id": "K1",
+            "sig": "h99YUA4UCdqWvp1lao6ni4KUmqc4CDc-vgBLOK76GTurCLU7jvQWa-92aaXDrN7zlPkAEnEroiMMbNnvj6DtBA",
+            "signed_digest": "sha256:1755b51ecf273077be426b96bb7d136546fc82e98e3f81b14850fb271d5bc821"
+          },
+          "source": {
+            "collector": "vector-generator",
+            "version": "0.1.0"
+          },
+          "stream_id": "stream-1",
+          "tenant_id": "tenant-1"
+        }
+      ]
+    },
+    {
+      "expected": {
+        "accepted": false,
+        "break_sequence": 2,
+        "error_code": "chain.prev_digest_mismatch",
+        "valid_through_sequence": 1
+      },
+      "id": "reject-signature-excluded-prev-digest",
+      "operation": "verify_stream",
+      "public_keys": {
+        "K1": "A6EHv_POEL4dcN0Y50vAmWfk1jCbpQ1fHdyGZBJVMbg"
+      },
+      "records": [
+        {
+          "body": {
+            "agent_id": "agent-1",
+            "credential_ref": "service_identity",
+            "deployment": "prod",
+            "model_versions": [
+              "model-1"
+            ],
+            "runtime": "python-3.12",
+            "service_identity": "collector@example.invalid",
+            "tenant_scope": "tenant-1",
+            "tool_versions": [
+              "tool-1"
+            ]
+          },
+          "boundary_ref": "boundary-1",
+          "clocks": {
+            "clock_skew_ms": 0,
+            "ingest_time": "2026-08-01T12:00:00.000+01:00",
+            "source_time": "2026-08-01T12:00:00.000+01:00"
+          },
+          "prev_digest": null,
+          "record_id": "01890f47-2f58-7cc0-98c4-000000000001",
+          "record_type": "AgentIdentity",
+          "schema_version": "1.0.0",
+          "sequence": 1,
+          "signature": {
+            "alg": "ed25519",
+            "key_id": "K1",
+            "sig": "VyP7Q-We7hCN2vfu_WD8nmZqiwAs5pSomWUQCsXu2lR1_OS3EX3-vMk-sNzygrFpQL4V8dNglLJ56MAV5QsPAw",
+            "signed_digest": "sha256:e9bd1182289f80078f989a3a01f086083770aae7b22ac1a80ac32e684dc42316"
+          },
+          "source": {
+            "collector": "vector-generator",
+            "version": "0.1.0"
+          },
+          "stream_id": "stream-1",
+          "tenant_id": "tenant-1"
+        },
+        {
+          "body": {
+            "agent_id": "agent-1",
+            "credential_ref": "service_identity",
+            "deployment": "prod",
+            "model_versions": [
+              "model-1"
+            ],
+            "runtime": "python-3.12",
+            "service_identity": "collector@example.invalid",
+            "tenant_scope": "tenant-1",
+            "tool_versions": [
+              "tool-1"
+            ]
+          },
+          "boundary_ref": "boundary-1",
+          "clocks": {
+            "clock_skew_ms": 0,
+            "ingest_time": "2026-08-01T12:00:00.000+01:00",
+            "source_time": "2026-08-01T12:00:00.000+01:00"
+          },
+          "prev_digest": "sha256:e9bd1182289f80078f989a3a01f086083770aae7b22ac1a80ac32e684dc42316",
+          "record_id": "01890f47-2f58-7cc0-98c4-000000000014",
+          "record_type": "AgentIdentity",
+          "schema_version": "1.0.0",
+          "sequence": 2,
+          "signature": {
+            "alg": "ed25519",
+            "key_id": "K1",
+            "sig": "zdx2bRX2iWigjIV2ufJQ5ezNlGWfpF47dqDcGCG7wd4ZIjN2r2c6r6Lc3WLlcjGBb5gPBvi1ItAGNMDnCTMsDg",
+            "signed_digest": "sha256:ca420c8f4f589197a9669c5a01cbf3712e983534553edc15767e059be82f73e8"
+          },
+          "source": {
+            "collector": "vector-generator",
+            "version": "0.1.0"
+          },
+          "stream_id": "stream-1",
+          "tenant_id": "tenant-1"
+        }
+      ]
+    },
+    {
+      "expected": {
+        "accepted": true,
+        "end_sequence": 2,
+        "last_digest": "sha256:9b595f2d1114b8bf2f60ac3842569e89832c0a753ccb174b26235aae04dcbbde",
+        "last_key_id": "K2",
+        "start_sequence": 1
+      },
+      "id": "rotation-valid-context-bound",
+      "operation": "verify_stream",
+      "public_keys": {
+        "K1": "A6EHv_POEL4dcN0Y50vAmWfk1jCbpQ1fHdyGZBJVMbg",
+        "K2": "Kay64UG8yvCyLhqU000LxzYeUm0L_hLIl5S8kyKWbdc"
+      },
+      "records": [
+        {
+          "body": {
+            "agent_id": "agent-1",
+            "credential_ref": "service_identity",
+            "deployment": "prod",
+            "model_versions": [
+              "model-1"
+            ],
+            "runtime": "python-3.12",
+            "service_identity": "collector@example.invalid",
+            "tenant_scope": "tenant-1",
+            "tool_versions": [
+              "tool-1"
+            ]
+          },
+          "boundary_ref": "boundary-1",
+          "clocks": {
+            "clock_skew_ms": 0,
+            "ingest_time": "2026-08-01T12:00:00.000+01:00",
+            "source_time": "2026-08-01T12:00:00.000+01:00"
+          },
+          "prev_digest": null,
+          "record_id": "01890f47-2f58-7cc0-98c4-000000000001",
+          "record_type": "AgentIdentity",
+          "schema_version": "1.0.0",
+          "sequence": 1,
+          "signature": {
+            "alg": "ed25519",
+            "key_id": "K1",
+            "sig": "VyP7Q-We7hCN2vfu_WD8nmZqiwAs5pSomWUQCsXu2lR1_OS3EX3-vMk-sNzygrFpQL4V8dNglLJ56MAV5QsPAw",
+            "signed_digest": "sha256:e9bd1182289f80078f989a3a01f086083770aae7b22ac1a80ac32e684dc42316"
+          },
+          "source": {
+            "collector": "vector-generator",
+            "version": "0.1.0"
+          },
+          "stream_id": "stream-1",
+          "tenant_id": "tenant-1"
+        },
+        {
+          "body": {
+            "agent_id": "agent-1",
+            "credential_ref": "service_identity",
+            "deployment": "prod",
+            "model_versions": [
+              "model-1"
+            ],
+            "runtime": "python-3.12",
+            "service_identity": "collector@example.invalid",
+            "tenant_scope": "tenant-1",
+            "tool_versions": [
+              "tool-1"
+            ]
+          },
+          "boundary_ref": "boundary-1",
+          "clocks": {
+            "clock_skew_ms": 0,
+            "ingest_time": "2026-08-01T12:00:00.000+01:00",
+            "source_time": "2026-08-01T12:00:00.000+01:00"
+          },
+          "prev_digest": "sha256:3868726b98f9e45cc02cfc6c3cd13d513b1a5209e67a4398e2afbd9f80e503f6",
+          "record_id": "01890f47-2f58-7cc0-98c4-000000000015",
+          "record_type": "AgentIdentity",
+          "schema_version": "1.0.0",
+          "sequence": 2,
+          "signature": {
+            "alg": "ed25519",
+            "key_continuity": {
+              "alg": "ed25519",
+              "new_key_id": "K2",
+              "new_public_key": "Kay64UG8yvCyLhqU000LxzYeUm0L_hLIl5S8kyKWbdc",
+              "predecessor_key_id": "K1",
+              "sig": "sGLwG5cbXnCCopeISrwGJl3wEwg2LvAwBp8_L-w1BFgOjDcYr7U3Pn2WbacDOSV1Qjvlr_ui8-tWQbzrAoy9CA",
+              "stream_id": "stream-1",
+              "tenant_id": "tenant-1"
+            },
+            "key_id": "K2",
+            "sig": "jPlxoXVWP269018iNOebeB4tiowjGsrF6tdd3i3q5oCZfeITGWSG2lZyFkRluCtcl0lfip81WlA5e-96kzZKDQ",
+            "signed_digest": "sha256:55703effc7f2ba91fd743bd547120f5ddeda03381c64da5988632578941f5fbe"
+          },
+          "source": {
+            "collector": "vector-generator",
+            "version": "0.1.0"
+          },
+          "stream_id": "stream-1",
+          "tenant_id": "tenant-1"
+        }
+      ]
+    },
+    {
+      "expected": {
+        "accepted": false,
+        "break_sequence": 2,
+        "error_code": "continuity.missing",
+        "valid_through_sequence": 1
+      },
+      "id": "reject-rotation-without-continuity",
+      "operation": "verify_stream",
+      "public_keys": {
+        "K1": "A6EHv_POEL4dcN0Y50vAmWfk1jCbpQ1fHdyGZBJVMbg",
+        "K2": "Kay64UG8yvCyLhqU000LxzYeUm0L_hLIl5S8kyKWbdc"
+      },
+      "records": [
+        {
+          "body": {
+            "agent_id": "agent-1",
+            "credential_ref": "service_identity",
+            "deployment": "prod",
+            "model_versions": [
+              "model-1"
+            ],
+            "runtime": "python-3.12",
+            "service_identity": "collector@example.invalid",
+            "tenant_scope": "tenant-1",
+            "tool_versions": [
+              "tool-1"
+            ]
+          },
+          "boundary_ref": "boundary-1",
+          "clocks": {
+            "clock_skew_ms": 0,
+            "ingest_time": "2026-08-01T12:00:00.000+01:00",
+            "source_time": "2026-08-01T12:00:00.000+01:00"
+          },
+          "prev_digest": null,
+          "record_id": "01890f47-2f58-7cc0-98c4-000000000001",
+          "record_type": "AgentIdentity",
+          "schema_version": "1.0.0",
+          "sequence": 1,
+          "signature": {
+            "alg": "ed25519",
+            "key_id": "K1",
+            "sig": "VyP7Q-We7hCN2vfu_WD8nmZqiwAs5pSomWUQCsXu2lR1_OS3EX3-vMk-sNzygrFpQL4V8dNglLJ56MAV5QsPAw",
+            "signed_digest": "sha256:e9bd1182289f80078f989a3a01f086083770aae7b22ac1a80ac32e684dc42316"
+          },
+          "source": {
+            "collector": "vector-generator",
+            "version": "0.1.0"
+          },
+          "stream_id": "stream-1",
+          "tenant_id": "tenant-1"
+        },
+        {
+          "body": {
+            "agent_id": "agent-1",
+            "credential_ref": "service_identity",
+            "deployment": "prod",
+            "model_versions": [
+              "model-1"
+            ],
+            "runtime": "python-3.12",
+            "service_identity": "collector@example.invalid",
+            "tenant_scope": "tenant-1",
+            "tool_versions": [
+              "tool-1"
+            ]
+          },
+          "boundary_ref": "boundary-1",
+          "clocks": {
+            "clock_skew_ms": 0,
+            "ingest_time": "2026-08-01T12:00:00.000+01:00",
+            "source_time": "2026-08-01T12:00:00.000+01:00"
+          },
+          "prev_digest": "sha256:3868726b98f9e45cc02cfc6c3cd13d513b1a5209e67a4398e2afbd9f80e503f6",
+          "record_id": "01890f47-2f58-7cc0-98c4-000000000016",
+          "record_type": "AgentIdentity",
+          "schema_version": "1.0.0",
+          "sequence": 2,
+          "signature": {
+            "alg": "ed25519",
+            "key_id": "K2",
+            "sig": "Vw8Bts4xns8LiVWRwj1THdHdgnTjMY4AL-QBiN3f00P-C7C6qG6op-u4b9OfTWvRvUrJXJVCLKeyEk1rS75OCQ",
+            "signed_digest": "sha256:558f71ef9af29def17eedc129181148f40f955efa831ab370873148c23af4b42"
+          },
+          "source": {
+            "collector": "vector-generator",
+            "version": "0.1.0"
+          },
+          "stream_id": "stream-1",
+          "tenant_id": "tenant-1"
+        }
+      ]
+    },
+    {
+      "expected": {
+        "accepted": false,
+        "break_sequence": 2,
+        "error_code": "continuity.tenant_mismatch"
+      },
+      "id": "reject-continuity-tenant-replay",
+      "operation": "verify_stream",
+      "public_keys": {
+        "K1": "A6EHv_POEL4dcN0Y50vAmWfk1jCbpQ1fHdyGZBJVMbg",
+        "K2": "Kay64UG8yvCyLhqU000LxzYeUm0L_hLIl5S8kyKWbdc"
+      },
+      "records": [
+        {
+          "body": {
+            "agent_id": "agent-1",
+            "credential_ref": "service_identity",
+            "deployment": "prod",
+            "model_versions": [
+              "model-1"
+            ],
+            "runtime": "python-3.12",
+            "service_identity": "collector@example.invalid",
+            "tenant_scope": "tenant-2",
+            "tool_versions": [
+              "tool-1"
+            ]
+          },
+          "boundary_ref": "boundary-1",
+          "clocks": {
+            "clock_skew_ms": 0,
+            "ingest_time": "2026-08-01T12:00:00.000+01:00",
+            "source_time": "2026-08-01T12:00:00.000+01:00"
+          },
+          "prev_digest": null,
+          "record_id": "01890f47-2f58-7cc0-98c4-00000000001e",
+          "record_type": "AgentIdentity",
+          "schema_version": "1.0.0",
+          "sequence": 1,
+          "signature": {
+            "alg": "ed25519",
+            "key_id": "K1",
+            "sig": "zpeMbRaHNCANZVJC7rg8Jl7I-2Yzo3Wxkdnpr1VeqzGS5M6p0X6u2mr-n-MK2cv4GlSc66Ro9x__gU3Rc5vKDg",
+            "signed_digest": "sha256:e17b327630596cbfa0390444d157997279b4368a45fb9d36299727c0b844a10a"
+          },
+          "source": {
+            "collector": "vector-generator",
+            "version": "0.1.0"
+          },
+          "stream_id": "stream-1",
+          "tenant_id": "tenant-2"
+        },
+        {
+          "body": {
+            "agent_id": "agent-1",
+            "credential_ref": "service_identity",
+            "deployment": "prod",
+            "model_versions": [
+              "model-1"
+            ],
+            "runtime": "python-3.12",
+            "service_identity": "collector@example.invalid",
+            "tenant_scope": "tenant-2",
+            "tool_versions": [
+              "tool-1"
+            ]
+          },
+          "boundary_ref": "boundary-1",
+          "clocks": {
+            "clock_skew_ms": 0,
+            "ingest_time": "2026-08-01T12:00:00.000+01:00",
+            "source_time": "2026-08-01T12:00:00.000+01:00"
+          },
+          "prev_digest": "sha256:dab4fe9fc125264ccc265a0b6a13a918f49c6fee4f8fb435202e7d459f7e2c32",
+          "record_id": "01890f47-2f58-7cc0-98c4-00000000001f",
+          "record_type": "AgentIdentity",
+          "schema_version": "1.0.0",
+          "sequence": 2,
+          "signature": {
+            "alg": "ed25519",
+            "key_continuity": {
+              "alg": "ed25519",
+              "new_key_id": "K2",
+              "new_public_key": "Kay64UG8yvCyLhqU000LxzYeUm0L_hLIl5S8kyKWbdc",
+              "predecessor_key_id": "K1",
+              "sig": "sGLwG5cbXnCCopeISrwGJl3wEwg2LvAwBp8_L-w1BFgOjDcYr7U3Pn2WbacDOSV1Qjvlr_ui8-tWQbzrAoy9CA",
+              "stream_id": "stream-1",
+              "tenant_id": "tenant-1"
+            },
+            "key_id": "K2",
+            "sig": "vnFNfXc753PpTNc4XpG5xKrgfNV1mfcU_bdOr5hkYbTaYTswJ9qRYVVIUOuXReTu88JhNqUCF2gWOnPTKPloAA",
+            "signed_digest": "sha256:88ebc51849fa08e144e393946f7071b0da4106d70f196d8c9f55e6b7be6cd6d3"
+          },
+          "source": {
+            "collector": "vector-generator",
+            "version": "0.1.0"
+          },
+          "stream_id": "stream-1",
+          "tenant_id": "tenant-2"
+        }
+      ]
+    },
+    {
+      "expected": {
+        "accepted": false,
+        "break_sequence": 2,
+        "error_code": "continuity.stream_mismatch"
+      },
+      "id": "reject-continuity-stream-replay",
+      "operation": "verify_stream",
+      "public_keys": {
+        "K1": "A6EHv_POEL4dcN0Y50vAmWfk1jCbpQ1fHdyGZBJVMbg",
+        "K2": "Kay64UG8yvCyLhqU000LxzYeUm0L_hLIl5S8kyKWbdc"
+      },
+      "records": [
+        {
+          "body": {
+            "agent_id": "agent-1",
+            "credential_ref": "service_identity",
+            "deployment": "prod",
+            "model_versions": [
+              "model-1"
+            ],
+            "runtime": "python-3.12",
+            "service_identity": "collector@example.invalid",
+            "tenant_scope": "tenant-1",
+            "tool_versions": [
+              "tool-1"
+            ]
+          },
+          "boundary_ref": "boundary-1",
+          "clocks": {
+            "clock_skew_ms": 0,
+            "ingest_time": "2026-08-01T12:00:00.000+01:00",
+            "source_time": "2026-08-01T12:00:00.000+01:00"
+          },
+          "prev_digest": null,
+          "record_id": "01890f47-2f58-7cc0-98c4-000000000021",
+          "record_type": "AgentIdentity",
+          "schema_version": "1.0.0",
+          "sequence": 1,
+          "signature": {
+            "alg": "ed25519",
+            "key_id": "K1",
+            "sig": "coQqMCMMP8Br5HE6Ejclmr26ll8OQmt28TtXf8s8UogcNgAKvECbTiTzNhJUhLrqRzVfqUKwg6EgrOEi4bVDAg",
+            "signed_digest": "sha256:30aba6f667416bc03cc916233e7dd23f8ae2c3723e5ddf3dde35e964819727f5"
+          },
+          "source": {
+            "collector": "vector-generator",
+            "version": "0.1.0"
+          },
+          "stream_id": "stream-2",
+          "tenant_id": "tenant-1"
+        },
+        {
+          "body": {
+            "agent_id": "agent-1",
+            "credential_ref": "service_identity",
+            "deployment": "prod",
+            "model_versions": [
+              "model-1"
+            ],
+            "runtime": "python-3.12",
+            "service_identity": "collector@example.invalid",
+            "tenant_scope": "tenant-1",
+            "tool_versions": [
+              "tool-1"
+            ]
+          },
+          "boundary_ref": "boundary-1",
+          "clocks": {
+            "clock_skew_ms": 0,
+            "ingest_time": "2026-08-01T12:00:00.000+01:00",
+            "source_time": "2026-08-01T12:00:00.000+01:00"
+          },
+          "prev_digest": "sha256:5afaaf42c80cf1614b75dd76087e109cfa665a1c54fb01442b954448746c55ac",
+          "record_id": "01890f47-2f58-7cc0-98c4-000000000022",
+          "record_type": "AgentIdentity",
+          "schema_version": "1.0.0",
+          "sequence": 2,
+          "signature": {
+            "alg": "ed25519",
+            "key_continuity": {
+              "alg": "ed25519",
+              "new_key_id": "K2",
+              "new_public_key": "Kay64UG8yvCyLhqU000LxzYeUm0L_hLIl5S8kyKWbdc",
+              "predecessor_key_id": "K1",
+              "sig": "sGLwG5cbXnCCopeISrwGJl3wEwg2LvAwBp8_L-w1BFgOjDcYr7U3Pn2WbacDOSV1Qjvlr_ui8-tWQbzrAoy9CA",
+              "stream_id": "stream-1",
+              "tenant_id": "tenant-1"
+            },
+            "key_id": "K2",
+            "sig": "5BTnZ3-n4g--fck2VjBdo0SZtTaBigoIS-yhB0kNMmSHebNJwLG8I25ytke3iYr1SAaIRk9KvjUUaY7i2LnDBA",
+            "signed_digest": "sha256:703fe070afedc3a0dd0595f590767c61e6c6060c730288f84e1aca4e811b3e82"
+          },
+          "source": {
+            "collector": "vector-generator",
+            "version": "0.1.0"
+          },
+          "stream_id": "stream-2",
+          "tenant_id": "tenant-1"
+        }
+      ]
+    },
+    {
+      "expected": {
+        "accepted": false,
+        "break_sequence": 2,
+        "error_code": "continuity.signature_invalid",
+        "valid_through_sequence": 1
+      },
+      "id": "reject-forged-continuity-tenant-binding",
+      "operation": "verify_stream",
+      "public_keys": {
+        "K1": "A6EHv_POEL4dcN0Y50vAmWfk1jCbpQ1fHdyGZBJVMbg",
+        "K2": "Kay64UG8yvCyLhqU000LxzYeUm0L_hLIl5S8kyKWbdc"
+      },
+      "records": [
+        {
+          "body": {
+            "agent_id": "agent-1",
+            "credential_ref": "service_identity",
+            "deployment": "prod",
+            "model_versions": [
+              "model-1"
+            ],
+            "runtime": "python-3.12",
+            "service_identity": "collector@example.invalid",
+            "tenant_scope": "tenant-2",
+            "tool_versions": [
+              "tool-1"
+            ]
+          },
+          "boundary_ref": "boundary-1",
+          "clocks": {
+            "clock_skew_ms": 0,
+            "ingest_time": "2026-08-01T12:00:00.000+01:00",
+            "source_time": "2026-08-01T12:00:00.000+01:00"
+          },
+          "prev_digest": null,
+          "record_id": "01890f47-2f58-7cc0-98c4-00000000001e",
+          "record_type": "AgentIdentity",
+          "schema_version": "1.0.0",
+          "sequence": 1,
+          "signature": {
+            "alg": "ed25519",
+            "key_id": "K1",
+            "sig": "zpeMbRaHNCANZVJC7rg8Jl7I-2Yzo3Wxkdnpr1VeqzGS5M6p0X6u2mr-n-MK2cv4GlSc66Ro9x__gU3Rc5vKDg",
+            "signed_digest": "sha256:e17b327630596cbfa0390444d157997279b4368a45fb9d36299727c0b844a10a"
+          },
+          "source": {
+            "collector": "vector-generator",
+            "version": "0.1.0"
+          },
+          "stream_id": "stream-1",
+          "tenant_id": "tenant-2"
+        },
+        {
+          "body": {
+            "agent_id": "agent-1",
+            "credential_ref": "service_identity",
+            "deployment": "prod",
+            "model_versions": [
+              "model-1"
+            ],
+            "runtime": "python-3.12",
+            "service_identity": "collector@example.invalid",
+            "tenant_scope": "tenant-2",
+            "tool_versions": [
+              "tool-1"
+            ]
+          },
+          "boundary_ref": "boundary-1",
+          "clocks": {
+            "clock_skew_ms": 0,
+            "ingest_time": "2026-08-01T12:00:00.000+01:00",
+            "source_time": "2026-08-01T12:00:00.000+01:00"
+          },
+          "prev_digest": "sha256:dab4fe9fc125264ccc265a0b6a13a918f49c6fee4f8fb435202e7d459f7e2c32",
+          "record_id": "01890f47-2f58-7cc0-98c4-000000000020",
+          "record_type": "AgentIdentity",
+          "schema_version": "1.0.0",
+          "sequence": 2,
+          "signature": {
+            "alg": "ed25519",
+            "key_continuity": {
+              "alg": "ed25519",
+              "new_key_id": "K2",
+              "new_public_key": "Kay64UG8yvCyLhqU000LxzYeUm0L_hLIl5S8kyKWbdc",
+              "predecessor_key_id": "K1",
+              "sig": "sGLwG5cbXnCCopeISrwGJl3wEwg2LvAwBp8_L-w1BFgOjDcYr7U3Pn2WbacDOSV1Qjvlr_ui8-tWQbzrAoy9CA",
+              "stream_id": "stream-1",
+              "tenant_id": "tenant-2"
+            },
+            "key_id": "K2",
+            "sig": "woNauXA6Nq0hD4BFHTDBfDhHZ5q1UYktjK4Tvi8KxtX5pgVv9tt2fv6OP5ctH8YwaJuoUNeaxnBUeAJWgJ9DDA",
+            "signed_digest": "sha256:7fe110cbe885f9a7a1cb4a6ec37de5b89235fd15d8b593b9c4d888cffcd4a3a4"
+          },
+          "source": {
+            "collector": "vector-generator",
+            "version": "0.1.0"
+          },
+          "stream_id": "stream-1",
+          "tenant_id": "tenant-2"
+        }
+      ]
+    },
+    {
+      "expected": {
+        "accepted": false,
+        "break_sequence": 2,
+        "error_code": "continuity.signature_invalid",
+        "valid_through_sequence": 1
+      },
+      "id": "reject-forged-continuity-stream-binding",
+      "operation": "verify_stream",
+      "public_keys": {
+        "K1": "A6EHv_POEL4dcN0Y50vAmWfk1jCbpQ1fHdyGZBJVMbg",
+        "K2": "Kay64UG8yvCyLhqU000LxzYeUm0L_hLIl5S8kyKWbdc"
+      },
+      "records": [
+        {
+          "body": {
+            "agent_id": "agent-1",
+            "credential_ref": "service_identity",
+            "deployment": "prod",
+            "model_versions": [
+              "model-1"
+            ],
+            "runtime": "python-3.12",
+            "service_identity": "collector@example.invalid",
+            "tenant_scope": "tenant-1",
+            "tool_versions": [
+              "tool-1"
+            ]
+          },
+          "boundary_ref": "boundary-1",
+          "clocks": {
+            "clock_skew_ms": 0,
+            "ingest_time": "2026-08-01T12:00:00.000+01:00",
+            "source_time": "2026-08-01T12:00:00.000+01:00"
+          },
+          "prev_digest": null,
+          "record_id": "01890f47-2f58-7cc0-98c4-000000000021",
+          "record_type": "AgentIdentity",
+          "schema_version": "1.0.0",
+          "sequence": 1,
+          "signature": {
+            "alg": "ed25519",
+            "key_id": "K1",
+            "sig": "coQqMCMMP8Br5HE6Ejclmr26ll8OQmt28TtXf8s8UogcNgAKvECbTiTzNhJUhLrqRzVfqUKwg6EgrOEi4bVDAg",
+            "signed_digest": "sha256:30aba6f667416bc03cc916233e7dd23f8ae2c3723e5ddf3dde35e964819727f5"
+          },
+          "source": {
+            "collector": "vector-generator",
+            "version": "0.1.0"
+          },
+          "stream_id": "stream-2",
+          "tenant_id": "tenant-1"
+        },
+        {
+          "body": {
+            "agent_id": "agent-1",
+            "credential_ref": "service_identity",
+            "deployment": "prod",
+            "model_versions": [
+              "model-1"
+            ],
+            "runtime": "python-3.12",
+            "service_identity": "collector@example.invalid",
+            "tenant_scope": "tenant-1",
+            "tool_versions": [
+              "tool-1"
+            ]
+          },
+          "boundary_ref": "boundary-1",
+          "clocks": {
+            "clock_skew_ms": 0,
+            "ingest_time": "2026-08-01T12:00:00.000+01:00",
+            "source_time": "2026-08-01T12:00:00.000+01:00"
+          },
+          "prev_digest": "sha256:5afaaf42c80cf1614b75dd76087e109cfa665a1c54fb01442b954448746c55ac",
+          "record_id": "01890f47-2f58-7cc0-98c4-000000000023",
+          "record_type": "AgentIdentity",
+          "schema_version": "1.0.0",
+          "sequence": 2,
+          "signature": {
+            "alg": "ed25519",
+            "key_continuity": {
+              "alg": "ed25519",
+              "new_key_id": "K2",
+              "new_public_key": "Kay64UG8yvCyLhqU000LxzYeUm0L_hLIl5S8kyKWbdc",
+              "predecessor_key_id": "K1",
+              "sig": "sGLwG5cbXnCCopeISrwGJl3wEwg2LvAwBp8_L-w1BFgOjDcYr7U3Pn2WbacDOSV1Qjvlr_ui8-tWQbzrAoy9CA",
+              "stream_id": "stream-2",
+              "tenant_id": "tenant-1"
+            },
+            "key_id": "K2",
+            "sig": "oZOjNTQWFT4TR8ZARrILWNwPuSMC22iXY5_Jd7BaHyUGRqTv8lNQlxvE8OBJ_XsP5QZVh9HfmPdtf5nSELFCAQ",
+            "signed_digest": "sha256:f8ca59404b9f35fbc3c87bbbb399283dd4a4203a533a15c5165dfd36ecd7a8dd"
+          },
+          "source": {
+            "collector": "vector-generator",
+            "version": "0.1.0"
+          },
+          "stream_id": "stream-2",
+          "tenant_id": "tenant-1"
+        }
+      ]
+    },
+    {
+      "expected": {
+        "accepted": false,
+        "break_sequence": 2,
+        "error_code": "continuity.unknown_member"
+      },
+      "id": "reject-unknown-continuity-member",
+      "operation": "verify_stream",
+      "public_keys": {
+        "K1": "A6EHv_POEL4dcN0Y50vAmWfk1jCbpQ1fHdyGZBJVMbg",
+        "K2": "Kay64UG8yvCyLhqU000LxzYeUm0L_hLIl5S8kyKWbdc"
+      },
+      "records": [
+        {
+          "body": {
+            "agent_id": "agent-1",
+            "credential_ref": "service_identity",
+            "deployment": "prod",
+            "model_versions": [
+              "model-1"
+            ],
+            "runtime": "python-3.12",
+            "service_identity": "collector@example.invalid",
+            "tenant_scope": "tenant-1",
+            "tool_versions": [
+              "tool-1"
+            ]
+          },
+          "boundary_ref": "boundary-1",
+          "clocks": {
+            "clock_skew_ms": 0,
+            "ingest_time": "2026-08-01T12:00:00.000+01:00",
+            "source_time": "2026-08-01T12:00:00.000+01:00"
+          },
+          "prev_digest": null,
+          "record_id": "01890f47-2f58-7cc0-98c4-000000000001",
+          "record_type": "AgentIdentity",
+          "schema_version": "1.0.0",
+          "sequence": 1,
+          "signature": {
+            "alg": "ed25519",
+            "key_id": "K1",
+            "sig": "VyP7Q-We7hCN2vfu_WD8nmZqiwAs5pSomWUQCsXu2lR1_OS3EX3-vMk-sNzygrFpQL4V8dNglLJ56MAV5QsPAw",
+            "signed_digest": "sha256:e9bd1182289f80078f989a3a01f086083770aae7b22ac1a80ac32e684dc42316"
+          },
+          "source": {
+            "collector": "vector-generator",
+            "version": "0.1.0"
+          },
+          "stream_id": "stream-1",
+          "tenant_id": "tenant-1"
+        },
+        {
+          "body": {
+            "agent_id": "agent-1",
+            "credential_ref": "service_identity",
+            "deployment": "prod",
+            "model_versions": [
+              "model-1"
+            ],
+            "runtime": "python-3.12",
+            "service_identity": "collector@example.invalid",
+            "tenant_scope": "tenant-1",
+            "tool_versions": [
+              "tool-1"
+            ]
+          },
+          "boundary_ref": "boundary-1",
+          "clocks": {
+            "clock_skew_ms": 0,
+            "ingest_time": "2026-08-01T12:00:00.000+01:00",
+            "source_time": "2026-08-01T12:00:00.000+01:00"
+          },
+          "prev_digest": "sha256:3868726b98f9e45cc02cfc6c3cd13d513b1a5209e67a4398e2afbd9f80e503f6",
+          "record_id": "01890f47-2f58-7cc0-98c4-000000000016",
+          "record_type": "AgentIdentity",
+          "schema_version": "1.0.0",
+          "sequence": 2,
+          "signature": {
+            "alg": "ed25519",
+            "key_continuity": {
+              "alg": "ed25519",
+              "junk": "not-authenticated",
+              "new_key_id": "K2",
+              "new_public_key": "Kay64UG8yvCyLhqU000LxzYeUm0L_hLIl5S8kyKWbdc",
+              "predecessor_key_id": "K1",
+              "sig": "sGLwG5cbXnCCopeISrwGJl3wEwg2LvAwBp8_L-w1BFgOjDcYr7U3Pn2WbacDOSV1Qjvlr_ui8-tWQbzrAoy9CA",
+              "stream_id": "stream-1",
+              "tenant_id": "tenant-1"
+            },
+            "key_id": "K2",
+            "sig": "Vw8Bts4xns8LiVWRwj1THdHdgnTjMY4AL-QBiN3f00P-C7C6qG6op-u4b9OfTWvRvUrJXJVCLKeyEk1rS75OCQ",
+            "signed_digest": "sha256:558f71ef9af29def17eedc129181148f40f955efa831ab370873148c23af4b42"
+          },
+          "source": {
+            "collector": "vector-generator",
+            "version": "0.1.0"
+          },
+          "stream_id": "stream-1",
+          "tenant_id": "tenant-1"
+        }
+      ]
+    },
+    {
+      "expected": {
+        "accepted": false,
+        "break_sequence": 2,
+        "error_code": "continuity.missing_member"
+      },
+      "id": "reject-missing-continuity-member",
+      "operation": "verify_stream",
+      "public_keys": {
+        "K1": "A6EHv_POEL4dcN0Y50vAmWfk1jCbpQ1fHdyGZBJVMbg",
+        "K2": "Kay64UG8yvCyLhqU000LxzYeUm0L_hLIl5S8kyKWbdc"
+      },
+      "records": [
+        {
+          "body": {
+            "agent_id": "agent-1",
+            "credential_ref": "service_identity",
+            "deployment": "prod",
+            "model_versions": [
+              "model-1"
+            ],
+            "runtime": "python-3.12",
+            "service_identity": "collector@example.invalid",
+            "tenant_scope": "tenant-1",
+            "tool_versions": [
+              "tool-1"
+            ]
+          },
+          "boundary_ref": "boundary-1",
+          "clocks": {
+            "clock_skew_ms": 0,
+            "ingest_time": "2026-08-01T12:00:00.000+01:00",
+            "source_time": "2026-08-01T12:00:00.000+01:00"
+          },
+          "prev_digest": null,
+          "record_id": "01890f47-2f58-7cc0-98c4-000000000001",
+          "record_type": "AgentIdentity",
+          "schema_version": "1.0.0",
+          "sequence": 1,
+          "signature": {
+            "alg": "ed25519",
+            "key_id": "K1",
+            "sig": "VyP7Q-We7hCN2vfu_WD8nmZqiwAs5pSomWUQCsXu2lR1_OS3EX3-vMk-sNzygrFpQL4V8dNglLJ56MAV5QsPAw",
+            "signed_digest": "sha256:e9bd1182289f80078f989a3a01f086083770aae7b22ac1a80ac32e684dc42316"
+          },
+          "source": {
+            "collector": "vector-generator",
+            "version": "0.1.0"
+          },
+          "stream_id": "stream-1",
+          "tenant_id": "tenant-1"
+        },
+        {
+          "body": {
+            "agent_id": "agent-1",
+            "credential_ref": "service_identity",
+            "deployment": "prod",
+            "model_versions": [
+              "model-1"
+            ],
+            "runtime": "python-3.12",
+            "service_identity": "collector@example.invalid",
+            "tenant_scope": "tenant-1",
+            "tool_versions": [
+              "tool-1"
+            ]
+          },
+          "boundary_ref": "boundary-1",
+          "clocks": {
+            "clock_skew_ms": 0,
+            "ingest_time": "2026-08-01T12:00:00.000+01:00",
+            "source_time": "2026-08-01T12:00:00.000+01:00"
+          },
+          "prev_digest": "sha256:3868726b98f9e45cc02cfc6c3cd13d513b1a5209e67a4398e2afbd9f80e503f6",
+          "record_id": "01890f47-2f58-7cc0-98c4-000000000016",
+          "record_type": "AgentIdentity",
+          "schema_version": "1.0.0",
+          "sequence": 2,
+          "signature": {
+            "alg": "ed25519",
+            "key_continuity": {
+              "alg": "ed25519",
+              "new_key_id": "K2",
+              "new_public_key": "Kay64UG8yvCyLhqU000LxzYeUm0L_hLIl5S8kyKWbdc",
+              "predecessor_key_id": "K1",
+              "sig": "sGLwG5cbXnCCopeISrwGJl3wEwg2LvAwBp8_L-w1BFgOjDcYr7U3Pn2WbacDOSV1Qjvlr_ui8-tWQbzrAoy9CA",
+              "tenant_id": "tenant-1"
+            },
+            "key_id": "K2",
+            "sig": "Vw8Bts4xns8LiVWRwj1THdHdgnTjMY4AL-QBiN3f00P-C7C6qG6op-u4b9OfTWvRvUrJXJVCLKeyEk1rS75OCQ",
+            "signed_digest": "sha256:558f71ef9af29def17eedc129181148f40f955efa831ab370873148c23af4b42"
+          },
+          "source": {
+            "collector": "vector-generator",
+            "version": "0.1.0"
+          },
+          "stream_id": "stream-1",
+          "tenant_id": "tenant-1"
+        }
+      ]
+    },
+    {
+      "expected": {
+        "accepted": true,
+        "end_sequence": 1,
+        "last_digest": "sha256:5b3927fe1ff9e3db4211631ecde5aab171903156180edb6c8fb03a7d4a7899cf",
+        "last_key_id": "K2",
+        "start_sequence": 1
+      },
+      "id": "new-stream-starts-from-trusted-keyring-anchor",
+      "operation": "verify_stream",
+      "public_keys": {
+        "K2": "Kay64UG8yvCyLhqU000LxzYeUm0L_hLIl5S8kyKWbdc"
+      },
+      "records": [
+        {
+          "body": {
+            "agent_id": "agent-1",
+            "credential_ref": "service_identity",
+            "deployment": "prod",
+            "model_versions": [
+              "model-1"
+            ],
+            "runtime": "python-3.12",
+            "service_identity": "collector@example.invalid",
+            "tenant_scope": "tenant-1",
+            "tool_versions": [
+              "tool-1"
+            ]
+          },
+          "boundary_ref": "boundary-1",
+          "clocks": {
+            "clock_skew_ms": 0,
+            "ingest_time": "2026-08-01T12:00:00.000+01:00",
+            "source_time": "2026-08-01T12:00:00.000+01:00"
+          },
+          "prev_digest": null,
+          "record_id": "01890f47-2f58-7cc0-98c4-000000000028",
+          "record_type": "AgentIdentity",
+          "schema_version": "1.0.0",
+          "sequence": 1,
+          "signature": {
+            "alg": "ed25519",
+            "key_id": "K2",
+            "sig": "viJU_qIraiyK8JZ33jluMFTAQvcq8BsVo4-Jn9v7xdyQGAKXwjNlRsgAnKTxJir7j8XsEfZjI65EXUS8XKgRDQ",
+            "signed_digest": "sha256:cc8b93dcd136f2e1f43a235ad531f409a6036dca76c3a5646842f9f818f8b82b"
+          },
+          "source": {
+            "collector": "vector-generator",
+            "version": "0.1.0"
+          },
+          "stream_id": "stream-after-rotation",
+          "tenant_id": "tenant-1"
+        }
+      ]
+    },
+    {
+      "expected": {
+        "accepted": false,
+        "break_sequence": 1,
+        "error_code": "continuity.first_record_forbidden"
+      },
+      "id": "reject-continuity-on-first-stream-record",
+      "operation": "verify_stream",
+      "public_keys": {
+        "K1": "A6EHv_POEL4dcN0Y50vAmWfk1jCbpQ1fHdyGZBJVMbg",
+        "K2": "Kay64UG8yvCyLhqU000LxzYeUm0L_hLIl5S8kyKWbdc"
+      },
+      "records": [
+        {
+          "body": {
+            "agent_id": "agent-1",
+            "credential_ref": "service_identity",
+            "deployment": "prod",
+            "model_versions": [
+              "model-1"
+            ],
+            "runtime": "python-3.12",
+            "service_identity": "collector@example.invalid",
+            "tenant_scope": "tenant-1",
+            "tool_versions": [
+              "tool-1"
+            ]
+          },
+          "boundary_ref": "boundary-1",
+          "clocks": {
+            "clock_skew_ms": 0,
+            "ingest_time": "2026-08-01T12:00:00.000+01:00",
+            "source_time": "2026-08-01T12:00:00.000+01:00"
+          },
+          "prev_digest": null,
+          "record_id": "01890f47-2f58-7cc0-98c4-000000000029",
+          "record_type": "AgentIdentity",
+          "schema_version": "1.0.0",
+          "sequence": 1,
+          "signature": {
+            "alg": "ed25519",
+            "key_continuity": {
+              "alg": "ed25519",
+              "new_key_id": "K2",
+              "new_public_key": "Kay64UG8yvCyLhqU000LxzYeUm0L_hLIl5S8kyKWbdc",
+              "predecessor_key_id": "K1",
+              "sig": "pNKKQ0XuXjCPOvopsWic4ZI2CHUTMqAqO7W1kTymMuufditXl5-S5OKiNnkHVZbkrSgbjTWSY2srmKil201_Dw",
+              "stream_id": "stream-after-rotation",
+              "tenant_id": "tenant-1"
+            },
+            "key_id": "K2",
+            "sig": "hfsR1dJQ_PZBDpQEhjVOymYcc1cvwFHepQnLSEOHaURltz5Y9zrA-oJ26KIyH3rQmQfmwYSY834kR3SJuLImCQ",
+            "signed_digest": "sha256:f5b6b596f47034a1736ea941314a8ef94d188f9c82cb55ed36313d95bfc6b60e"
+          },
+          "source": {
+            "collector": "vector-generator",
+            "version": "0.1.0"
+          },
+          "stream_id": "stream-after-rotation",
+          "tenant_id": "tenant-1"
+        }
+      ]
+    },
+    {
+      "expected": {
+        "accepted": false,
+        "break_sequence": 2,
+        "error_code": "continuity.no_key_change",
+        "valid_through_sequence": 1
+      },
+      "id": "reject-continuity-without-key-change",
+      "operation": "verify_stream",
+      "public_keys": {
+        "K1": "A6EHv_POEL4dcN0Y50vAmWfk1jCbpQ1fHdyGZBJVMbg",
+        "K2": "Kay64UG8yvCyLhqU000LxzYeUm0L_hLIl5S8kyKWbdc"
+      },
+      "records": [
+        {
+          "body": {
+            "agent_id": "agent-1",
+            "credential_ref": "service_identity",
+            "deployment": "prod",
+            "model_versions": [
+              "model-1"
+            ],
+            "runtime": "python-3.12",
+            "service_identity": "collector@example.invalid",
+            "tenant_scope": "tenant-1",
+            "tool_versions": [
+              "tool-1"
+            ]
+          },
+          "boundary_ref": "boundary-1",
+          "clocks": {
+            "clock_skew_ms": 0,
+            "ingest_time": "2026-08-01T12:00:00.000+01:00",
+            "source_time": "2026-08-01T12:00:00.000+01:00"
+          },
+          "prev_digest": null,
+          "record_id": "01890f47-2f58-7cc0-98c4-000000000032",
+          "record_type": "AgentIdentity",
+          "schema_version": "1.0.0",
+          "sequence": 1,
+          "signature": {
+            "alg": "ed25519",
+            "key_id": "K2",
+            "sig": "-5zzwKns0aICyZpx4Cl5BDQmvcj2ZLYOUHcMedziGmlv2CkGKvEd9Us3rq8Xsw0DcAt-srK_8odCEll5TkSXAQ",
+            "signed_digest": "sha256:67f07d7792cf858092c8371734fb624e407f52849864cc13c3f2efe3c8c47358"
+          },
+          "source": {
+            "collector": "vector-generator",
+            "version": "0.1.0"
+          },
+          "stream_id": "stream-1",
+          "tenant_id": "tenant-1"
+        },
+        {
+          "body": {
+            "agent_id": "agent-1",
+            "credential_ref": "service_identity",
+            "deployment": "prod",
+            "model_versions": [
+              "model-1"
+            ],
+            "runtime": "python-3.12",
+            "service_identity": "collector@example.invalid",
+            "tenant_scope": "tenant-1",
+            "tool_versions": [
+              "tool-1"
+            ]
+          },
+          "boundary_ref": "boundary-1",
+          "clocks": {
+            "clock_skew_ms": 0,
+            "ingest_time": "2026-08-01T12:00:00.000+01:00",
+            "source_time": "2026-08-01T12:00:00.000+01:00"
+          },
+          "prev_digest": "sha256:03cec0595b8f4e87d499b314f79f5ee53bd01463eb2f5ebbcdca2c6425359457",
+          "record_id": "01890f47-2f58-7cc0-98c4-000000000033",
+          "record_type": "AgentIdentity",
+          "schema_version": "1.0.0",
+          "sequence": 2,
+          "signature": {
+            "alg": "ed25519",
+            "key_continuity": {
+              "alg": "ed25519",
+              "new_key_id": "K2",
+              "new_public_key": "Kay64UG8yvCyLhqU000LxzYeUm0L_hLIl5S8kyKWbdc",
+              "predecessor_key_id": "K1",
+              "sig": "sGLwG5cbXnCCopeISrwGJl3wEwg2LvAwBp8_L-w1BFgOjDcYr7U3Pn2WbacDOSV1Qjvlr_ui8-tWQbzrAoy9CA",
+              "stream_id": "stream-1",
+              "tenant_id": "tenant-1"
+            },
+            "key_id": "K2",
+            "sig": "eFNXtrfziMohgZsHICECCjUBMiHt5NTndC2uQLgB9c-R0QawLjj4OlqVzFutn_xKY09iE6_-BDabm2lJ1A_NBQ",
+            "signed_digest": "sha256:f805c03f95a6e5b44961103714b9b3d7f325e9a12e1a65b3cdae977d62a6173f"
+          },
+          "source": {
+            "collector": "vector-generator",
+            "version": "0.1.0"
+          },
+          "stream_id": "stream-1",
+          "tenant_id": "tenant-1"
+        }
+      ]
+    },
+    {
+      "expected": {
+        "accepted": false,
+        "attestation_permitted": false,
+        "break_sequence": 1,
+        "error_code": "chain.fork"
+      },
+      "id": "reject-authenticated-stream-fork",
+      "operation": "verify_stream",
+      "public_keys": {
+        "K1": "A6EHv_POEL4dcN0Y50vAmWfk1jCbpQ1fHdyGZBJVMbg"
+      },
+      "records": [
+        {
+          "body": {
+            "agent_id": "agent-1",
+            "credential_ref": "service_identity",
+            "deployment": "prod",
+            "model_versions": [
+              "model-1"
+            ],
+            "runtime": "python-3.12",
+            "service_identity": "collector@example.invalid",
+            "tenant_scope": "tenant-1",
+            "tool_versions": [
+              "tool-1"
+            ]
+          },
+          "boundary_ref": "boundary-1",
+          "clocks": {
+            "clock_skew_ms": 0,
+            "ingest_time": "2026-08-01T12:00:00.000+01:00",
+            "source_time": "2026-08-01T12:00:00.000+01:00"
+          },
+          "prev_digest": null,
+          "record_id": "01890f47-2f58-7cc0-98c4-00000000003c",
+          "record_type": "AgentIdentity",
+          "schema_version": "1.0.0",
+          "sequence": 1,
+          "signature": {
+            "alg": "ed25519",
+            "key_id": "K1",
+            "sig": "Qr9FBl_CBh8EMORQtMMbiDvLW2tW-aYFVVJQwKYnDq0Zoo2aMD58aUbmw1Haqbh5R63LscWf8MH0iyfNJuRYAw",
+            "signed_digest": "sha256:fc45e5ed942b32e0ec0925d0cba3af3c0f391f39aace15a224b64f54e5f21a03"
+          },
+          "source": {
+            "collector": "vector-generator",
+            "version": "0.1.0"
+          },
+          "stream_id": "stream-1",
+          "tenant_id": "tenant-1"
+        },
+        {
+          "body": {
+            "agent_id": "agent-1",
+            "credential_ref": "service_identity",
+            "deployment": "prod",
+            "model_versions": [
+              "model-1"
+            ],
+            "runtime": "python-3.12",
+            "service_identity": "collector@example.invalid",
+            "tenant_scope": "tenant-1",
+            "tool_versions": [
+              "tool-1"
+            ]
+          },
+          "boundary_ref": "boundary-1",
+          "clocks": {
+            "clock_skew_ms": 0,
+            "ingest_time": "2026-08-01T12:00:00.000+01:00",
+            "source_time": "2026-08-01T12:00:00.000+01:00"
+          },
+          "prev_digest": null,
+          "record_id": "01890f47-2f58-7cc0-98c4-00000000003d",
+          "record_type": "AgentIdentity",
+          "schema_version": "1.0.0",
+          "sequence": 1,
+          "signature": {
+            "alg": "ed25519",
+            "key_id": "K1",
+            "sig": "uA17Op9V0vNl4NoR9wALZOgb7Olfe_kK8o_2TRboCQyXWsMtcfzdozi3EumYr7p3ZsypS7Oac6Tss9H8JIlTAA",
+            "signed_digest": "sha256:dfdd4716cf3eae4340bf95cc26f8d132d50602d85728766bbe70bdd10d4aed6c"
+          },
+          "source": {
+            "collector": "vector-generator",
+            "version": "0.1.0"
+          },
+          "stream_id": "stream-1",
+          "tenant_id": "tenant-1"
+        }
+      ]
+    },
+    {
+      "expected": {
+        "accepted": false,
+        "break_sequence": 3,
+        "error_code": "chain.sequence_gap",
+        "valid_through_sequence": 1
+      },
+      "id": "reject-sequence-gap",
+      "operation": "verify_stream",
+      "public_keys": {
+        "K1": "A6EHv_POEL4dcN0Y50vAmWfk1jCbpQ1fHdyGZBJVMbg"
+      },
+      "records": [
+        {
+          "body": {
+            "agent_id": "agent-1",
+            "credential_ref": "service_identity",
+            "deployment": "prod",
+            "model_versions": [
+              "model-1"
+            ],
+            "runtime": "python-3.12",
+            "service_identity": "collector@example.invalid",
+            "tenant_scope": "tenant-1",
+            "tool_versions": [
+              "tool-1"
+            ]
+          },
+          "boundary_ref": "boundary-1",
+          "clocks": {
+            "clock_skew_ms": 0,
+            "ingest_time": "2026-08-01T12:00:00.000+01:00",
+            "source_time": "2026-08-01T12:00:00.000+01:00"
+          },
+          "prev_digest": null,
+          "record_id": "01890f47-2f58-7cc0-98c4-000000000001",
+          "record_type": "AgentIdentity",
+          "schema_version": "1.0.0",
+          "sequence": 1,
+          "signature": {
+            "alg": "ed25519",
+            "key_id": "K1",
+            "sig": "VyP7Q-We7hCN2vfu_WD8nmZqiwAs5pSomWUQCsXu2lR1_OS3EX3-vMk-sNzygrFpQL4V8dNglLJ56MAV5QsPAw",
+            "signed_digest": "sha256:e9bd1182289f80078f989a3a01f086083770aae7b22ac1a80ac32e684dc42316"
+          },
+          "source": {
+            "collector": "vector-generator",
+            "version": "0.1.0"
+          },
+          "stream_id": "stream-1",
+          "tenant_id": "tenant-1"
+        },
+        {
+          "body": {
+            "agent_id": "agent-1",
+            "credential_ref": "service_identity",
+            "deployment": "prod",
+            "model_versions": [
+              "model-1"
+            ],
+            "runtime": "python-3.12",
+            "service_identity": "collector@example.invalid",
+            "tenant_scope": "tenant-1",
+            "tool_versions": [
+              "tool-1"
+            ]
+          },
+          "boundary_ref": "boundary-1",
+          "clocks": {
+            "clock_skew_ms": 0,
+            "ingest_time": "2026-08-01T12:00:00.000+01:00",
+            "source_time": "2026-08-01T12:00:00.000+01:00"
+          },
+          "prev_digest": "sha256:3868726b98f9e45cc02cfc6c3cd13d513b1a5209e67a4398e2afbd9f80e503f6",
+          "record_id": "01890f47-2f58-7cc0-98c4-000000000046",
+          "record_type": "AgentIdentity",
+          "schema_version": "1.0.0",
+          "sequence": 3,
+          "signature": {
+            "alg": "ed25519",
+            "key_id": "K1",
+            "sig": "LvFae0QFZr1w_gLedaoOPBN_--7ysCHs85O-yyvNbv2MKC0eva6qZRLT2Ham2rujtwiHCwRSN4sGh5y7nqneBA",
+            "signed_digest": "sha256:fb90566a85c9623c553ebbc1a79d76c36b1b558dfa84533beada74a87397064f"
+          },
+          "source": {
+            "collector": "vector-generator",
+            "version": "0.1.0"
+          },
+          "stream_id": "stream-1",
+          "tenant_id": "tenant-1"
+        }
+      ]
+    }
+  ]
+}
