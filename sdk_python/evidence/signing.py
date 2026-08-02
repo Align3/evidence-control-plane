@@ -32,6 +32,21 @@ from sdk_python.evidence.schema import AttestationWindowRecord, RecordEnvelope
 
 ALGORITHM: Final = "ed25519"
 ISSUER_SIGNATURE_MEMBER: Final = "issuer"
+CUSTOMER_SIGNATURE_FIELDS: Final = frozenset(
+    {"alg", "key_id", "sig", "signed_digest"}
+)
+CONTINUITY_FIELDS: Final = frozenset(
+    {
+        "alg",
+        "predecessor_key_id",
+        "new_key_id",
+        "new_public_key",
+        "tenant_id",
+        "stream_id",
+        "sig",
+    }
+)
+
 
 class SignatureError(ValueError):
     """Base class for malformed or unverifiable evidence signatures."""
@@ -117,6 +132,97 @@ def _algorithm(signature: Mapping[str, object]) -> None:
         )
 
 
+def _closed_members(
+    value: Mapping[str, object],
+    *,
+    required: frozenset[str],
+    allowed: frozenset[str],
+    label: str,
+    member_label: str = "",
+) -> None:
+    missing = required - value.keys()
+    if missing:
+        raise SignatureError(
+            f"{label} has missing {member_label}member(s): "
+            f"{', '.join(sorted(missing))}"
+        )
+    unknown = value.keys() - allowed
+    if unknown:
+        raise SignatureError(
+            f"{label} has unknown {member_label}member(s): "
+            f"{', '.join(sorted(unknown))}"
+        )
+
+
+def _validate_continuity_members(
+    record: RecordEnvelope,
+    signature: Mapping[str, object],
+    continuity: object,
+) -> None:
+    if not isinstance(continuity, dict):
+        raise SignatureError("key_continuity must be a JSON object")
+    _closed_members(
+        continuity,
+        required=CONTINUITY_FIELDS,
+        allowed=CONTINUITY_FIELDS,
+        label="key continuity assertion",
+    )
+    _algorithm(continuity)
+    if continuity.get("new_key_id") != signature.get("key_id"):
+        raise SignatureError("key continuity new_key_id does not match signature key_id")
+    if continuity.get("tenant_id") != record.tenant_id:
+        raise SignatureError("key continuity tenant_id does not match record tenant_id")
+    if continuity.get("stream_id") != record.stream_id:
+        raise SignatureError("key continuity stream_id does not match record stream_id")
+    _required_text(
+        continuity.get("predecessor_key_id"), label="continuity predecessor_key_id"
+    )
+    _required_text(continuity.get("new_key_id"), label="continuity new_key_id")
+    _required_text(continuity.get("tenant_id"), label="continuity tenant_id")
+    _required_text(continuity.get("stream_id"), label="continuity stream_id")
+    _decode_base64url(
+        continuity.get("new_public_key"),
+        label="continuity new_public_key",
+        expected_length=32,
+    )
+    _decode_base64url(
+        continuity.get("sig"), label="continuity sig", expected_length=64
+    )
+
+
+def _validate_signature_members(
+    record: RecordEnvelope, signature: Mapping[str, object]
+) -> None:
+    allowed = set(CUSTOMER_SIGNATURE_FIELDS)
+    allowed.add("key_continuity")
+    if isinstance(record, AttestationWindowRecord):
+        allowed.add(ISSUER_SIGNATURE_MEMBER)
+    _closed_members(
+        signature,
+        required=CUSTOMER_SIGNATURE_FIELDS,
+        allowed=frozenset(allowed),
+        label="signature",
+        member_label="signature ",
+    )
+
+    if "key_continuity" in signature:
+        _validate_continuity_members(
+            record, signature, signature.get("key_continuity")
+        )
+
+    if ISSUER_SIGNATURE_MEMBER in signature:
+        issuer = signature.get(ISSUER_SIGNATURE_MEMBER)
+        if not isinstance(issuer, dict):
+            raise SignatureError("issuer signature must be a JSON object")
+        _closed_members(
+            issuer,
+            required=CUSTOMER_SIGNATURE_FIELDS,
+            allowed=CUSTOMER_SIGNATURE_FIELDS,
+            label="issuer signature",
+            member_label="issuer signature ",
+        )
+
+
 def signing_digest(record: RecordEnvelope) -> str:
     """Return the ES-021 digest of a record with ``signature`` excluded."""
 
@@ -150,6 +256,7 @@ def sign_record[RecordT: RecordEnvelope](
     }
     if key_continuity is not None:
         signature["key_continuity"] = deepcopy(dict(key_continuity))
+    _validate_signature_members(record, signature)
     return record.model_copy(update={"signature": signature}, deep=True)
 
 
@@ -161,6 +268,7 @@ def verify_record_signature(
     """Verify the customer signature and return its key ID."""
 
     signature = _signature_object(record)
+    _validate_signature_members(record, signature)
     _algorithm(signature)
     key_id = _required_text(signature.get("key_id"), label="key_id")
     public_key = public_keys.get(key_id)
@@ -206,8 +314,9 @@ def counter_sign_attestation(
     """Add the issuer's ES-023 counter-signature without replacing customer proof."""
 
     signature = _signature_object(record)
-    if not {"alg", "key_id", "sig", "signed_digest"}.issubset(signature):
+    if not CUSTOMER_SIGNATURE_FIELDS.issubset(signature):
         raise SignatureError("customer signature must exist before issuer counter-signing")
+    _validate_signature_members(record, signature)
     if ISSUER_SIGNATURE_MEMBER in signature:
         raise SignatureError("attestation already carries an issuer counter-signature")
     issuer_key_id = _required_text(issuer_key_id, label="issuer key_id")
@@ -218,6 +327,7 @@ def counter_sign_attestation(
         "sig": _encode_base64url(issuer_private_key.sign(_digest_bytes(digest))),
         "signed_digest": digest,
     }
+    _validate_signature_members(record, signature)
     return record.model_copy(update={"signature": signature}, deep=True)
 
 
@@ -229,6 +339,7 @@ def verify_attestation_counter_signature(
     """Verify the issuer proof and return its key ID."""
 
     signature = _signature_object(record)
+    _validate_signature_members(record, signature)
     issuer = signature.get(ISSUER_SIGNATURE_MEMBER)
     if not isinstance(issuer, dict):
         raise InvalidSignatureError("attestation has no issuer counter-signature")

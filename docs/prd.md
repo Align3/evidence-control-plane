@@ -88,8 +88,8 @@ Typed record models for every type in `evidence-spec.md` §5. RFC 8785 JCS canon
 Ed25519 sign/verify. Envelope signature construction. Chain linking via `prev_digest`. Sequence validation. Fork detection. Key continuity assertions.
 **Touches:** `sdk_python/evidence/signing.py`, `chain.py`
 **Depends on:** EV-02
-**Satisfies:** ES-006…008, ES-021…024, SE-008
-**Acceptance:** ES-S-001, ES-S-005
+**Satisfies:** ES-006…008, ES-006a, ES-021…024, ES-021a, ES-024a, SE-008
+**Acceptance:** ES-S-001, ES-S-005, ES-S-010…012
 
 #### EV-04 — Conformance vectors
 Language-neutral JSON fixtures covering canonicalisation edge cases, digests, signatures, valid and invalid chains, key rotation with and without continuity. Published as normative (ES-029).

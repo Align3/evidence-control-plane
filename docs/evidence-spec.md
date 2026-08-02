@@ -82,6 +82,8 @@ Every record shares an envelope.
 
 **ES-006** — A stream is an append-only sequence of records sharing a `stream_id`, linked by `prev_digest`. Streams MUST NOT fork: two records with the same `stream_id` and `sequence` and differing `record_id` are a fatal integrity failure and MUST be reported as such rather than resolved.
 
+**ES-006a** — `prev_digest` is the digest of the **complete** previous record, including its `signature` member, over the RFC 8785 canonical form of the whole record. This differs deliberately from `signed_digest` (ES-021), which excludes `signature`. Including the signature makes the chain commit to the authentication of each link: replacing a signature, or altering anything carried inside the `signature` member, MUST break the chain at the following record. Implementations MUST NOT use the signature-excluded form for `prev_digest`.
+
 **ES-007** — A single boundary MAY have multiple streams — typically one per collector instance. Cross-stream ordering is established by clocks (§6), never by sequence.
 
 **ES-008** — A sequence gap is detectable and MUST produce a `CoverageGap` record on detection. Per `coverage-methodology.md` CM-017, an unexplained chain break terminates the attestation window at the break.
@@ -190,11 +192,15 @@ Body: `attestation_ref`, `reason`, `issuer`, `effective_at`, `superseding_ref`, 
 
 **ES-021** — Ed25519. The `signature` object carries `alg`, `key_id`, `sig` (base64url, unpadded), and `signed_digest` (digest of the JCS-canonical record excluding the `signature` field).
 
+**ES-021a** — The `signature` member is closed. Its customer-signature members are exactly `alg`, `key_id`, `sig`, and `signed_digest`, plus `key_continuity` only when a rotation is asserted under ES-024a. An `AttestationWindow` MAY additionally carry the `issuer` counter-signature required by ES-023; that nested object contains exactly `alg`, `key_id`, `sig`, and `signed_digest`. No other member is permitted at either level. A verifier MUST reject an unknown or missing member rather than ignore it.
+
 **ES-022** — Algorithm agility: `alg` is present so that a future migration is possible, but v0.1 verifiers MUST reject any value other than `ed25519` rather than attempting negotiation.
 
 **ES-023** — Two-signature model. Record signatures are produced by the customer's key. The `AttestationWindow` carries an additional counter-signature from the issuer. This is what permits the claim that we cannot modify customer evidence.
 
 **ES-024** — Key rotation MUST be accompanied by a `KeyContinuity` assertion: the new key signed by the old, recorded in-stream. Rotation without continuity is a chain break under ES-008 and CM-017.
+
+**ES-024a** — v0.1 defines no `KeyContinuity` record type. The continuity assertion is carried under `signature.key_continuity` on the first record signed by the new key. It is an object with exactly `alg`, `predecessor_key_id`, `new_key_id`, `new_public_key` (base64url, unpadded, 32 bytes), `tenant_id`, `stream_id`, and `sig` (base64url, unpadded, 64 bytes). `tenant_id` and `stream_id` MUST match the envelope of the carrying record, and `new_key_id` MUST match that record's signature key. `sig` is the predecessor key's Ed25519 signature over the RFC 8785 canonical form of the other six members. A verifier MUST reject any other member set or any context mismatch. Because the assertion sits inside `signature`, the carrying record's own `signed_digest` does not cover it; the predecessor signature authenticates it, and the following record's `prev_digest` commits it under ES-006a. A continuity assertion on a record that is not the first record after a real key change MUST be rejected.
 
 > **Honest limit, stated here because implementers will ask.** The two-signature model prevents us forging evidence. It does not prevent us *withholding* it. The mitigation is that the customer holds their own copy and the verifier runs offline, making withholding detectable rather than impossible. See `threat-model.md` §5.
 
@@ -315,4 +321,29 @@ Given a record carrying an unrecognised field inside body
 When the verifier validates it
 Then verification succeeds
 And the unknown field is included in the digest computation
+```
+
+### ES-S-010 — Previous authentication is chain-linked *(ES-006a)*
+
+```gherkin
+Given two records linked after the first record is signed
+When the first record is replaced by an independently valid re-signature
+Then verification fails with "prev_digest mismatch" at sequence 2
+```
+
+### ES-S-011 — Unknown signature member rejected *(ES-021a)*
+
+```gherkin
+Given a valid signed terminal record
+When an unknown member is added to its signature object
+Then verification fails with "unknown signature member"
+```
+
+### ES-S-012 — Continuity proof is bound to its tenant and stream *(ES-024a)*
+
+```gherkin
+Given a valid key-continuity assertion bound to tenant A and stream X
+When it is replayed into tenant B on stream X
+Then verification fails with "continuity tenant_id does not match"
+And the rotated record is not accepted
 ```
