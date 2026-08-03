@@ -125,8 +125,8 @@ On a normal project this matrix is internal QA hygiene. Here it is **evidence fo
 
 | Severity | Enforced on | Hard expiry |
 |---|---|---|
-| critical | A-02/A-09 basis repair (EV-25 target) | 8 August 2026 |
-| high | claimed-requirement triage and landed-story defects (EV-26 target) | 1 September 2026 |
+| critical | EV-25 merge — target 8 August 2026 | 8 August 2026 |
+| high | EV-26 triage completion | 1 September 2026 |
 | medium | — | 1 October 2026 |
 | low | — | 1 October 2026 |
 
@@ -137,10 +137,6 @@ On a normal project this matrix is internal QA hygiene. Here it is **evidence fo
 **Staging applies to the existing backlog, never to regressions.** A change that makes the situation worse fails immediately at every stage, whatever the schedule currently mandates. Concretely, and per QA-S-001: an assertion that this change adds to the catalogue, or re-points onto a requirement nothing demonstrates, fails the build now. Backlog is what a schedule is for; a ratchet that lets the thing it is ratcheting get worse is decorative. The comparison is against the merge base, so CI requires full history, and where the previous state cannot be read the build fails rather than assuming nothing is new.
 
 **Every build prints the orphan count and the severity breakdown**, at every stage, enforced or not. Staging changes only what fails the build. It never changes what is looked for, and never changes what is reported: an orphan that does not yet fail CI is still counted, still named, and still published in the matrix.
-
-**Untested scenarios are classified by ownership, not treated as one backlog.** A story owns a scenario by listing it in its `Acceptance:` field. A story is landed when an `EV-nn:` implementation commit is reachable from the build's `HEAD`. An untested scenario owned by a landed story is a high-severity defect. One owned only by an unlanded story is medium-severity expected roadmap debt: shipping that story is what clears it. An untested scenario with no `Acceptance:` owner is high severity because the matrix cannot tell whether it is roadmap debt or an omitted implementation. If reachable Git history cannot be read, the check fails immediately rather than assuming every owner is unbuilt. This distinction makes the 1 September high gate enforce shipped commitments and completed triage without requiring EV-05 through EV-21 to have landed.
-
-**Story references are closed over `prd.md`.** Any `EV-nn` token in `docs/` must have a matching `#### EV-nn` story heading. This applies to ordinary prose and schedule annotations as well as structured deferral markers; a conditional trigger naming nonexistent work is a defect even when the date ratchet remains effective without it.
 
 **QA-012** — The matrix is generated, never hand-maintained. A hand-maintained traceability matrix is wrong within a month and worse than none, because it invites misplaced confidence.
 
@@ -180,7 +176,7 @@ Then the traceability check fails
 And the failure names the unmapped assertion
 ```
 
-### QA-S-002 — Gap conservation holds *(QA-005 property 6)*
+### QA-S-002 — Gap conservation holds, property 6 *(QA-005)*
 
 ```gherkin
 Given any generated evidence set over window W
@@ -216,6 +212,42 @@ Given an acceptance test in layer L6
 When it is executed
 Then its assertions derive from verifier output
 And it does not reference internal computation state
+```
+
+### QA-S-006 — The four-link chain is generated and published *(QA-010)*
+
+```gherkin
+Given a requirement with a scenario, an implementing test, and an assertion citing it as basis
+When the traceability matrix is generated
+Then the matrix links the requirement to the scenario to the test to the assertion
+And it is published in both human-readable and machine-readable form
+```
+
+### QA-S-007 — An orphaned requirement fails the traceability check *(QA-011)*
+
+```gherkin
+Given a requirement with no scenario and no non-testable marking
+When the traceability check runs with that severity enforced
+Then the check fails
+And the failure names the requirement
+```
+
+### QA-S-008 — The matrix is generated, never hand-maintained *(QA-012)*
+
+```gherkin
+Given the traceability matrix generator
+When it runs twice over unchanged inputs
+Then both runs produce byte-identical output
+And neither run writes a matrix into the repository for a human to edit
+```
+
+### QA-S-009 — A malformed non-testable marking exempts nothing *(QA-015)*
+
+```gherkin
+Given a requirement with no scenario and a non-testable marking whose category is not in the closed enum
+When the traceability matrix is generated
+Then the marking exempts nothing
+And the requirement is still reported as an orphan
 ```
 
 ---

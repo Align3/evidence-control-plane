@@ -264,20 +264,24 @@ Fixed fixtures producing byte-identical bundles. Covers each denominator class, 
 **Satisfies:** QA-008, QA-009, AC-009
 **Acceptance:** QA-S-003
 
-#### EV-25 — Critical assertion-basis repair
-Repair the two critical assertion-catalogue gaps exposed by EV-22. A-09 is re-pointed to the existing confirmation and reconciliation requirements (CM-010 and ES-015). A-02 is not a citation-only edit: first add a numbered requirement for assurance-boundary immutability and window containment to `evidence-spec.md` §5.1, then add its withholding scenario and re-point A-02 to that requirement. Assign the new scenario to the product story that will implement it; do not disguise executable debt as a non-testable exemption.
-**Touches:** `docs/evidence-spec.md`, `docs/attestation-reliance.md`, `docs/prd.md`
+
+#### EV-25 — Assertion catalogue citation corrections
+Two catalogued assertions cite a basis that does not state what they assert. **A-09** ("outcomes confirmed against the named authoritative source") cites CM-007, which is about coverage level and verification status being orthogonal — a different claim. Its basis is CM-010, the confirmation capability, with ES-015 for the count. **A-02** ("the declared assurance boundary was in force for the window") cites ES-009, which requires a `qualification_ref` and says nothing about being in force. Its nearest existing basis is TM-002, which covers signing, versioning and immutable history but **not** the `window_start`/`window_end` bounds the claim turns on — and no numbered requirement states those. `evidence-spec.md` §5.1 asserts them only in prose. This story therefore promotes that prose into a numbered ES requirement, adds it to its own **Satisfies**, and points A-02 at it alongside TM-002.
+
+**Do not shortcut this.** Re-pointing A-09 to CM-010 and A-02 to TM-002 clears the traceability gate immediately, because both already have scenarios. For A-09 that is correct. For A-02 it is not: the gate would go green while the assertion still rested on a requirement that does not state the claim. That is AG-002's failure mode — weakening to make it pass — relocated from a scenario to a citation, where no rule currently forbids it. The gate going green is not the deliverable; the citation being true is.
+**Touches:** `docs/attestation-reliance.md`, `docs/evidence-spec.md`, `docs/coverage-methodology.md`
 **Depends on:** EV-22
-**Satisfies:** AR-003, QA-011
-**Acceptance:** The generated matrix contains no `ASSERTION_NO_SCENARIO` finding for A-02 or A-09, and every scenario introduced by this repair has an owning story in a PRD `Acceptance:` field.
+**Satisfies:** CM-007 (orphaned once A-09 stops citing it), plus the new `evidence-spec.md` §5.1 requirement this story creates
+**Acceptance:** The traceability matrix reports zero `ASSERTION_NO_SCENARIO` findings.
 
-#### EV-26 — Traceability backlog triage and ownership
-Triage the backlog exposed by EV-22 without pretending that unbuilt product stories are defects. Every requirement without a scenario receives either a scenario, a source-adjacent reasoned exemption, or an explicit deferral to a real owning story. Every scenario is assigned to a story through that story's `Acceptance:` field. Correct malformed scenario references, including QA-S-002. This story does not implement the product scenarios owned by EV-05 through EV-21; those remain visible as unbuilt-story debt until their owners land.
-**Touches:** `docs/`, `tests/traceability/`
-**Depends on:** EV-22, EV-25
-**Satisfies:** QA-011
-**Acceptance:** The generated matrix contains no `REQUIREMENT_NO_SCENARIO_CLAIMED`, `SCENARIO_NO_TEST_UNOWNED`, `MALFORMED_SCENARIO_REF`, or `DANGLING_STORY_REF` finding; untested scenarios owned by unlanded stories remain reported as `SCENARIO_NO_TEST_UNBUILT`.
+#### EV-26 — Orphan triage and non-testable markings
+Classify every requirement that has no scenario: write one, mark it non-testable with a stated reason, or defer it to a named story. The marking syntax and its enforcement already exist (EV-22); this is the judgement work they were built for. At the first generated matrix that was 163 requirements — 82 specification, 52 claimed by a story, 29 process. Three document-level defaults in `agent-working-agreement.md`, `agent-prompts.md` and `dev-environment.md` clear 29 of them.
 
+**Two findings from EV-22 that this story must resolve rather than paper over.** First, `data-model.md` has 14 requirements owned by **no** story and traced by nothing — the whole document is unclaimed, including the DM-001 migration-numbering rule that AG-004 depends on. Markings do not create owners. Second, 49 of the 102 high findings are `SCENARIO_NO_TEST` for scenarios belonging to stories that have not been built; no amount of triage clears those, only shipping does. Pegging QA-011's high stage to "triage completion" assumes the blocker is classification, and for roughly half of it the blocker is the roadmap. Decide before 1 September whether to split that finding class by whether the owning story has landed.
+**Touches:** `docs/*.md` (markings only)
+**Depends on:** EV-22
+**Satisfies:** QA-015
+**Acceptance:** QA-S-009
 ---
 
 ## 4. Build order
@@ -290,7 +294,7 @@ Parallelisable once EV-07 lands (disjoint Touches):
 |---|---|
 | A — collection | EV-08, EV-09 |
 | B — review surface | EV-10, EV-11 |
-| C — test infra | EV-22 → EV-25 → EV-26; EV-23, EV-24 after their product dependencies |
+| C — test infra | EV-22, EV-23, EV-24 |
 | D — denominator | EV-12 → EV-16 |
 
 EV-13 is the only story blocked on an external decision. Everything before it can proceed now.

@@ -5,7 +5,7 @@
 Feature: Test-system self-checks
 
   @QA-S-001 @QA-002
-  # source: testing-qa.md:173
+  # source: testing-qa.md:169
   Scenario: QA-S-001 Assertion without scenario fails CI
     Given a new assertion added to the catalogue
     And no scenario referencing it
@@ -13,9 +13,9 @@ Feature: Test-system self-checks
     Then the traceability check fails
     And the failure names the unmapped assertion
 
-  @QA-S-002 @QA-005 property 6
-  # source: testing-qa.md:183
-  Scenario: QA-S-002 Gap conservation holds
+  @QA-S-002 @QA-005
+  # source: testing-qa.md:179
+  Scenario: QA-S-002 Gap conservation holds, property 6
     Given any generated evidence set over window W
     When coverage is computed
     Then covered intervals and gap intervals partition W exactly
@@ -23,7 +23,7 @@ Feature: Test-system self-checks
     And no interval is neither
 
   @QA-S-003 @QA-008
-  # source: testing-qa.md:193
+  # source: testing-qa.md:189
   Scenario: QA-S-003 Golden diff blocks merge
     Given a change to canonicalisation
     When golden attestations are regenerated
@@ -32,7 +32,7 @@ Feature: Test-system self-checks
     And the failure requires an explicit reviewed fixture update
 
   @QA-S-004 @QA-013
-  # source: testing-qa.md:203
+  # source: testing-qa.md:199
   Scenario: QA-S-004 Cross-implementation reproduction
     Given a PR touching the evidence schema
     When CI runs
@@ -40,9 +40,41 @@ Feature: Test-system self-checks
     And any divergence fails the build before merge
 
   @QA-S-005 @QA-003
-  # source: testing-qa.md:212
+  # source: testing-qa.md:208
   Scenario: QA-S-005 Acceptance tests assert through the verifier
     Given an acceptance test in layer L6
     When it is executed
     Then its assertions derive from verifier output
     And it does not reference internal computation state
+
+  @QA-S-006 @QA-010
+  # source: testing-qa.md:217
+  Scenario: QA-S-006 The four-link chain is generated and published
+    Given a requirement with a scenario, an implementing test, and an assertion citing it as basis
+    When the traceability matrix is generated
+    Then the matrix links the requirement to the scenario to the test to the assertion
+    And it is published in both human-readable and machine-readable form
+
+  @QA-S-007 @QA-011
+  # source: testing-qa.md:226
+  Scenario: QA-S-007 An orphaned requirement fails the traceability check
+    Given a requirement with no scenario and no non-testable marking
+    When the traceability check runs with that severity enforced
+    Then the check fails
+    And the failure names the requirement
+
+  @QA-S-008 @QA-012
+  # source: testing-qa.md:235
+  Scenario: QA-S-008 The matrix is generated, never hand-maintained
+    Given the traceability matrix generator
+    When it runs twice over unchanged inputs
+    Then both runs produce byte-identical output
+    And neither run writes a matrix into the repository for a human to edit
+
+  @QA-S-009 @QA-015
+  # source: testing-qa.md:244
+  Scenario: QA-S-009 A malformed non-testable marking exempts nothing
+    Given a requirement with no scenario and a non-testable marking whose category is not in the closed enum
+    When the traceability matrix is generated
+    Then the marking exempts nothing
+    And the requirement is still reported as an orphan
