@@ -51,6 +51,15 @@ from pathlib import Path
 
 import pytest
 
+from tests.traceability.corpus import (
+    FIXTURES,
+    expected_code,
+    git,
+    run_default,
+)
+from tests.traceability.corpus import (
+    corpus as _corpus,
+)
 from tests.traceability.matrix import (
     ENFORCEMENT_SCHEDULE,
     Severity,
@@ -61,29 +70,9 @@ from tests.traceability.matrix import (
     strictness,
 )
 
-FIXTURES = Path(__file__).parent / "fixtures"
-
-
-def _corpus(tmp_path: Path, name: str) -> Path:
-    """Copy a fixture corpus somewhere writable and give it an empty collection."""
-    shutil.copytree(FIXTURES / name, tmp_path / name)
-    root = tmp_path / name
-    (root / "collected.txt").write_text("", encoding="utf-8")
-    return root
-
 
 def _run(root: Path, *extra: str, today: date | None = None) -> int:
-    return main(
-        [
-            "--repo-root", str(root),
-            "--docs", str(root / "docs"),
-            "--features", str(root / "no-features"),
-            "--collect-from", str(root / "collected.txt"),
-            *extra,
-        ],
-        today=today,
-        regression_gate=False,
-    )
+    return run_default(root, *extra, today=today)
 
 
 REGRESSION = FIXTURES / "regression"
@@ -105,17 +94,15 @@ def _git_corpus(tmp_path: Path, baseline: str, current: str) -> Path:
     shutil.copy(REGRESSION / "requirements.md", docs / "coverage-methodology.md")
     shutil.copy(REGRESSION / baseline, docs / "attestation-reliance.md")
 
-    git = shutil.which("git")
-    assert git is not None, "the QA-S-001 gate reads history; git is required to test it"
-    author = ["-c", "user.email=t@example.com", "-c", "user.name=t"]
-
-    def run(*args: str) -> None:
-        subprocess.run([git, *args], cwd=root, check=True)  # noqa: S603 - resolved path
-
-    run("init", "-q", "-b", "base")
-    run("add", "-A")
-    run(*author, "commit", "-q", "-m", "baseline")
-    run("checkout", "-q", "-b", "work")
+    git(root, "init", "-q", "-b", "base")
+    git(root, "add", "-A")
+    git(root, "-c", "user.email=t@example.com", "-c", "user.name=t",
+        "commit", "-q", "-m", "baseline")
+    # The default baseline ref is no longer substitutable, so the fixture has to
+    # provide the ref a real checkout provides rather than redirect the tool
+    # away from it.
+    git(root, "update-ref", "refs/remotes/origin/develop", "base")
+    git(root, "checkout", "-q", "-b", "work")
 
     shutil.copy(REGRESSION / current, docs / "attestation-reliance.md")
     return root
@@ -130,17 +117,7 @@ def _run_as_ci(root: Path, *, baseline_ref: str = "base") -> int:
     `origin/develop`, so tests redirect it through the same Python seam the
     calendar uses. The argv itself stays exactly what CI runs.
     """
-    return main(
-        [
-            "--repo-root", str(root),
-            "--docs", str(root / "docs"),
-            "--features", str(root / "no-features"),
-            "--collect-from", str(root / "collected.txt"),
-            "--mode", "report",
-        ],
-        real_today=date(2026, 8, 1),
-        baseline_ref=baseline_ref,
-    )
+    return run_default(root, "--mode", "report", baseline_ref=baseline_ref)
 
 
 def test_qa_s_001_assertion_without_scenario_fails_ci(
@@ -184,7 +161,11 @@ def test_a_pre_existing_unmapped_assertion_is_staged_not_immediate(
     code = _run_as_ci(root)
     output = capsys.readouterr().out
 
-    assert code == 0, "existing backlog must follow the QA-011 schedule"
+    assert code == expected_code(Severity.CRITICAL), (
+        "existing backlog must follow the QA-011 schedule -- green until the critical "
+        "stage is live, red from it, and the expectation is derived from the schedule "
+        "rather than frozen by a supplied calendar date"
+    )
     assert "ASSERTION_NO_SCENARIO" in output, "and must still be reported"
     assert "NEW_ASSERTION_NO_SCENARIO" not in output
 
@@ -223,17 +204,7 @@ def test_an_unreadable_baseline_blocks_rather_than_passing(
     """
     root = _corpus(tmp_path, "assertion_without_scenario")
 
-    code = main(
-        [
-            "--repo-root", str(root),
-            "--docs", str(root / "docs"),
-            "--features", str(root / "no-features"),
-            "--collect-from", str(root / "collected.txt"),
-            "--mode", "report",
-        ],
-        real_today=date(2026, 8, 1),
-        baseline_ref="no-such-ref",
-    )
+    code = run_default(root, "--mode", "report", baseline_ref="no-such-ref")
     output = capsys.readouterr().out
 
     assert code == 1
@@ -249,7 +220,10 @@ def test_enforce_respects_the_severity_threshold(
 
     code = _run(root, "--mode", "enforce", "--fail-on", "critical")
     output = capsys.readouterr().out
-    assert code == 0, "a medium finding must not fail a critical-only gate"
+    assert code == expected_code(Severity.MEDIUM), (
+        "a medium finding must not fail a critical-only gate, until the schedule "
+        "itself reaches medium"
+    )
     assert "REQUIREMENT_NO_SCENARIO_SPEC" in output, "but it must still be reported"
 
     code = _run(root, "--mode", "enforce", "--fail-on", "medium")
@@ -325,8 +299,10 @@ def test_the_gate_bites_on_the_expiry_date(
     """End to end through the CLI: same corpus, green before, red after."""
     root = _corpus(tmp_path, "assertion_without_scenario")
 
-    assert _run(root, "--mode", "report", today=date(2026, 8, 7)) == 0
-    assert "report-only" in capsys.readouterr().out
+    assert _run(root, "--mode", "report", today=date(2026, 8, 7)) == expected_code(
+        Severity.CRITICAL
+    ), "a date before a stage cannot defer it; only the real calendar decides that"
+    capsys.readouterr()
 
     assert _run(root, "--mode", "report", today=date(2026, 8, 8)) == 1
     output = capsys.readouterr().out
@@ -360,17 +336,8 @@ def test_today_cannot_disable_a_live_stage_through_the_cli(
     """
     root = _corpus(tmp_path, "assertion_without_scenario")
 
-    code = main(
-        [
-            "--repo-root", str(root),
-            "--docs", str(root / "docs"),
-            "--features", str(root / "no-features"),
-            "--collect-from", str(root / "collected.txt"),
-            "--mode", "report",
-        ],
-        real_today=real,
-        today=supplied,
-        regression_gate=False,
+    code = run_default(
+        root, "--mode", "report", real_today=real, today=supplied
     )
     output = capsys.readouterr().out
 
@@ -401,18 +368,7 @@ def test_a_future_today_may_still_bring_a_stage_forward(
     """The legitimate use survives: rehearse September while it is August."""
     root = _corpus(tmp_path, "orphan_only")
 
-    code = main(
-        [
-            "--repo-root", str(root),
-            "--docs", str(root / "docs"),
-            "--features", str(root / "no-features"),
-            "--collect-from", str(root / "collected.txt"),
-            "--mode", "report",
-        ],
-        real_today=date(2026, 8, 1),
-        today=date(2026, 10, 1),
-        regression_gate=False,
-    )
+    code = run_default(root, "--mode", "report", today=date(2026, 10, 1))
     output = capsys.readouterr().out
     assert code == 1, "a medium orphan must fail once the low stage is rehearsed"
     assert "REQUIREMENT_NO_SCENARIO_SPEC" in output
@@ -562,7 +518,7 @@ def test_a_baseline_equal_to_head_is_reported_as_vacuous(
     code = _run_as_ci(root, baseline_ref="HEAD")
     output = capsys.readouterr().out
 
-    assert code == 0
+    assert code == expected_code(Severity.CRITICAL)
     assert "this IS HEAD, so nothing can be new" in output, (
         "a self-comparison must say so rather than reporting a clean gate"
     )

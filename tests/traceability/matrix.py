@@ -63,6 +63,21 @@ Usage
 schedule, never weaken it. `--mode report` exits 0 only while the schedule
 mandates nothing; once a stage is live it is overridden and the build fails at
 the mandated severity. See ENFORCEMENT_SCHEDULE.
+
+That is one instance of the general rule, which is stated in full on `main()`
+and asserted as a property over the argument space in
+`tests/traceability/test_argument_space.py`:
+
+    No input the caller controls may produce a more permissive verdict than the
+    default invocation.
+
+Where an input redirects what is read rather than setting a value -- a different
+docs directory, a supplied pytest collection, a repository root somewhere else
+-- the run cannot be compared with the default and does not pretend otherwise:
+it reports that it cannot establish anything and fails. An empty corpus produces
+no findings, and no findings is not the same answer as no problems. CM-001 and
+CM-009 say exactly this about a denominator the coverage engine cannot
+establish; this generator is held to its own methodology.
 """
 
 from __future__ import annotations
@@ -75,7 +90,7 @@ import subprocess
 import sys
 from collections import defaultdict
 from dataclasses import dataclass, field
-from datetime import date
+from datetime import UTC, date, datetime
 from enum import StrEnum
 from pathlib import Path
 from typing import Any
@@ -98,13 +113,19 @@ SPEC_PREFIXES = frozenset({"AC", "AR", "CM", "DM", "ES", "IN", "QA", "SE", "TM"}
 CATEGORIES = ("documentation", "external", "meta", "process")
 MIN_REASON = 40
 
-# `test_matrix.py` names fictional 900-block requirements as fixture data. It is
-# collected as a test like any other, but its IDs are not read as citations --
-# otherwise every fixture ID would be reported as a retired reference. The
-# exclusion is deliberately one file rather than the directory, so that EV-22's
-# own acceptance test still links to QA-S-001 through the normal path, and it is
-# printed with every run so the hole stays arguable.
-DEFAULT_EXCLUDED_CITATION_PATHS = ("tests/traceability/test_matrix.py",)
+# `test_matrix.py` names fictional 900-block requirements as fixture data, and
+# `test_argument_space.py` names 800-block ones. Both are collected as tests
+# like any other, but their IDs are not read as citations -- otherwise every
+# fixture ID would be reported as a retired reference, which is what happened
+# the first time the argument-space suite was added: five criticals appeared in
+# the live matrix, all of them test data. The exclusion is deliberately a list
+# of named files rather than the directory, so that EV-22's own acceptance
+# tests still link to QA-S-001 and QA-S-006..008 through the normal path, and it
+# is printed with every run so the hole stays arguable.
+DEFAULT_EXCLUDED_CITATION_PATHS = (
+    "tests/traceability/test_matrix.py",
+    "tests/traceability/test_argument_space.py",
+)
 
 # QA-011 stages the *existing* backlog. It does not stage regressions.
 #
@@ -115,7 +136,17 @@ DEFAULT_EXCLUDED_CITATION_PATHS = ("tests/traceability/test_matrix.py",)
 # finding kinds therefore fail the build immediately, at every stage, whatever
 # `--mode` and `--fail-on` say.
 ALWAYS_BLOCKING = frozenset(
-    {"NEW_ASSERTION_NO_SCENARIO", "BASELINE_UNAVAILABLE", "STORY_HISTORY_UNAVAILABLE"}
+    {
+        "NEW_ASSERTION_NO_SCENARIO",
+        "BASELINE_UNAVAILABLE",
+        "STORY_HISTORY_UNAVAILABLE",
+        # A run that cannot see a corpus cannot certify one. CM-001 and CM-009
+        # say an insufficient denominator withholds the claim rather than
+        # reporting zero; the generator obeys its own methodology.
+        "CORPUS_UNAVAILABLE",
+        "UNVERIFIED_INPUTS",
+        "UNVERIFIED_COLLECTION",
+    }
 )
 
 DEFAULT_BASELINE_REF = "origin/develop"
@@ -190,10 +221,25 @@ SEVERITY_RANK = {
 # loosen is not a ratchet. `medium` and `low` share 1 October, and enforcing at
 # `low` subsumes `medium`.
 ENFORCEMENT_SCHEDULE: tuple[tuple[date, Severity], ...] = (
-    (date(2026, 8, 8), Severity.CRITICAL),   # EV-25 target; date is unconditional
-    (date(2026, 9, 1), Severity.HIGH),       # EV-26 target; date is unconditional
+    (date(2026, 8, 8), Severity.CRITICAL),   # EV-25 merge
+    (date(2026, 9, 1), Severity.HIGH),       # EV-26 triage completion
     (date(2026, 10, 1), Severity.LOW),       # medium and low together
 )
+
+
+def utc_today() -> date:
+    """The calendar the ratchet runs on, pinned to UTC.
+
+    `date.today()` reads the process timezone, which made the hard expiry
+    locale-dependent: a runner at UTC-11 stayed on 7 August for eleven hours
+    after the critical stage went live in UTC, and `TZ=Etc/GMT+12` was an off
+    switch spelled as a locale rather than as a flag. Every other seam in this
+    file was closed on the argument that a knob nobody can see is worse than one
+    they can; an implicit dependency on `$TZ` is that knob. UTC is the one clock
+    every runner, reviewer and auditor already agrees on, and the dates in
+    ENFORCEMENT_SCHEDULE are published as calendar dates without a zone.
+    """
+    return datetime.now(UTC).date()
 
 
 def mandated_threshold(today: date) -> Severity | None:
@@ -326,6 +372,16 @@ FINDING_HELP = {
         "cannot be told apart from existing backlog. Reported and blocking rather than "
         "assumed clean."
     ),
+    "FEATURE_TAG_MISSING": (
+        "A scenario a document defines is not tagged in any generated feature file, so "
+        "nothing in the suite can bind to it. Regenerate the features, or point the run "
+        "at the directory that holds them."
+    ),
+    "UNVERIFIED_COLLECTION": (
+        "The pytest collection was supplied by the caller rather than performed by this "
+        "run. Those node ids are reported, but they do not clear a scenario's missing-test "
+        "finding: the tool did not collect them and will not vouch for them."
+    ),
     "MALFORMED_SCENARIO_REF": (
         "A scenario heading's requirement list contains something that is not a bare "
         "requirement ID. Each comma-separated part becomes a Gherkin tag, and a tag "
@@ -343,6 +399,11 @@ FINDING_HELP = {
         "A scenario has no test and no story lists it under Acceptance. Until ownership "
         "is recorded, the matrix cannot distinguish roadmap debt from a shipped defect."
     ),
+    "SCENARIO_UNOWNED": (
+        "A scenario has a test but no story lists it under Acceptance. The claim is "
+        "demonstrated; what is missing is the record of which story owes it, without "
+        "which a later regression has no owner."
+    ),
     "DANGLING_STORY_REF": (
         "A document cites a story ID for which prd.md has no story heading. Ordinary "
         "prose is normative too; a missing story must not become a decorative trigger."
@@ -350,6 +411,16 @@ FINDING_HELP = {
     "STORY_HISTORY_UNAVAILABLE": (
         "Reachable Git history could not be read, so the matrix cannot distinguish an "
         "unbuilt story from a landed story that omitted acceptance tests."
+    ),
+    "CORPUS_UNAVAILABLE": (
+        "The corpus this run read is empty, or implausibly small beside the floor "
+        "recorded from the last known good run. Zero requirements is an unknown, not a "
+        "pass: the run cannot establish anything and says so instead of exiting 0."
+    ),
+    "UNVERIFIED_INPUTS": (
+        "The caller redirected an input the tool would otherwise choose for itself, so "
+        "this run's verdict cannot be compared with the default invocation's. The report "
+        "is still generated; the verdict is withheld."
     ),
     "REQUIREMENT_NO_SCENARIO_CLAIMED": (
         "A story's Satisfies field claims this requirement, but nothing tests it and "
@@ -463,6 +534,7 @@ class Matrix:
     findings: list[Finding] = field(default_factory=list)
     summary: dict[str, Any] = field(default_factory=dict)
     excluded_citation_paths: tuple[str, ...] = ()
+    collection_supplied: bool = False
 
     def worst(self) -> Severity | None:
         if not self.findings:
@@ -756,6 +828,16 @@ def _parse_stories(
     dict[str, str],
     list[Finding],
 ]:
+    """Ownership, acceptance and definedness, all read from `prd.md` alone.
+
+    Definedness comes from the `#### EV-nn` heading, not from having a
+    `Satisfies:` field: a story that declares none is unusual but it exists.
+    The scan is restricted to this one file by construction. A `#### EV-nn`
+    heading in any other document must not be able to define a story into
+    existence -- otherwise a normative reference to a story nobody wrote can be
+    silenced by writing the heading somewhere convenient, which is the dangling
+    reference re-spelt.
+    """
     stories: dict[str, tuple[str, ...]] = {}
     acceptance: dict[str, tuple[str, ...]] = {}
     definitions: dict[str, str] = {}
@@ -995,16 +1077,13 @@ def _parse_catalogue(blob: str) -> dict[str, CatalogueEntry]:
     return out
 
 
-def baseline_assertions(
-    repo_root: Path, ref: str, ar_relpath: str = "docs/attestation-reliance.md"
-) -> tuple[dict[str, CatalogueEntry] | None, str]:
-    """The assertion catalogue as of the merge base with `ref`.
+def merge_base(repo_root: Path, ref: str) -> tuple[str | None, str]:
+    """The commit the last known good state is read from, and why.
 
-    None means the baseline could not be established, which is reported and
-    blocks. It is never silently treated as "nothing is new": a gate that
-    cannot see the previous state cannot tell a regression from backlog, and
-    guessing in the permissive direction is how this check would quietly stop
-    working.
+    None means it could not be established, which is reported and blocks. It is
+    never silently treated as "nothing is new": a gate that cannot see the
+    previous state cannot tell a regression from backlog, and guessing in the
+    permissive direction is how this check would quietly stop working.
 
     There is deliberately no fall back to the tip of `ref` when `merge-base`
     fails. Unrelated histories and shallow clones both fail that way, and the
@@ -1020,20 +1099,53 @@ def baseline_assertions(
             f"no merge base between HEAD and {ref} -- unrelated histories, or the common "
             f"ancestor was not fetched (actions/checkout needs fetch-depth: 0)"
         )
-    # A merge base equal to HEAD means the catalogue is being compared against
+    # A merge base equal to HEAD means the state is being compared against
     # itself, so nothing can ever be new. That is the legitimate state on a push
     # build to the integration branch -- the PR was gated before it merged -- but
     # it is a vacuous check either way, and a vacuous check that reads as a clean
     # one is how every other seam in this gate went wrong. Say so plainly.
     head = (_git(repo_root, "rev-parse", "HEAD") or "").strip()
     vacuous = " -- this IS HEAD, so nothing can be new in this build" if base == head else ""
+    return base, f"merge base {base[:12]} with {ref}{vacuous}"
 
+
+def baseline_corpus(repo_root: Path, base: str, docs_reldir: str = "docs") -> dict[str, int]:
+    """How big the corpus was at `base`: the floor this run must clear.
+
+    CM-001 and CM-009 say that where the population cannot be independently
+    established the methodology emits no ratio and says so, rather than
+    reporting zero. The generator is held to its own rule. Reading no
+    requirements is not a clean corpus, it is an unestablished one, and the
+    only honest previous population available is the state the integration
+    branch was last known good at.
+    """
+    listing = _git(repo_root, "ls-tree", "-r", "--name-only", base, "--", docs_reldir)
+    counts = {"requirements": 0, "assertions": 0}
+    for relpath in (listing or "").splitlines():
+        if not relpath.endswith(".md"):
+            continue
+        blob = _git(repo_root, "show", f"{base}:{relpath}")
+        if blob is None:
+            continue
+        counts["requirements"] += len({m.group("rid") for m in REQ_DEF.finditer(blob)})
+        if relpath.endswith("attestation-reliance.md"):
+            counts["assertions"] += len(_parse_catalogue(blob))
+    return counts
+
+
+def baseline_assertions(
+    repo_root: Path, ref: str, ar_relpath: str = "docs/attestation-reliance.md"
+) -> tuple[dict[str, CatalogueEntry] | None, str]:
+    """The assertion catalogue as of the merge base with `ref`."""
+    base, description = merge_base(repo_root, ref)
+    if base is None:
+        return None, description
     blob = _git(repo_root, "show", f"{base}:{ar_relpath}")
     if blob is None:
         # The file not existing at the baseline is a real answer, not a
         # failure: every assertion in it today is new.
-        return {}, f"{ar_relpath} did not exist at merge base {base[:12]}{vacuous}"
-    return _parse_catalogue(blob), f"merge base {base[:12]} with {ref}{vacuous}"
+        return {}, f"{ar_relpath} did not exist at {description}"
+    return _parse_catalogue(blob), description
 
 
 def collect_node_ids(repo_root: Path, target: str = "tests") -> list[str]:
@@ -1072,9 +1184,13 @@ def build_matrix(
     baseline_description: str = "no baseline supplied",
     regression_gate: bool = False,
     landed_stories: frozenset[str] | None = None,
+    extra_baselines: tuple[tuple[dict[str, CatalogueEntry] | None, str], ...] = (),
+    collection_supplied: bool = False,
+    corpus_floor: dict[str, int] | None = None,
 ) -> Matrix:
     matrix = Matrix()
     matrix.excluded_citation_paths = tuple(sorted(exclude_citations))
+    matrix.collection_supplied = collection_supplied
 
     # -- requirements, then their markers, per document ---------------------
     for md in sorted(docs_dir.glob("*.md")):
@@ -1082,17 +1198,14 @@ def build_matrix(
         matrix.findings.extend(findings)
         for req in requirements:
             if req.rid in matrix.requirements:
-                first_requirement = matrix.requirements[req.rid]
+                first = matrix.requirements[req.rid]
                 matrix.findings.append(
                     Finding(
                         kind="DUPLICATE_REQUIREMENT",
                         severity=Severity.CRITICAL,
                         subject=req.rid,
                         location=f"{req.doc}:{req.line}",
-                        detail=(
-                            f"first defined at {first_requirement.doc}:"
-                            f"{first_requirement.line}; that one wins"
-                        ),
+                        detail=f"first defined at {first.doc}:{first.line}; that one wins",
                     )
                 )
                 continue
@@ -1101,22 +1214,20 @@ def build_matrix(
 
     # -- scenarios ----------------------------------------------------------
     for md in sorted(docs_dir.glob("*.md")):
-        for parsed_scenario in _parse_scenarios(md):
-            if parsed_scenario.sid in matrix.scenarios:
-                first_scenario = matrix.scenarios[parsed_scenario.sid]
+        for scenario in _parse_scenarios(md):
+            if scenario.sid in matrix.scenarios:
+                first = matrix.scenarios[scenario.sid]
                 matrix.findings.append(
                     Finding(
                         kind="DUPLICATE_SCENARIO",
                         severity=Severity.CRITICAL,
-                        subject=parsed_scenario.sid,
-                        location=f"{parsed_scenario.doc}:{parsed_scenario.line}",
-                        detail=(
-                            f"also defined at {first_scenario.doc}:{first_scenario.line}"
-                        ),
+                        subject=scenario.sid,
+                        location=f"{scenario.doc}:{scenario.line}",
+                        detail=f"also defined at {first.doc}:{first.line}",
                     )
                 )
                 continue
-            matrix.scenarios[parsed_scenario.sid] = parsed_scenario
+            matrix.scenarios[scenario.sid] = scenario
 
     # -- assertions and story ownership ------------------------------------
     # AR-003 closes the catalogue, so a duplicate row is worse here than
@@ -1126,24 +1237,22 @@ def build_matrix(
     # is reported.
     ar_doc = docs_dir / "attestation-reliance.md"
     if ar_doc.is_file():
-        for parsed_assertion in _parse_assertions(ar_doc):
-            if parsed_assertion.aid in matrix.assertions:
-                first_assertion = matrix.assertions[parsed_assertion.aid]
+        for assertion in _parse_assertions(ar_doc):
+            if assertion.aid in matrix.assertions:
+                first = matrix.assertions[assertion.aid]
                 matrix.findings.append(
                     Finding(
                         kind="DUPLICATE_ASSERTION",
                         severity=Severity.CRITICAL,
-                        subject=parsed_assertion.aid,
-                        location=f"{parsed_assertion.doc}:{parsed_assertion.line}",
-                        detail=(
-                            f"already defined at {first_assertion.doc}:{first_assertion.line} "
-                            f"with basis {', '.join(first_assertion.basis) or '(none)'}; the "
-                            f"first row wins and this one is ignored"
-                        ),
+                        subject=assertion.aid,
+                        location=f"{assertion.doc}:{assertion.line}",
+                        detail=f"already defined at {first.doc}:{first.line} with basis "
+                               f"{', '.join(first.basis) or '(none)'}; the first row wins and "
+                               f"this one is ignored",
                     )
                 )
                 continue
-            matrix.assertions[parsed_assertion.aid] = parsed_assertion
+            matrix.assertions[assertion.aid] = assertion
 
     prd = docs_dir / "prd.md"
     if prd.is_file():
@@ -1172,7 +1281,15 @@ def build_matrix(
 
     # Every story-shaped reference in normative prose must resolve, not only
     # the references in specially parsed deferral markers. This catches dates,
-    # gates and dependencies that name work nobody actually defined.
+    # gates and dependencies that name work nobody actually defined. Resolution
+    # is against `story_definitions`, which `_parse_stories` reads from prd.md
+    # and nowhere else: a `#### EV-nn` heading in another document is a citation
+    # like any other, not a definition.
+    # No special case for headings. A `#### EV-nn` line in prd.md defines the
+    # story it names, so its own token resolves against `story_definitions` like
+    # any other; a `#### EV-nn` line anywhere else is a citation, and skipping
+    # heading-shaped lines here would have hidden exactly the citations this
+    # check exists to catch.
     for md in sorted(docs_dir.glob("*.md")):
         for n, line in enumerate(md.read_text(encoding="utf-8").splitlines(), 1):
             for story_ref in STORY_TOKEN.findall(line):
@@ -1241,9 +1358,9 @@ def build_matrix(
     for sid, scenario in sorted(matrix.scenarios.items()):
         for ref in scenario.refs:
             by_requirement[ref].append(sid)
-    for rid, scenario_ids in by_requirement.items():
+    for rid, sids in by_requirement.items():
         if rid in matrix.requirements:
-            matrix.requirements[rid].scenarios = tuple(sorted(set(scenario_ids)))
+            matrix.requirements[rid].scenarios = tuple(sorted(set(sids)))
 
     # -- link scenario -> test ---------------------------------------------
     by_scenario: dict[str, list[str]] = defaultdict(list)
@@ -1263,10 +1380,30 @@ def build_matrix(
             matrix.scenarios[sid].accepted_by = tuple(sorted(set(owners)))
 
     matrix.findings.extend(_check(matrix, features_dir, module_citations, by_scenario))
-    if regression_gate:
-        matrix.findings.extend(
-            _check_regressions(matrix, baseline, baseline_description)
+
+    if collection_supplied:
+        matrix.findings.append(
+            Finding(
+                kind="UNVERIFIED_COLLECTION",
+                severity=Severity.HIGH,
+                subject="pytest collection",
+                location=str(repo_root),
+                detail=f"{len(node_ids)} node id(s) were supplied rather than collected by "
+                       f"this run; they are linked and published but do not clear a "
+                       f"scenario's missing-test finding",
+            )
         )
+
+    matrix.findings.extend(_check_corpus(matrix, corpus_floor))
+
+    if regression_gate:
+        seen: set[tuple[str, str]] = set()
+        for base, description in ((baseline, baseline_description), *extra_baselines):
+            for finding in _check_regressions(matrix, base, description):
+                if (finding.kind, finding.subject) in seen:
+                    continue
+                seen.add((finding.kind, finding.subject))
+                matrix.findings.append(finding)
     matrix.findings.sort(key=Finding.sort_key)
     matrix.summary = _summarise(matrix)
     return matrix
@@ -1385,32 +1522,60 @@ def _check(
     # debt; and no Acceptance owner at all is a triage failure.
     landed = set(matrix.landed_stories)
     for sid, scenario in sorted(matrix.scenarios.items()):
-        if not scenario.tests:
-            landed_owners = tuple(owner for owner in scenario.accepted_by if owner in landed)
-            if landed_owners:
-                kind, severity = "SCENARIO_NO_TEST_LANDED", Severity.HIGH
-                detail = (
-                    f"no collected test implements this scenario; accepted by landed "
-                    f"story {', '.join(landed_owners)}"
+        if scenario.tests and not matrix.collection_supplied:
+            # Demonstrated, so none of the missing-test classification below
+            # applies -- but ownership is a separate record from demonstration,
+            # and until this check existed a scenario with a test could sit in
+            # no story's Acceptance field and produce no finding at all. That is
+            # how EV-22's own Acceptance field came to omit QA-S-006, QA-S-007
+            # and QA-S-008: the tool built to find unowned scenarios only looked
+            # at the untested ones, so its own gap was in its blind spot.
+            #
+            # Medium, not high: the claim is demonstrated and only the ownership
+            # record is missing, so this clears on 1 October with the rest of the
+            # triage backlog rather than on EV-26's 1 September stage.
+            if not scenario.accepted_by:
+                findings.append(
+                    Finding(
+                        kind="SCENARIO_UNOWNED",
+                        severity=Severity.MEDIUM,
+                        subject=sid,
+                        location=f"{scenario.doc}:{scenario.line}",
+                        detail="a test implements this scenario but no story lists it under "
+                               "Acceptance, so nothing records which story it belongs to",
+                    )
                 )
-            elif scenario.accepted_by:
-                kind, severity = "SCENARIO_NO_TEST_UNBUILT", Severity.MEDIUM
-                detail = (
-                    f"no collected test yet; owned by unlanded story "
-                    f"{', '.join(scenario.accepted_by)}"
-                )
-            else:
-                kind, severity = "SCENARIO_NO_TEST_UNOWNED", Severity.HIGH
-                detail = "no collected test and no story lists this scenario under Acceptance"
-            findings.append(
-                Finding(
-                    kind=kind,
-                    severity=severity,
-                    subject=sid,
-                    location=f"{scenario.doc}:{scenario.line}",
-                    detail=detail,
-                )
+            continue
+        # A collection this run did not perform cannot clear the finding. The
+        # node ids are still linked and published, so the chain is visible, but
+        # a file of node ids handed in on the command line is an assertion by
+        # the caller, and accepting it here would let any scenario be marked
+        # demonstrated by writing a line of text.
+        why = (
+            "the only implementing tests came from a caller-supplied collection this run "
+            "did not perform"
+            if scenario.tests
+            else "no collected test implements this scenario"
+        )
+        landed_owners = tuple(owner for owner in scenario.accepted_by if owner in landed)
+        if landed_owners:
+            kind, severity = "SCENARIO_NO_TEST_LANDED", Severity.HIGH
+            detail = f"{why}; accepted by landed story {', '.join(landed_owners)}"
+        elif scenario.accepted_by:
+            kind, severity = "SCENARIO_NO_TEST_UNBUILT", Severity.MEDIUM
+            detail = f"{why}; owned by unlanded story {', '.join(scenario.accepted_by)}"
+        else:
+            kind, severity = "SCENARIO_NO_TEST_UNOWNED", Severity.HIGH
+            detail = f"{why}, and no story lists this scenario under Acceptance"
+        findings.append(
+            Finding(
+                kind=kind,
+                severity=severity,
+                subject=sid,
+                location=f"{scenario.doc}:{scenario.line}",
+                detail=detail,
             )
+        )
 
     # Tests naming a scenario that does not exist.
     for sid, nodeids in sorted(by_scenario.items()):
@@ -1427,9 +1592,29 @@ def _check(
 
     # Feature tags versus the owning document.
     if features_dir is not None:
-        for sid, refs in sorted(_parse_feature_tags(features_dir).items()):
-            tagged_scenario = matrix.scenarios.get(sid)
-            if tagged_scenario is None:
+        feature_tags = _parse_feature_tags(features_dir)
+        # The check used to run in one direction only: every tag had to resolve
+        # to a document. Nothing asked whether every documented scenario reached
+        # the generated suite, so pointing `--features` at a directory with no
+        # feature files in it removed every finding on this axis and added none.
+        # An input that can only subtract findings is a bypass whatever it is
+        # called, so the reverse direction is a finding of its own -- a scenario
+        # absent from the suite is one no test can bind to.
+        for sid, scenario in sorted(matrix.scenarios.items()):
+            if sid not in feature_tags:
+                findings.append(
+                    Finding(
+                        kind="FEATURE_TAG_MISSING",
+                        severity=Severity.HIGH,
+                        subject=sid,
+                        location=f"{scenario.doc}:{scenario.line}",
+                        detail=f"no generated feature under {features_dir} tags this scenario, "
+                               f"so no pytest-bdd test can bind to it",
+                    )
+                )
+        for sid, refs in sorted(feature_tags.items()):
+            scenario = matrix.scenarios.get(sid)
+            if scenario is None:
                 findings.append(
                     Finding(
                         kind="RETIRED_SCENARIO_REF",
@@ -1440,14 +1625,14 @@ def _check(
                     )
                 )
                 continue
-            if set(refs) != set(tagged_scenario.refs):
+            if set(refs) != set(scenario.refs):
                 findings.append(
                     Finding(
                         kind="FEATURE_TAG_DRIFT",
                         severity=Severity.HIGH,
                         subject=sid,
-                        location=f"{tagged_scenario.doc}:{tagged_scenario.line}",
-                        detail=f"document says {', '.join(tagged_scenario.refs) or '(none)'}; "
+                        location=f"{scenario.doc}:{scenario.line}",
+                        detail=f"document says {', '.join(scenario.refs) or '(none)'}; "
                                f"feature file says {', '.join(refs) or '(none)'}",
                     )
                 )
@@ -1490,6 +1675,75 @@ def _check(
             )
         )
 
+    return findings
+
+
+# How much of the last known good corpus a run must still be able to read
+# before its verdict means anything. Not 1.0: requirements are retired
+# legitimately, and a floor that fires on every deletion is a floor someone
+# raises rather than one that holds. Not much below it either -- a tenth of the
+# corpus vanishing between the merge base and here is a redirected `--docs`, a
+# half-copied checkout or a renamed directory far more often than it is a day's
+# editing, and all three of those read as "clean" without this.
+CORPUS_FLOOR_NUMERATOR = 9
+CORPUS_FLOOR_DENOMINATOR = 10
+
+
+def _check_corpus(matrix: Matrix, floor: dict[str, int] | None) -> list[Finding]:
+    """CM-001 and CM-009, applied to the generator itself.
+
+    An empty corpus is the shape every bypass in this file eventually takes:
+    point the tool somewhere with nothing in it and every finding disappears at
+    once, leaving an exit status of 0 that reads exactly like a clean run. Zero
+    requirements is an unknown, not a pass. The coverage engine is not allowed
+    to report 0% when it cannot enumerate the population, and neither is this.
+
+    `floor` is the corpus size at the merge base -- the last state the
+    integration branch was known good at. `None` means it could not be read,
+    which is already reported and blocking as BASELINE_UNAVAILABLE; there is no
+    second complaint about the same missing history.
+    """
+    findings: list[Finding] = []
+    if not matrix.requirements:
+        findings.append(
+            Finding(
+                kind="CORPUS_UNAVAILABLE",
+                severity=Severity.CRITICAL,
+                subject="requirements",
+                location="the documents this run was pointed at",
+                detail="no requirement definitions were read at all. Cannot establish: a "
+                       "corpus with nothing in it produces no findings, and no findings is "
+                       "not the same answer as no problems",
+            )
+        )
+    if floor is None:
+        return findings
+    for dimension, current in (
+        ("requirements", len(matrix.requirements)),
+        ("assertions", len(matrix.assertions)),
+    ):
+        previous = floor.get(dimension, 0)
+        # Compare the ratio exactly. Truncating `previous * 0.9` made a floor of
+        # 11 accept 9 (81.8%), because int(9.9) became 9 before comparison.
+        below_floor = (
+            current * CORPUS_FLOOR_DENOMINATOR
+            < previous * CORPUS_FLOOR_NUMERATOR
+        )
+        threshold = (
+            previous * CORPUS_FLOOR_NUMERATOR + CORPUS_FLOOR_DENOMINATOR - 1
+        ) // CORPUS_FLOOR_DENOMINATOR
+        if previous and below_floor:
+            findings.append(
+                Finding(
+                    kind="CORPUS_UNAVAILABLE",
+                    severity=Severity.CRITICAL,
+                    subject=dimension,
+                    location="the documents this run was pointed at",
+                    detail=f"read {current} {dimension} against {previous} at the baseline, "
+                           f"below the floor of {threshold}. Cannot establish: this run is "
+                           f"not looking at the corpus the last known good run looked at",
+                )
+            )
     return findings
 
 
@@ -1978,28 +2232,49 @@ def main(
     argv: list[str] | None = None,
     *,
     real_today: date | None = None,
-    regression_gate: bool = True,
     baseline_ref: str = DEFAULT_BASELINE_REF,
     today: date | None = None,
 ) -> int:
-    """These three are test seams, deliberately not command-line flags.
+    """The invariant, stated once: **no input the caller controls may produce a
+    more permissive verdict than the default invocation.**
 
-These four are test seams, deliberately not command-line flags.
+    That is a property over the whole argument space, not a claim about the list
+    of flags that happen to exist today, and
+    `tests/traceability/test_argument_space.py` asserts it as one. Deleting
+    flags was the previous three attempts at this, and each time the next
+    review found the knob that had been kept because *this* one was obviously
+    safe. So the flags stay and every one of them is closed by construction:
 
-    Each was an argparse option once, and every one of them turned out to be, or
-    to be one bug away from, an off switch for a gate that exists precisely so it
-    cannot be switched off:
+      --mode, --fail-on      may only strengthen the QA-011 schedule
+      --exclude-citations    adds to the defaults. A caller-added exclusion
+                             withholds the verdict because it can hide an
+                             invalid citation as well as remove a valid one.
+      --collect-from         reported, never clears a missing-test finding, and
+                             withholds the verdict: an omitted node can hide a
+                             retired citation even when fabricated nodes do not
+                             clear scenarios.
+      --docs, --features,    redirected inputs withhold the verdict. The corpus
+      --repo-root, --tests   floor additionally catches an empty or implausibly
+                             shrunken default corpus.
+      --out-md, --out-json   output only
 
-      --no-baseline    disabled QA-S-001 outright
-      --baseline-ref   pointed at HEAD, compared the catalogue against itself
-      --today          held a live stage back, until the sentinel bug was fixed
+    The keyword-only parameters below are Python-callable seams and are closed
+    the same way, because reachable-only-from-Python is not closed:
 
-    `--today` was the last survivor and was arguably safe: the real calendar is a
-    floor, so it could only ever strengthen. It is gone anyway. Defending the one
-    remaining knob on the grounds that this one is provably fine is how the
-    previous three were justified too, and the invariant is worth more as a
-    structural fact than as an argument: **no command-line input can weaken
-    either gate.** argv selects what to read and where to write, nothing else.
+      real_today   forward-only. mandated_threshold() is monotone in the date,
+                   so the effective calendar is max(UTC today, supplied). A
+                   past date is ignored; a future one rehearses a later stage.
+      today        forward-only, by the same rule.
+      baseline_ref additive. DEFAULT_BASELINE_REF is always evaluated; a
+                   supplied ref adds a second comparison and the findings are
+                   unioned. Pointing it at HEAD no longer suppresses anything,
+                   because it no longer replaces anything.
+
+    `regression_gate` is gone from this function entirely. It was the last
+    parameter whose only effect was to make the build greener, and there is no
+    version of that which is safe. `build_matrix()` still has it, because a
+    library caller assembling a matrix over a corpus with no history is asking a
+    different question from the one the exit status answers.
     """
     ap = argparse.ArgumentParser(description=__doc__.splitlines()[0] if __doc__ else None)
     ap.add_argument("--repo-root", type=Path, default=Path.cwd())
@@ -2008,11 +2283,14 @@ These four are test seams, deliberately not command-line flags.
                     help="default <repo-root>/tests/features")
     ap.add_argument("--tests", default="tests", help="what to hand pytest --collect-only")
     ap.add_argument("--collect-from", type=Path, default=None,
-                    help="read node ids from a file instead of running pytest")
+                    help="read node ids from a file instead of running pytest; the report "
+                         "is diagnostic and its verdict is withheld")
     ap.add_argument("--exclude-citations", action="append", default=None,
                     metavar="PREFIX",
-                    help="path prefix whose tests are collected but whose requirement IDs "
-                         "are not read as citations (default: tests/traceability/)")
+                    help="an ADDITIONAL path prefix whose tests are collected but whose "
+                         "requirement IDs are not read as citations. Adds to the built-in "
+                         "defaults, never replaces them; caller-added exclusions produce a "
+                         "diagnostic report whose verdict is withheld")
     ap.add_argument("--out-md", type=Path, default=None)
     ap.add_argument("--out-json", type=Path, default=None)
     ap.add_argument("--mode", choices=("report", "enforce"), default="report",
@@ -2028,6 +2306,28 @@ These four are test seams, deliberately not command-line flags.
     docs = args.docs or root / "docs"
     features = args.features or root / "tests" / "features"
 
+    # Redirecting an observation asks a different question from main([]). A
+    # count floor catches empty and truncated document corpora, but it cannot
+    # prove equivalence for a same-sized alternate corpus, a different feature
+    # tree, a subset of tests, or an exclusion that hides a retired citation.
+    # Keep producing the report -- it is useful diagnostic evidence -- but do
+    # not certify it as comparable with the default invocation.
+    default_root = Path.cwd().resolve()
+    unverified_inputs: list[str] = []
+    if root != default_root:
+        unverified_inputs.append(f"--repo-root={root}")
+    if docs.resolve() != (root / "docs").resolve():
+        unverified_inputs.append(f"--docs={docs.resolve()}")
+    if features.resolve() != (root / "tests" / "features").resolve():
+        unverified_inputs.append(f"--features={features.resolve()}")
+    if args.tests != "tests":
+        unverified_inputs.append(f"--tests={args.tests}")
+    if args.exclude_citations:
+        unverified_inputs.extend(
+            f"--exclude-citations={prefix}" for prefix in args.exclude_citations
+        )
+
+    collection_supplied = args.collect_from is not None
     if args.collect_from is not None:
         node_ids = sorted(
             {ln.strip() for ln in args.collect_from.read_text(encoding="utf-8").split()}
@@ -2035,18 +2335,29 @@ These four are test seams, deliberately not command-line flags.
     else:
         node_ids = collect_node_ids(root, args.tests)
 
+    # Additive, not a replacement. Supplying a prefix used to discard the
+    # built-in ones, so `--exclude-citations nothing/` re-enabled the fixture
+    # IDs in test_matrix.py as real citations and quietly traced requirements
+    # that nothing tests.
     exclude = tuple(
-        args.exclude_citations if args.exclude_citations is not None
-        else DEFAULT_EXCLUDED_CITATION_PATHS
+        {*DEFAULT_EXCLUDED_CITATION_PATHS, *(args.exclude_citations or ())}
     )
 
-    baseline: dict[str, CatalogueEntry] | None = None
-    if regression_gate:
-        baseline, baseline_description = baseline_assertions(
-            root, baseline_ref, str(Path(docs.name) / "attestation-reliance.md")
-        )
-    else:
-        baseline_description = "QA-S-001 regression gate disabled by the caller"
+    ar_relpath = str(Path(docs.name) / "attestation-reliance.md")
+    baseline, baseline_description = baseline_assertions(root, DEFAULT_BASELINE_REF, ar_relpath)
+    extra_baselines: tuple[tuple[dict[str, CatalogueEntry] | None, str], ...] = ()
+    if baseline_ref != DEFAULT_BASELINE_REF:
+        extra_baselines = (baseline_assertions(root, baseline_ref, ar_relpath),)
+
+    # The floor comes from the same commit the catalogue baseline does: the last
+    # state the integration branch was known good at.
+    # Always `docs`, never `docs.name`. The floor is the size of the corpus
+    # this repository was last known good at, and that corpus lives at `docs/`.
+    # Reading it from whatever directory `--docs` names would let the floor be
+    # redirected alongside the thing it exists to bound: point both at a stub
+    # and the stub is measured against itself, which is a pass by construction.
+    base_commit, _ = merge_base(root, DEFAULT_BASELINE_REF)
+    corpus_floor = None if base_commit is None else baseline_corpus(root, base_commit, "docs")
 
     matrix = build_matrix(
         repo_root=root,
@@ -2056,8 +2367,53 @@ These four are test seams, deliberately not command-line flags.
         exclude_citations=exclude,
         baseline=baseline,
         baseline_description=baseline_description,
-        regression_gate=regression_gate,
+        extra_baselines=extra_baselines,
+        regression_gate=True,
+        collection_supplied=collection_supplied,
+        corpus_floor=corpus_floor,
     )
+
+    if unverified_inputs:
+        matrix.findings.append(
+            Finding(
+                kind="UNVERIFIED_INPUTS",
+                severity=Severity.CRITICAL,
+                subject="redirected inputs",
+                location=str(root),
+                detail="cannot compare this run with the default invocation because the "
+                       "caller redirected: " + ", ".join(unverified_inputs),
+            )
+        )
+        matrix.findings.sort(key=Finding.sort_key)
+        matrix.summary = _summarise(matrix)
+
+    # The QA-011 ratchet, and the one place a date could ever weaken it.
+    #
+    # `mandated_threshold` is monotone in its argument -- a later date mandates
+    # at least as much as an earlier one -- so "forward-only" is just `max`.
+    # Both supplied dates go through it and neither can move the calendar
+    # backwards. The calendar itself is UTC, not the process timezone: see
+    # utc_today().
+    calendar = utc_today()
+    real = max(calendar, real_today) if real_today is not None else calendar
+    asof = max(real, today) if today is not None else real
+
+    requested = Severity(args.fail_on) if args.mode == "enforce" else None
+    threshold, why = effective_threshold(requested, asof, real)
+
+    # Written into the published matrix, not only printed: QA-010 says the chain
+    # is evidence for an auditor, and a matrix that does not record which gate
+    # it was evaluated under leaves them to guess.
+    matrix.summary["enforcement"] = {
+        "utc_today": calendar.isoformat(),
+        "real": real.isoformat(),
+        "as_of": asof.isoformat(),
+        "requested": None if requested is None else requested.value,
+        "threshold": None if threshold is None else threshold.value,
+        "reason": why,
+        "baseline": baseline_description,
+        "collection_supplied": collection_supplied,
+    }
 
     if args.out_md:
         args.out_md.parent.mkdir(parents=True, exist_ok=True)
@@ -2070,20 +2426,13 @@ These four are test seams, deliberately not command-line flags.
 
     _print_report(matrix)
 
-    # The QA-011 ratchet. `--today` may only bring a future stage forward, never
-    # push a live one back. effective_threshold() takes the real calendar as a
-    # floor, so there is no comparison here to get wrong.
-    real = real_today if real_today is not None else date.today()
-    asof = today or real
-
-    requested = Severity(args.fail_on) if args.mode == "enforce" else None
-    threshold, why = effective_threshold(requested, asof, real)
-
     print(f"\nBaseline for the QA-S-001 regression gate: {baseline_description}.")
-    if not regression_gate:
-        print("WARNING: the QA-S-001 regression gate is disabled. This is reachable only "
-              "from Python, never from the command line.")
-    print(f"QA-011 enforcement as of {real.isoformat()}: {why}.")
+    for _, extra_description in extra_baselines:
+        print(f"Additional baseline requested by the caller: {extra_description}. "
+              f"Findings from both are unioned; a supplied ref adds a comparison and "
+              f"never replaces the default one.")
+    print(f"QA-011 enforcement as of {real.isoformat()} (UTC today is "
+          f"{calendar.isoformat()}): {why}.")
     if asof != real:
         print(f"(evaluated as of {asof.isoformat()}; a supplied date may bring a stage "
               f"forward, never defer one.)")

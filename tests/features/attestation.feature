@@ -51,3 +51,23 @@ Feature: Attestation and reliance framework
     When it is reviewed before release
     Then it contains none of: attestation, certification, assurance, verified, audited
     And it carries the full §9 header
+
+  @AR-S-007 @QA-018
+  # source: attestation-reliance.md:216
+  Scenario: AR-S-007 A-02 is withheld where the boundary did not span the window
+    Given a declared assurance boundary valid from B1 to B2
+    And an attestation window from W1 to W2 where W1 < B1 or W2 > B2
+    When the attestation is generated
+    Then A-02 is withheld
+    And the uncovered interval is reported with its bounds
+    And no narrower restatement of A-02 is emitted in its place
+
+  @AR-S-008 @QA-018
+  # source: attestation-reliance.md:235
+  Scenario: AR-S-008 A-09 is withheld where outcomes were not confirmed
+    Given R actions claimed as confirmed against a named authoritative source
+    And S of them have no confirmation record from that source
+    When the attestation is generated
+    Then A-09 is withheld unless R is restated as R - S
+    And the named source is identified in the attestation
+    And an unnamed or absent source withholds A-09 outright

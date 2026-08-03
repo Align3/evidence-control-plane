@@ -146,6 +146,27 @@ def test_unbuilt_story_scenario_with_no_test_is_expected_debt(matrix):
     assert severity_of(matrix, "SCENARIO_NO_TEST_UNBUILT", "CM-S-904") is Severity.MEDIUM
 
 
+def test_a_tested_scenario_with_no_owner_is_still_reported(matrix):
+    """Demonstration and ownership are separate records.
+
+    ES-S-901 has a test and sits in no story's Acceptance field. Until this
+    check existed the pairing produced no finding at all, because the ownership
+    check only ran over untested scenarios -- which is how EV-22's own
+    Acceptance field came to omit QA-S-006, QA-S-007 and QA-S-008 with its own
+    tool reporting nothing. Medium, not high: the claim is demonstrated and only
+    the owner is unrecorded.
+    """
+    assert "ES-S-901" in subjects(matrix, "SCENARIO_UNOWNED")
+    assert matrix.scenarios["ES-S-901"].tests, "the precondition: it does have a test"
+    assert matrix.scenarios["ES-S-901"].accepted_by == ()
+    assert severity_of(matrix, "SCENARIO_UNOWNED", "ES-S-901") is Severity.MEDIUM
+
+
+def test_a_tested_scenario_with_an_owner_is_not_reported(matrix):
+    assert "CM-S-901" not in subjects(matrix, "SCENARIO_UNOWNED")
+    assert matrix.scenarios["CM-S-901"].accepted_by == ("EV-90",)
+
+
 def test_unowned_scenario_with_no_test_remains_a_defect(matrix):
     assert "CM-S-905" in subjects(matrix, "SCENARIO_NO_TEST_UNOWNED")
     assert severity_of(matrix, "SCENARIO_NO_TEST_UNOWNED", "CM-S-905") is Severity.HIGH
@@ -453,3 +474,56 @@ def test_markdown_states_the_exemption_count_and_reasons(matrix):
     assert "## Exemptions" in body
     assert "CM-902" in body
     assert "change-log" in body, "the reason must be visible, not just the count"
+
+
+# --- dangling story references -------------------------------------------
+
+
+DANGLING = Path(__file__).parent / "fixtures" / "dangling_story"
+
+
+@pytest.fixture
+def dangling(tmp_path):
+    return build_matrix(
+        repo_root=tmp_path,
+        docs_dir=DANGLING / "docs",
+        features_dir=None,
+        node_ids=[],
+        landed_stories=frozenset(),
+    )
+
+
+def test_a_reference_to_an_undefined_story_is_reported(dangling):
+    """The blind spot QA-011 fell into.
+
+    The staged schedule named two stories before either was written, and
+    nothing caught it: the matrix validated requirement ids and scenario ids
+    but never story ids in prose, so a normative schedule could hang off a
+    story that did not exist.
+    """
+    assert {"EV-97", "EV-98"} <= subjects(dangling, "DANGLING_STORY_REF")
+    assert severity_of(dangling, "DANGLING_STORY_REF", "EV-97") is Severity.CRITICAL
+
+
+def test_a_story_defined_without_satisfies_is_not_dangling(dangling):
+    """Defined-ness comes from the heading, not from having a Satisfies field.
+
+    EV-91 declares no Satisfies, so it never enters the story->requirement map.
+    Checking membership of that map instead of the set of headings would report
+    a story that plainly exists.
+    """
+    assert "EV-91" not in subjects(dangling, "DANGLING_STORY_REF")
+    assert "EV-91" not in dangling.stories, "the precondition this test exists to cover"
+    assert "EV-90" not in subjects(dangling, "DANGLING_STORY_REF")
+
+
+def test_a_story_heading_outside_prd_does_not_define_a_story(dangling):
+    """Heading detection is constrained to prd.md.
+
+    Scanning every document for `#### EV-nn` would let any dangling reference be
+    silenced by writing its heading beside itself -- the reference re-spelt, not
+    resolved. EV-99 has a heading in the fixture's testing-qa.md and must still
+    be reported.
+    """
+    assert "EV-99" in subjects(dangling, "DANGLING_STORY_REF")
+    assert "EV-99" not in dangling.story_definitions
