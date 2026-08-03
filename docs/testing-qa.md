@@ -13,9 +13,11 @@
 
 When an attestation asserts "enforced coverage for family X over window W," that is a claim we must be able to demonstrate. A scenario is also a claim we must be able to demonstrate. It follows that:
 
-**QA-018** — No assertion enters `attestation-reliance.md` §2 without a corresponding scenario here, and no requirement in any document is considered implemented without a passing scenario.
+**QA-018** — No assertion enters `attestation-reliance.md` §2 without a basis requirement that states the assertion's claim and a scenario demonstrating that requirement, and no requirement in any document is considered implemented without a passing scenario. The scenario lives in the acceptance section of whichever document owns the requirement — scenarios are extracted from all of `docs/`, and the suite is the union of those sections, not this file alone.
 
 The reliance framework and the test suite grow together or not at all.
+
+**A citation is part of the claim.** The rule reads "a basis requirement that states the assertion's claim" because EV-25 found two assertions whose cited requirements were real, current, and scenario-bearing, yet stated something else — A-02 on ES-009, A-09 on CM-007. Read as a bare existence check, the rule was satisfied by both. What that buys is a green gate over a demonstration of a different claim, which is worse than a red one: AG-002 forbids weakening a scenario to make it pass, and nothing forbade moving the citation instead. The matrix cannot judge whether a requirement states a claim, so this half of QA-018 is enforced at review; what the matrix enforces is that the cited requirement exists and carries a scenario at all.
 
 This was the organising idea of the whole document and it was unnumbered prose from version 0.1 until now — which meant EV-22's traceability matrix, built to enforce exactly this rule, could not see it. The matrix reads `**XX-nnn**` definitions; a blockquote is invisible to it, so the one rule every other requirement here elaborates was the only one nothing could trace, claim, or report an orphan against. It takes the next free number rather than a low one: renumbering to put it in sequence would silently rewrite every existing citation, and a stable ID is worth more than a tidy ordering.
 
