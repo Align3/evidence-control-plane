@@ -35,17 +35,35 @@ Every assertion an attestation may make, each traceable to a methodology require
 | ID | Assertion | Basis |
 |---|---|---|
 | **A-01** | Records within this window form an unbroken, signature-valid chain | ES-006/021 |
-| **A-02** | The declared assurance boundary was in force for the window | ES-009 |
+| **A-02** | The declared assurance boundary was in force for the window | AR-027 |
 | **A-03** | The denominator source was of class C, qualified on date D | CM-003/004 |
 | **A-04** | Of the enumerated population of N actions, M were matched to evidence at level L | CM-008/011 |
 | **A-05** | The following intervals are unknown, for the stated causes | CM-014/016 |
 | **A-06** | Coverage level claimed is the minimum of evidence-supported and class-admissible | CM-008 |
 | **A-07** | For P actions requiring human review, review records exist with the recorded properties | ES-013/014 |
 | **A-08** | For Q of those, review occurred while the action was still reversible | ES-014 |
-| **A-09** | Outcomes for R actions were confirmed against the named authoritative source | CM-007 |
+| **A-09** | Outcomes for R actions were confirmed against the named authoritative source | AR-028 |
 | **A-10** | This computation is reproducible from the referenced bundle by the named verifier version | CM-013 |
 
 **AR-004** — Each assertion carries its own scope and count. Aggregate scores, trust ratings, letter grades, and single-number summaries MUST NOT be issued. They invite reliance the evidence does not support.
+
+### 2.1 Conditions on A-02 and A-09
+
+Every other row in the table above points at a requirement that states the row's claim. Two did not, and were repaired here rather than re-pointed (EV-25).
+
+**A-02** cited ES-009, which requires each declared `action_families[]` entry to carry a `qualification_ref`. That is a well-formedness rule about a boundary's contents; it says nothing about the period over which the boundary was in effect. **A-09** cited CM-007, which establishes that coverage level and verification status are orthogonal attributes. That is a rule about how two attributes relate to each other; outcome confirmation is a different subject entirely. In both cases the citation was adjacent to the claim and did not state it, so nothing in the corpus could be made to demonstrate either assertion without first writing the rule down.
+
+Neither rule existed anywhere. Searching every numbered requirement in `coverage-methodology.md`, `evidence-spec.md`, `threat-model.md`, `architecture.md`, `security.md`, `infrastructure.md` and `data-model.md` found nothing stating that a boundary must span the window it is attested under, and nothing stating what entitles an action to be counted as outcome-confirmed. `AssuranceBoundary` carries `window_start` and `window_end` (`evidence-spec.md` §5.1) and `OutcomeRecord` carries `authoritative_source` (§5.11), but a field is not a requirement; nothing normative constrained either one. The closest statement of A-02's rule was the definition of *assurance boundary* in `coverage-methodology.md` §2 — "Claims are valid only inside it" — which carries no ID, so no assertion could cite it and the traceability matrix could not read it. That is the defect QA-018 was numbered to stop, appearing one level down.
+
+Both rules are stated here, as conditions on issuance, because that is what they are: they govern whether an assertion may be emitted, which is this document's subject. They are not schema rules and do not constrain what a conformant record may contain.
+
+**AR-027** — A boundary version's effective interval begins at the later of its declared `window_start` and its signed envelope `clocks.ingest_time`, so a boundary recorded after the fact cannot be backdated into force. It ends at the earlier of its declared `window_end` and the effective start of the next version of the same boundary, if one exists. A-02 MUST NOT be asserted unless that effective interval encloses the attestation window in full. Where the attestation begins before it or ends after it, A-02 is withheld and the uncovered interval is reported with its bounds. A later version does not extend the interval of the version the attestation references: the attestation MUST reference one version that was in force for its whole window. A narrower restatement of A-02 over the covered sub-interval MUST NOT be emitted in its place, because silently re-scoping the assertion is the overclaim this catalogue exists to prevent.
+
+> **Why this is not TM-002.** TM-002 makes boundaries signed, versioned, and immutable, and TM-S-002 demonstrates that narrowing one is *visible*. Visibility and being in force are independent properties. A boundary can be narrowed in plain sight and still have been in force across the whole window, and it can have been left silently unamended while the window ran past its validity — the second case is precisely what A-02 denies, and TM-S-002 does not exercise it. Citing TM-002 would have turned the traceability gate green against a scenario that demonstrates a different claim.
+
+**AR-028** — A-09 MUST NOT be asserted unless the authoritative source is named in the attestation and every action counted in R has a conformant `OutcomeRecord` whose `action_id` identifies that action and whose `authoritative_source` exactly matches the named source. A generic `ExternalConfirmation` does not satisfy this rule: it can prove that a destination record exists without proving the action's outcome. Actions with no matching `OutcomeRecord` are excluded from R rather than assumed confirmed; where excluding them is not possible, A-09 is withheld entirely. An absent or unnamed source withholds A-09 outright, because "confirmed" with no stated confirming party is not a factual assertion about evidence within the meaning of AR-002.
+
+> **Why this is not CM-010.** CM-010 separates enumeration from confirmation as connector capabilities, and CM-S-005 demonstrates one direction of it: a connector that can confirm but not enumerate supports no window-level coverage claim. A-09 fails in the other direction — actions counted as confirmed whose outcome was never checked against the named source at all. A connector fully capable of confirmation satisfies CM-010 while emitting A-09 over actions it never confirmed.
 
 ---
 
@@ -213,18 +231,20 @@ Then it contains none of: attestation, certification, assurance, verified, audit
 And it carries the full §9 header
 ```
 
-### AR-S-007 — A-02 is withheld where the boundary did not span the window *(QA-018)*
+### AR-S-007 — A-02 is withheld where the boundary did not span the window *(AR-027, QA-018)*
 
-EV-25's acceptance for **A-02**, and it is deliberately not TM-S-002. TM-S-002
-demonstrates that narrowing a boundary is *visible*; A-02 claims the declared
-boundary was *in force for the whole window*. A boundary can be narrowed
-visibly and still have been in force throughout, and it can have been silently
-unamended while the window ran past its validity. Citing TM-002 as A-02's basis
-would turn this gate green without demonstrating the claim, which is why the
-scenario below is new rather than a re-pointing.
+Exercises AR-027, and so **A-02**. Deliberately not TM-S-002: that
+scenario demonstrates that narrowing a boundary is *visible*, while A-02 claims
+the declared boundary was *in force for the whole window*. A boundary can be
+narrowed visibly and still have been in force throughout, and it can have been
+silently unamended while the window ran past its validity. Citing TM-002 as
+A-02's basis would turn this gate green without demonstrating the claim, which
+is why the scenario below is new rather than a re-pointing. Owned by EV-17,
+which selects assertions from the catalogue; EV-25 wrote AR-027 and this
+scenario but does not build the attestation service that discharges them.
 
 ```gherkin
-Given a declared assurance boundary valid from B1 to B2
+Given the referenced assurance boundary version has effective interval B1 to B2 after applying its declared window, signed ingest time, and any next version
 And an attestation window from W1 to W2 where W1 < B1 or W2 > B2
 When the attestation is generated
 Then A-02 is withheld
@@ -232,15 +252,16 @@ And the uncovered interval is reported with its bounds
 And no narrower restatement of A-02 is emitted in its place
 ```
 
-### AR-S-008 — A-09 is withheld where outcomes were not confirmed *(QA-018)*
+### AR-S-008 — A-09 is withheld where outcomes were not confirmed *(AR-028, QA-018)*
 
-EV-25's acceptance for **A-09**. CM-S-005 covers CM-010, confirmation without
-enumeration; this covers the other direction — actions counted under A-09 whose
-outcome was never checked against the named authoritative source at all.
+Exercises AR-028, and so **A-09**. CM-S-005 covers CM-010, confirmation
+without enumeration; this covers the other direction — actions counted under
+A-09 whose outcome was never checked against the named authoritative source at
+all. Owned by EV-17 for the same reason as AR-S-007.
 
 ```gherkin
 Given R actions claimed as confirmed against a named authoritative source
-And S of them have no confirmation record from that source
+And S of them have no OutcomeRecord whose authoritative_source matches that source
 When the attestation is generated
 Then A-09 is withheld unless R is restated as R - S
 And the named source is identified in the attestation
