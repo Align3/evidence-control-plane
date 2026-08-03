@@ -13,9 +13,11 @@
 
 When an attestation asserts "enforced coverage for family X over window W," that is a claim we must be able to demonstrate. A scenario is also a claim we must be able to demonstrate. It follows that:
 
-> **No assertion enters `attestation-reliance.md` §2 without a corresponding scenario here. No requirement in any document is considered implemented without a passing scenario.**
+**QA-018** — No assertion enters `attestation-reliance.md` §2 without a corresponding scenario here, and no requirement in any document is considered implemented without a passing scenario.
 
 The reliance framework and the test suite grow together or not at all.
+
+This was the organising idea of the whole document and it was unnumbered prose from version 0.1 until now — which meant EV-22's traceability matrix, built to enforce exactly this rule, could not see it. The matrix reads `**XX-nnn**` definitions; a blockquote is invisible to it, so the one rule every other requirement here elaborates was the only one nothing could trace, claim, or report an orphan against. It takes the next free number rather than a low one: renumbering to put it in sequence would silently rewrite every existing citation, and a stable ID is worth more than a tidy ordering.
 
 ---
 
@@ -125,8 +127,8 @@ On a normal project this matrix is internal QA hygiene. Here it is **evidence fo
 
 | Severity | Enforced on | Hard expiry |
 |---|---|---|
-| critical | EV-25 merge — target 8 August 2026 | 8 August 2026 |
-| high | EV-26 triage completion | 1 September 2026 |
+| critical | A-02/A-09 basis repair (EV-25 target) | 8 August 2026 |
+| high | claimed-requirement triage and landed-story defects (EV-26 target) | 1 September 2026 |
 | medium | — | 1 October 2026 |
 | low | — | 1 October 2026 |
 
@@ -137,6 +139,12 @@ On a normal project this matrix is internal QA hygiene. Here it is **evidence fo
 **Staging applies to the existing backlog, never to regressions.** A change that makes the situation worse fails immediately at every stage, whatever the schedule currently mandates. Concretely, and per QA-S-001: an assertion that this change adds to the catalogue, or re-points onto a requirement nothing demonstrates, fails the build now. Backlog is what a schedule is for; a ratchet that lets the thing it is ratcheting get worse is decorative. The comparison is against the merge base, so CI requires full history, and where the previous state cannot be read the build fails rather than assuming nothing is new.
 
 **Every build prints the orphan count and the severity breakdown**, at every stage, enforced or not. Staging changes only what fails the build. It never changes what is looked for, and never changes what is reported: an orphan that does not yet fail CI is still counted, still named, and still published in the matrix.
+
+**Untested scenarios are classified by ownership, not treated as one backlog.** A story owns a scenario by listing it in its `Acceptance:` field. A story is landed when an `EV-nn:` implementation commit is reachable from the build's `HEAD`. An untested scenario owned by a landed story is a high-severity defect. One owned only by an unlanded story is medium-severity expected roadmap debt: shipping that story is what clears it. An untested scenario with no `Acceptance:` owner is high severity because the matrix cannot tell whether it is roadmap debt or an omitted implementation. **A scenario that does have a test still needs an owner**, at medium severity: demonstration and ownership are separate records, and a scenario nobody owns has nobody to answer for it when its test later regresses. Checking ownership only where a test was missing is what let EV-22's own `Acceptance:` field omit three of its scenarios with its own tool reporting nothing. If reachable Git history cannot be read, the check fails immediately rather than assuming every owner is unbuilt. This distinction makes the 1 September high gate enforce shipped commitments and completed triage without requiring EV-05 through EV-21 to have landed.
+
+**Story references are closed over `prd.md`.** Any `EV-nn` token in `docs/` must have a matching `#### EV-nn` story heading **in `prd.md`**. Definedness is read from that one file and nowhere else: a `#### EV-nn` heading in any other document is a citation like any other, or a story would be conjured into existence by writing its heading wherever the reference happened to be convenient. This applies to ordinary prose and schedule annotations as well as structured deferral markers; a conditional trigger naming nonexistent work is a defect even when the date ratchet remains effective without it.
+
+**No caller-supplied input may produce a more permissive verdict than the default invocation.** This covers command-line arguments and the Python-callable seams alike: redirecting the corpus, supplying a collection, choosing a different baseline ref, or supplying a calendar date. A supplied date may only bring a stage forward; a supplied baseline ref adds a comparison and never replaces the default one; a supplied collection is reported and published but does not clear a scenario's missing-test finding. There is no longer any input, from either surface, that skips the QA-S-001 regression gate. Where the tool cannot compare a run against the default invocation it withholds the verdict and fails, rather than reporting the run as clean. A corpus that is empty, or implausibly small beside the floor recorded from the last known good run, is an unknown and not a pass: the generator applies CM-001 and CM-009 to itself exactly as the coverage engine applies them to evidence. The property is asserted over the argument space, not argued from the list of flags that currently exist.
 
 **QA-012** — The matrix is generated, never hand-maintained. A hand-maintained traceability matrix is wrong within a month and worse than none, because it invites misplaced confidence.
 
@@ -241,13 +249,34 @@ Then both runs produce byte-identical output
 And neither run writes a matrix into the repository for a human to edit
 ```
 
-### QA-S-009 — A malformed non-testable marking exempts nothing *(QA-015)*
+### QA-S-009 — A malformed non-testable marking exempts nothing *(QA-011)*
+
+The reference is QA-011, not QA-015. QA-015 is about code-coverage targets
+being secondary; it says nothing about exemption syntax. The marking grammar
+exists to keep QA-011 satisfiable, so failing closed on a malformed marking is
+QA-011's property.
 
 ```gherkin
 Given a requirement with no scenario and a non-testable marking whose category is not in the closed enum
 When the traceability matrix is generated
 Then the marking exempts nothing
 And the requirement is still reported as an orphan
+```
+
+### QA-S-010 — Every requirement and scenario is classified after triage *(QA-011)*
+
+EV-26's acceptance. It is about the outcome of triage — that nothing is left
+unclassified — not about the marking grammar, which EV-22 already built and
+QA-S-009 already demonstrates.
+
+```gherkin
+Given the live corpus after triage
+When the traceability matrix is generated
+Then every requirement has a scenario, a reasoned non-testable marking, or a deferral to a story that prd.md defines
+And every scenario is listed under the Acceptance field of a story, whether or not it has a test
+And no requirement claimed by a story is reported without a scenario
+And no scenario is reported as having no Acceptance owner
+And untested scenarios owned by unlanded stories remain reported as roadmap debt
 ```
 
 ---

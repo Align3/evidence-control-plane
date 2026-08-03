@@ -82,3 +82,19 @@ Given a reference list with prose in it
 When the feature file is generated
 Then the tag contains whitespace and Gherkin refuses the file
 ```
+
+### CM-S-904 — Future story acceptance remains visible *(CM-906)*
+
+```gherkin
+Given a scenario owned by a story that has not landed
+When the traceability matrix is generated
+Then the missing test is reported as expected roadmap debt
+```
+
+### CM-S-905 — Scenario ownership is mandatory *(CM-906)*
+
+```gherkin
+Given a scenario no story lists under Acceptance
+When the traceability matrix is generated
+Then missing ownership is reported as a defect
+```

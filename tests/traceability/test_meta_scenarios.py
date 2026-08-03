@@ -21,15 +21,14 @@ from __future__ import annotations
 import json
 import shutil
 import subprocess
-from datetime import date
 from pathlib import Path
 
 import pytest
 from pytest_bdd import given, scenario, then, when
 
-from tests.traceability.matrix import main
+from tests.traceability.corpus import FIXTURES, commit_as_develop, run_default
+from tests.traceability.corpus import corpus as _corpus
 
-FIXTURES = Path(__file__).parent / "fixtures"
 CHAIN = FIXTURES / "chain"
 
 
@@ -66,28 +65,9 @@ def test_qa_s_001_assertion_without_scenario_fails_ci() -> None:
 # --- shared plumbing ------------------------------------------------------
 
 
-def _corpus(tmp_path: Path, name: str) -> Path:
-    root = tmp_path / name
-    shutil.copytree(FIXTURES / name, root)
-    (root / "collected.txt").write_text("", encoding="utf-8")
-    return root
-
-
 def _run(root: Path, *extra: str, **kwargs: object) -> tuple[int, Path]:
     out_json = root / "matrix.json"
-    code = main(
-        [
-            "--repo-root", str(root),
-            "--docs", str(root / "docs"),
-            "--features", str(root / "no-features"),
-            "--collect-from", str(root / "collected.txt"),
-            "--out-json", str(out_json),
-            *extra,
-        ],
-        real_today=date(2026, 8, 1),
-        regression_gate=False,
-        **kwargs,  # type: ignore[arg-type]
-    )
+    code = run_default(root, "--out-json", str(out_json), *extra, **kwargs)
     return code, out_json
 
 
@@ -102,6 +82,7 @@ def _chain_corpus(tmp_path: Path) -> Path:
     root = tmp_path / "chain"
     shutil.copytree(CHAIN, root)
     shutil.copy(CHAIN / "collected.txt", root / "collected.txt")
+    commit_as_develop(root, "fixture corpus chain")
     return root
 
 
@@ -109,17 +90,8 @@ def _chain_corpus(tmp_path: Path) -> Path:
 def _generate(corpus: Path, capsys: pytest.CaptureFixture[str]) -> dict[str, object]:
     """One When for both scenarios that use this wording; the Given differs."""
     out_md, out_json = corpus / "m.md", corpus / "m.json"
-    main(
-        [
-            "--repo-root", str(corpus),
-            "--docs", str(corpus / "docs"),
-            "--features", str(corpus / "no-features"),
-            "--collect-from", str(corpus / "collected.txt"),
-            "--out-md", str(out_md),
-            "--out-json", str(out_json),
-        ],
-        real_today=date(2026, 8, 1),
-        regression_gate=False,
+    run_default(
+        corpus, "--out-md", str(out_md), "--out-json", str(out_json)
     )
     capsys.readouterr()
     return {
@@ -180,6 +152,19 @@ def _failure_names_requirement(orphan_result: tuple[int, str]) -> None:
     assert "CM-401" in orphan_result[1], "the orphan must be named, not merely counted"
 
 
+def _tree(root: Path) -> list[Path]:
+    """Every path under `root` except git's own bookkeeping.
+
+    The fixtures are repositories now, and git rewrites `.git/index` mtimes and
+    may add pack files on its own schedule. Neither is the generator writing a
+    matrix into the tree, which is what QA-S-008 is about.
+    """
+    return [
+        p.relative_to(root) for p in root.rglob("*")
+        if ".git" not in p.relative_to(root).parts
+    ]
+
+
 # --- QA-S-008: generated, never hand-maintained ---------------------------
 
 
@@ -192,43 +177,25 @@ def _generator_corpus(tmp_path: Path) -> Path:
 def _run_twice(
     generator_corpus: Path, capsys: pytest.CaptureFixture[str]
 ) -> dict[str, object]:
-    before = sorted(p.relative_to(generator_corpus) for p in generator_corpus.rglob("*"))
+    before = sorted(_tree(generator_corpus))
     first = generator_corpus / "a.json"
     second = generator_corpus / "b.json"
     for target in (first, second):
-        main(
-            [
-                "--repo-root", str(generator_corpus),
-                "--docs", str(generator_corpus / "docs"),
-                "--features", str(generator_corpus / "no-features"),
-                "--collect-from", str(generator_corpus / "collected.txt"),
-                "--out-json", str(target),
-            ],
-            real_today=date(2026, 8, 1),
-            regression_gate=False,
-        )
+        run_default(generator_corpus, "--out-json", str(target))
     # A run with no output path must leave the tree untouched.
-    bare = generator_corpus / "bare"
+    bare = generator_corpus.parent / "bare"
     bare.mkdir()
     shutil.copytree(generator_corpus / "docs", bare / "docs")
     (bare / "collected.txt").write_text("", encoding="utf-8")
-    untouched_before = sorted(p.relative_to(bare) for p in bare.rglob("*"))
-    main(
-        [
-            "--repo-root", str(bare),
-            "--docs", str(bare / "docs"),
-            "--features", str(bare / "no-features"),
-            "--collect-from", str(bare / "collected.txt"),
-        ],
-        real_today=date(2026, 8, 1),
-        regression_gate=False,
-    )
+    commit_as_develop(bare, "bare copy")
+    untouched_before = sorted(_tree(bare))
+    run_default(bare)
     capsys.readouterr()
     return {
         "first": first.read_bytes(),
         "second": second.read_bytes(),
         "untouched_before": untouched_before,
-        "untouched_after": sorted(p.relative_to(bare) for p in bare.rglob("*")),
+        "untouched_after": sorted(_tree(bare)),
         "repo_before": before,
     }
 
@@ -319,6 +286,7 @@ def _new_assertion(tmp_path: Path) -> Path:
     run("init", "-q", "-b", "base")
     run("add", "-A")
     run(*author, "commit", "-q", "-m", "baseline without the assertion")
+    run("update-ref", "refs/remotes/origin/develop", "base")
     run("checkout", "-q", "-b", "work")
 
     shutil.copy(regression / "catalogue-unmapped.md", docs / "attestation-reliance.md")
@@ -336,16 +304,8 @@ def _ci_runs(
     qa_s_001_corpus: Path, capsys: pytest.CaptureFixture[str]
 ) -> tuple[int, str]:
     """The literal ci.yml argv: --mode report, before any QA-011 stage is live."""
-    code = main(
-        [
-            "--repo-root", str(qa_s_001_corpus),
-            "--docs", str(qa_s_001_corpus / "docs"),
-            "--features", str(qa_s_001_corpus / "no-features"),
-            "--collect-from", str(qa_s_001_corpus / "collected.txt"),
-            "--mode", "report",
-        ],
-        real_today=date(2026, 8, 1),
-        baseline_ref="base",
+    code = run_default(
+        qa_s_001_corpus, "--mode", "report", baseline_ref="base"
     )
     return code, capsys.readouterr().out
 

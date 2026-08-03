@@ -84,8 +84,9 @@ jobs:
       # The schedule is compiled into the generator (ENFORCEMENT_SCHEDULE) and
       # overrides this argument the moment each date passes:
       #
-      #   from 2026-08-08  fails on critical   (EV-25 merge)
-      #   from 2026-09-01  fails on high       (EV-26 triage completion)
+      #   from 2026-08-08  fails on critical   (A-02/A-09 basis repair, EV-25)
+      #   from 2026-09-01  fails on high       (claimed-requirement triage and
+      #                                         landed-story defects, EV-26)
       #   from 2026-10-01  fails on medium+low
       #
       # Expiry is by date, not by condition: the gate tightens whether or not
