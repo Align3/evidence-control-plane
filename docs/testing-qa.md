@@ -13,7 +13,7 @@
 
 When an attestation asserts "enforced coverage for family X over window W," that is a claim we must be able to demonstrate. A scenario is also a claim we must be able to demonstrate. It follows that:
 
-**QA-018** — No assertion enters `attestation-reliance.md` §2 without a basis requirement that states the assertion's claim and a scenario demonstrating that requirement, and no requirement in any document is considered implemented without a passing scenario. The scenario lives in the acceptance section of whichever document owns the requirement — scenarios are extracted from all of `docs/`, and the suite is the union of those sections, not this file alone.
+**QA-018** — No assertion enters `attestation-reliance.md` §2 without a basis requirement that states the assertion's claim and a documented scenario that exercises that requirement, and no requirement in any document is considered implemented or demonstrated without a passing scenario. The scenario lives in the acceptance section of whichever document owns the requirement — scenarios are extracted from all of `docs/`, and the suite is the union of those sections, not this file alone.
 
 The reliance framework and the test suite grow together or not at all.
 
