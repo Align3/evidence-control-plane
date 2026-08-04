@@ -21,7 +21,7 @@ from services.ingestion.receipts import (
 
 
 @scenario("evidence.feature", "ES-S-013 Collector cannot suppress measured skew")
-def test_es_s_010_collector_cannot_suppress_measured_skew() -> None:
+def test_es_s_013_collector_cannot_suppress_measured_skew() -> None:
     """The hosted observation is authenticated by its actual observer."""
 
 
