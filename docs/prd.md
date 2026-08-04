@@ -118,7 +118,9 @@ Append-only evidence table per `data-model.md`. Per-tenant partitioning. Applica
 
 #### EV-27 — Issuer-signed ingestion receipts
 Remove hosted clock observations from the customer-signed record. Define and implement an issuer-signed receipt over the unchanged record digest, hosted `ingest_time`, and measured `clock_skew_ms`; store its authoritative canonical bytes and proof atomically beside the record. Refuse migration of a non-empty unreceipted ledger rather than fabricate historical observations.
-**Touches:** `docs/evidence-spec.md`, `docs/data-model.md`, `docs/prd.md`, `sdk_python/evidence/schema.py`, `services/ledger/`, `services/ingestion/receipts.py`, `migrations/`, receipt and schema tests
+**Touches:** `docs/evidence-spec.md`, `docs/data-model.md`, `docs/prd.md`, `sdk_python/evidence/schema.py`, `services/ledger/`, `services/ingestion/receipts.py`, `migrations/`, `tests/vectors/`, receipt and schema tests
+
+**Scope change — `tests/vectors/` added after EV-04 merged.** EV-04 published 41 vectors carrying `ingest_time` and `clock_skew_ms` inside the customer-signed record. ES-029 makes those vectors normative and authoritative over prose, so the amended ES-019 here contradicts a published artefact until they are regenerated. The story that changes the shape owns everything the shape governs: regenerating inside EV-27 means `develop` is never in a state where the specification and its normative vectors disagree, which splitting into a follow-up would guarantee for the interval between two merges.
 **Depends on:** EV-03, EV-06
 **Satisfies:** ES-019 (hosted receipt shape), ES-030, DM-005, DM-024, TM-006 (tamper resistance)
 **Acceptance:** ES-S-013

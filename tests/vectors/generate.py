@@ -66,6 +66,7 @@ def _agent_record(
     tenant_id: str = "tenant-1",
     stream_id: str = "stream-1",
     prev_digest: str | None = None,
+    source_time: str = TS,
 ) -> RecordEnvelope:
     return validate_record(
         {
@@ -78,11 +79,10 @@ def _agent_record(
             "sequence": sequence,
             "prev_digest": prev_digest,
             "source": {"collector": "vector-generator", "version": "0.1.0"},
-            "clocks": {
-                "source_time": TS,
-                "ingest_time": TS,
-                "clock_skew_ms": 0,
-            },
+            # ES-019 (EV-27): `ingest_time` and `clock_skew_ms` are hosted
+            # observations and MUST NOT appear in a customer-signed record.
+            # They live in the issuer-signed ingestion receipt (ES-030).
+            "clocks": {"source_time": source_time},
             "body": {
                 "agent_id": "agent-1",
                 "deployment": "prod",
@@ -110,11 +110,10 @@ def _attestation_record() -> AttestationWindowRecord:
             "sequence": 1,
             "prev_digest": None,
             "source": {"collector": "vector-generator", "version": "0.1.0"},
-            "clocks": {
-                "source_time": TS,
-                "ingest_time": TS,
-                "clock_skew_ms": 0,
-            },
+            # ES-019 (EV-27): `ingest_time` and `clock_skew_ms` are hosted
+            # observations and MUST NOT appear in a customer-signed record.
+            # They live in the issuer-signed ingestion receipt (ES-030).
+            "clocks": {"source_time": TS},
             "body": {
                 "boundary_ref": "boundary-1",
                 "window_start": TS,
@@ -756,11 +755,235 @@ def _chain_vectors() -> list[dict[str, Any]]:
     ]
 
 
+
+def _receipt_vectors() -> list[dict[str, Any]]:
+    """ES-030 / ES-S-013 -- the hosted receipt as a separate signed object.
+
+    The receipt is what carries our clock observation now that ES-019 forbids
+    it inside the customer record. Its bytes are published here so an
+    independent verifier reproduces the payload shape, the canonicalization,
+    and the issuer signature without reading our code.
+    """
+    from datetime import datetime
+
+    from services.ingestion.receipts import (
+        create_ingestion_receipt,
+        measure_clock_skew_ms,
+    )
+
+    record = sign_record(_agent_record(1), key_id="K1", private_key=_key("K1"))
+    # 1500 ms after source_time, so a non-zero measured skew is on the wire and
+    # a suppressed one is visibly different (ES-S-013, TM-006).
+    ingest_time = datetime.fromisoformat("2026-08-01T12:00:01.500+01:00")
+    receipt = create_ingestion_receipt(
+        record,
+        ingest_time=ingest_time,
+        issuer_key_id="ISSUER1",
+        issuer_private_key=_key("ISSUER1"),
+    )
+    payload = json.loads(receipt.canonical_bytes.decode("utf-8"))
+    assert payload["clock_skew_ms"] == 1500, payload
+
+    accepted = {
+        "id": "receipt-issuer-signed-hosted-clocks",
+        "operation": "verify_ingestion_receipt",
+        "record": _dump(record),
+        "receipt": {
+            "canonical_utf8_hex": receipt.canonical_bytes.hex(),
+            "key_id": receipt.key_id,
+            "signature": _b64(receipt.signature),
+        },
+        "issuer_public_keys": {"ISSUER1": _public_key("ISSUER1")},
+        "expected": {
+            "accepted": True,
+            "payload": payload,
+            "canonical_json": receipt.canonical_bytes.decode("utf-8"),
+            "digest": canonical_digest(payload),
+            "record_digest": signing_digest(record),
+            "measured_clock_skew_ms": measure_clock_skew_ms(
+                source_time=record.clocks.source_time,
+                ingest_time=payload["ingest_time"],
+            ),
+        },
+    }
+
+    # ES-S-013: a collector cannot suppress measured skew. Rewriting the field
+    # coherently -- valid JCS, valid shape -- must still fail, because the
+    # issuer signature covers it and the customer bytes are untouched.
+    suppressed = deepcopy(payload)
+    suppressed["clock_skew_ms"] = 0
+    suppressed_bytes = canonicalize(suppressed)
+    forged_skew = {
+        "id": "reject-receipt-suppressed-clock-skew",
+        "operation": "verify_ingestion_receipt",
+        "record": accepted["record"],
+        "receipt": {
+            "canonical_utf8_hex": suppressed_bytes.hex(),
+            "key_id": receipt.key_id,
+            "signature": _b64(receipt.signature),
+        },
+        "issuer_public_keys": {"ISSUER1": _public_key("ISSUER1")},
+        "expected": {
+            "accepted": False,
+            "error_code": "receipt.signature_invalid",
+            "customer_record_bytes_unchanged": True,
+        },
+    }
+
+    # A receipt that verifies cryptographically but names a different record
+    # must not be accepted as covering this one.
+    other = sign_record(
+        _agent_record(1, record_index=42, stream_id="stream-2"),
+        key_id="K1",
+        private_key=_key("K1"),
+    )
+    foreign = create_ingestion_receipt(
+        other,
+        ingest_time=ingest_time,
+        issuer_key_id="ISSUER1",
+        issuer_private_key=_key("ISSUER1"),
+    )
+    wrong_record = {
+        "id": "reject-receipt-bound-to-another-record",
+        "operation": "verify_ingestion_receipt",
+        "record": accepted["record"],
+        "receipt": {
+            "canonical_utf8_hex": foreign.canonical_bytes.hex(),
+            "key_id": foreign.key_id,
+            "signature": _b64(foreign.signature),
+        },
+        "issuer_public_keys": {"ISSUER1": _public_key("ISSUER1")},
+        "expected": {
+            "accepted": False,
+            "error_code": "receipt.record_mismatch",
+        },
+    }
+
+    # ES-019: the customer record may not carry the hosted fields at all.
+    def _hosted_field_refusal(field: str, value: Any) -> dict[str, Any]:
+        record_json = deepcopy(accepted["record"])
+        record_json["signature"] = {}
+        record_json["clocks"][field] = value
+        return {
+            "id": f"reject-hosted-{field}-in-customer-record",
+            "operation": "validate_record",
+            "record": record_json,
+            "expected": {
+                "accepted": False,
+                "error_code": "schema.hosted_clock_field_forbidden",
+            },
+        }
+
+    # DM-008 / SE-003: an evidence-namespace key may never counter-sign a
+    # hosted receipt. Expressed the way a verifier meets it -- the signer is
+    # absent from the issuer keyring, so the proof has no standing.
+    evidence_signed = create_ingestion_receipt(
+        record,
+        ingest_time=ingest_time,
+        issuer_key_id="K1",
+        issuer_private_key=_key("K1"),
+    )
+    wrong_namespace = {
+        "id": "reject-receipt-signed-by-evidence-namespace-key",
+        "operation": "verify_ingestion_receipt",
+        "record": accepted["record"],
+        "receipt": {
+            "canonical_utf8_hex": evidence_signed.canonical_bytes.hex(),
+            "key_id": evidence_signed.key_id,
+            "signature": _b64(evidence_signed.signature),
+        },
+        "issuer_public_keys": {"ISSUER1": _public_key("ISSUER1")},
+        "expected": {
+            "accepted": False,
+            "error_code": "receipt.unknown_signing_key",
+        },
+    }
+
+    # ES-030 truncation. `clock_skew_ms` truncates the sub-millisecond
+    # remainder *toward zero*, which is not what a floor does: floored, a
+    # -0.5 ms skew becomes -1. Python's `//` floors and Go's `/` truncates, so
+    # an implementation ported without care diverges on every early-clock
+    # record and on nothing else. These pin the boundary in both directions.
+    def _skew_vector(
+        name: str, ingest: str, expected_skew: int, *, source_time: str = TS
+    ) -> dict[str, Any]:
+        # `_format_ingest_time` quantises ingest_time to whole milliseconds
+        # before the measurement, so a sub-millisecond remainder can only ever
+        # come from `source_time`, which the customer supplies.
+        subject = sign_record(
+            _agent_record(1, source_time=source_time), key_id="K1", private_key=_key("K1")
+        )
+        signed = create_ingestion_receipt(
+            subject,
+            ingest_time=datetime.fromisoformat(ingest),
+            issuer_key_id="ISSUER1",
+            issuer_private_key=_key("ISSUER1"),
+        )
+        body = json.loads(signed.canonical_bytes.decode("utf-8"))
+        assert body["clock_skew_ms"] == expected_skew, (name, body)
+        return {
+            "id": name,
+            "operation": "verify_ingestion_receipt",
+            "record": _dump(subject),
+            "receipt": {
+                "canonical_utf8_hex": signed.canonical_bytes.hex(),
+                "key_id": signed.key_id,
+                "signature": _b64(signed.signature),
+            },
+            "issuer_public_keys": {"ISSUER1": _public_key("ISSUER1")},
+            "expected": {
+                "accepted": True,
+                "payload": body,
+                "canonical_json": signed.canonical_bytes.decode("utf-8"),
+                "digest": canonical_digest(body),
+                "record_digest": signing_digest(subject),
+                "measured_clock_skew_ms": expected_skew,
+            },
+        }
+
+    return [
+        accepted,
+        forged_skew,
+        wrong_record,
+        wrong_namespace,
+        _hosted_field_refusal("ingest_time", TS),
+        _hosted_field_refusal("clock_skew_ms", 0),
+        # Ingest before source: the collector clock ran fast.
+        _skew_vector("receipt-negative-clock-skew", "2026-08-01T11:59:58.500+01:00", -1500),
+        # The vector that separates truncation from flooring. Source carries a
+        # half-millisecond; ingest lands on the whole millisecond below it, so
+        # the exact skew is -0.5 ms. Truncated toward zero that is 0. Floored
+        # -- which is what Python's `//` and any naive port would give -- it is
+        # -1. Nothing else in the corpus distinguishes the two.
+        _skew_vector(
+            "receipt-negative-sub-millisecond-skew-truncates-to-zero",
+            "2026-08-01T12:00:00.000+01:00",
+            0,
+            source_time="2026-08-01T12:00:00.0005+01:00",
+        ),
+        # Same boundary at a magnitude where flooring gives -1001, not -1000.
+        _skew_vector(
+            "receipt-negative-skew-truncates-toward-zero-not-downward",
+            "2026-08-01T11:59:59.000+01:00",
+            -1000,
+            source_time="2026-08-01T12:00:00.0005+01:00",
+        ),
+        # Positive control: truncation and flooring agree above zero.
+        _skew_vector(
+            "receipt-positive-sub-millisecond-skew-truncates-down",
+            "2026-08-01T12:00:01.000+01:00",
+            999,
+            source_time="2026-08-01T12:00:00.0005+01:00",
+        ),
+    ]
+
+
 def vector_document() -> dict[str, Any]:
     vectors = [
         *_canonicalization_vectors(),
         *_signature_vectors(),
         *_chain_vectors(),
+        *_receipt_vectors(),
     ]
     return {
         "format": "evidence-control-plane-conformance-vectors",

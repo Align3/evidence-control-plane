@@ -38,6 +38,7 @@ from sdk_python.evidence.signing import (
     verify_attestation_signatures,
     verify_record_signature,
 )
+from services.ingestion.receipts import IngestionReceipt
 from tests.vectors.generate import VECTOR_PATH, render_vectors
 
 DOCUMENT: dict[str, Any] = json.loads(VECTOR_PATH.read_text(encoding="utf-8"))
@@ -45,6 +46,16 @@ VECTORS: list[dict[str, Any]] = DOCUMENT["vectors"]
 
 REQUIRED_ATTACK_VECTORS = {
     "canonical-utf16-order",
+    "receipt-issuer-signed-hosted-clocks",
+    "reject-receipt-suppressed-clock-skew",
+    "reject-receipt-bound-to-another-record",
+    "reject-hosted-ingest_time-in-customer-record",
+    "reject-hosted-clock_skew_ms-in-customer-record",
+    "reject-receipt-signed-by-evidence-namespace-key",
+    "receipt-negative-clock-skew",
+    "receipt-negative-sub-millisecond-skew-truncates-to-zero",
+    "receipt-negative-skew-truncates-toward-zero-not-downward",
+    "receipt-positive-sub-millisecond-skew-truncates-down",
     "chain-valid-signature-inclusive-prev-digest",
     "reject-validly-resigned-predecessor",
     "reject-signature-excluded-prev-digest",
@@ -81,7 +92,21 @@ def _record(value: dict[str, Any]) -> RecordEnvelope:
 
 
 def _error_code(error: Exception) -> str:
+    from pydantic import ValidationError
+
+    from services.ingestion.receipts import ReceiptSignatureError
+
     message = str(error)
+    if isinstance(error, ValidationError):
+        if "clocks.ingest_time" in message or "clocks.clock_skew_ms" in message:
+            return "schema.hosted_clock_field_forbidden"
+    if isinstance(error, ReceiptSignatureError):
+        if "names a different customer record" in message:
+            return "receipt.record_mismatch"
+        if "signature verification failed" in message:
+            return "receipt.signature_invalid"
+        if "unknown receipt signing key" in message:
+            return "receipt.unknown_signing_key"
     if isinstance(error, CanonicalizationError):
         if "lone surrogates" in message:
             return "canonicalization.lone_surrogate"
@@ -252,12 +277,73 @@ def _run_verify_stream(vector: dict[str, Any]) -> None:
         assert records[1].prev_digest != expected["signature_excluded_digest_must_differ"]
 
 
+
+def _run_validate_record(vector: dict[str, Any]) -> None:
+    """ES-019: a customer record supplying a hosted clock field is refused."""
+    expected = vector["expected"]
+    try:
+        validate_record(vector["record"])
+    except Exception as error:  # noqa: BLE001 - the vector states the code
+        assert not expected["accepted"]
+        assert _error_code(error) == expected["error_code"]
+        return
+    assert expected["accepted"]
+
+
+def _run_verify_ingestion_receipt(vector: dict[str, Any]) -> None:
+    """ES-030 / ES-S-013: the hosted clock observation is issuer-signed.
+
+    The customer record bytes are captured before and after so a refusal
+    cannot be achieved by quietly rewriting the record instead of rejecting
+    the receipt.
+    """
+    from services.ingestion.receipts import (
+        SignedIngestionReceipt,
+        verify_ingestion_receipt,
+    )
+
+    record = validate_record(vector["record"])
+    before = canonicalize(record)
+    canonical_bytes = bytes.fromhex(vector["receipt"]["canonical_utf8_hex"])
+    receipt = SignedIngestionReceipt(
+        payload=IngestionReceipt.model_validate_json(canonical_bytes),
+        canonical_bytes=canonical_bytes,
+        key_id=vector["receipt"]["key_id"],
+        signature=_decode(vector["receipt"]["signature"]),
+    )
+    issuer_keys = {
+        key_id: Ed25519PublicKey.from_public_bytes(_decode(value))
+        for key_id, value in vector["issuer_public_keys"].items()
+    }
+    expected = vector["expected"]
+    try:
+        payload = verify_ingestion_receipt(
+            receipt, record=record, issuer_public_keys=issuer_keys
+        )
+    except Exception as error:  # noqa: BLE001 - the vector states the code
+        assert not expected["accepted"]
+        assert _error_code(error) == expected["error_code"]
+        if expected.get("customer_record_bytes_unchanged"):
+            assert canonicalize(record) == before
+        return
+
+    assert expected["accepted"]
+    assert json.loads(canonical_bytes.decode("utf-8")) == expected["payload"]
+    assert canonical_bytes.decode("utf-8") == expected["canonical_json"]
+    assert canonical_digest(payload) == expected["digest"]
+    assert payload.record_digest == expected["record_digest"]
+    assert payload.clock_skew_ms == expected["measured_clock_skew_ms"]
+    assert canonicalize(record) == before
+
+
 RUNNERS = {
     "canonicalize": _run_canonicalization,
     "sign_record": _run_sign_record,
     "verify_signature": _run_verify_signature,
     "verify_attestation_signatures": _run_verify_attestation,
     "verify_stream": _run_verify_stream,
+    "validate_record": _run_validate_record,
+    "verify_ingestion_receipt": _run_verify_ingestion_receipt,
 }
 
 
