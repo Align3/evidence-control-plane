@@ -315,6 +315,7 @@ Claim a number here before writing the migration (DM-001).
 | 0007 | EV-17 | Attestations | unclaimed |
 | 0008 | EV-18 | Revocations | unclaimed |
 | 0009 | EV-20 | Admin audit log | unclaimed |
+| 0010 | EV-27 | Signed ingestion receipts and receipt-derived clock metadata | claimed |
 
 ---
 
