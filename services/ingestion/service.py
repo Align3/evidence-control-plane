@@ -112,7 +112,7 @@ class IssuerSigningKey:
 
 @dataclass(frozen=True, slots=True)
 class IngestionAcknowledgement:
-    """Returned only after the record and receipt transaction commits."""
+    """Returned only after commit; digest is the ES-006a next-link value."""
 
     record_id: str
     record_digest: str
@@ -450,7 +450,8 @@ class IngestionService:
                         "receipt signer is not a registered issuer key"
                     ) from exc
 
-                raw_digest = digest_bytes(signing_bytes)
+                signed_digest_bytes = digest_bytes(signing_bytes)
+                wire_digest_bytes = digest_bytes(raw_record)
                 body = record.body.model_dump(mode="json", exclude_unset=True)
                 row: dict[str, Any] = {
                     "record_id": UUID(record.record_id),
@@ -465,7 +466,7 @@ class IngestionService:
                         if record.prev_digest is None
                         else parse_digest_ref(record.prev_digest)
                     ),
-                    "record_digest": raw_digest,
+                    "record_digest": signed_digest_bytes,
                     "collector_id": collector_id,
                     "key_id": key_id,
                     "signature": _raw_signature(record),
@@ -506,6 +507,9 @@ class IngestionService:
 
         return IngestionAcknowledgement(
             record_id=record.record_id,
-            record_digest=digest_ref(raw_digest),
+            # The customer needs the complete-record ES-006a digest to form
+            # the next prev_digest. The ledger's record_digest remains the
+            # signature-excluded DM-023 digest used by signed_digest.
+            record_digest=digest_ref(wire_digest_bytes),
             sequence=record.sequence,
         )

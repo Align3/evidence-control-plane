@@ -13,6 +13,7 @@ Revises: 0010
 
 from __future__ import annotations
 
+import re
 from collections.abc import Sequence
 
 import sqlalchemy as sa
@@ -25,10 +26,14 @@ branch_labels: str | Sequence[str] | None = None
 depends_on: str | Sequence[str] | None = None
 
 INTEGRITY_EVENTS = "ingestion_integrity_events"
+_TENANT_ID = re.compile(r"^[a-z0-9](?:[a-z0-9_]{0,44}[a-z0-9])?$")
 
 
 def upgrade() -> None:
     bind = op.get_bind()
+    # Any accepted evidence row necessarily references an evidence-namespace
+    # key through 0010's composite FK, so this also proves evidence_records is
+    # empty before adding the NOT NULL received-wire column below.
     if bind.execute(
         sa.text("SELECT EXISTS (SELECT 1 FROM keys WHERE namespace = 'evidence')")
     ).scalar_one():
@@ -102,7 +107,7 @@ def upgrade() -> None:
     op.execute(f"REVOKE ALL ON TABLE {INTEGRITY_EVENTS} FROM PUBLIC")
 
     for (tenant_id,) in bind.execute(sa.text("SELECT tenant_id FROM tenants")):
-        if not tenant_id.replace("_", "").isalnum():  # pragma: no cover - DB CHECK
+        if _TENANT_ID.fullmatch(tenant_id) is None:  # pragma: no cover - DB CHECK
             raise RuntimeError(f"unsafe tenant identifier in registry: {tenant_id!r}")
         partition = f"integrity_events_{tenant_id}"
         role = f"evidence_tenant_{tenant_id}"

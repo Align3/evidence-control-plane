@@ -326,6 +326,9 @@ def no_ack_before_commit(ingestion_context: dict[str, Any]) -> None:
     response = ingestion_context["response"]
     assert response.status_code == 201
     assert response.json()["record_id"] == ingestion_context["record"].record_id
+    assert response.json()["record_digest"] == canonical_digest(
+        ingestion_context["record"]
+    )
 
 
 @given("ingestion receives a valid record", target_fixture="restart_context")
