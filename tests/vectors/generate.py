@@ -51,6 +51,13 @@ def _keyring(*key_ids: str) -> dict[str, str]:
     return {key_id: _public_key(key_id) for key_id in key_ids}
 
 
+def _registered_keyring(**namespaces: str) -> dict[str, dict[str, str]]:
+    return {
+        key_id: {"namespace": namespace, "public_key": _public_key(key_id)}
+        for key_id, namespace in namespaces.items()
+    }
+
+
 def _dump(record: RecordEnvelope) -> dict[str, Any]:
     return record.model_dump(mode="json", exclude_unset=True)
 
@@ -793,13 +800,13 @@ def _receipt_vectors() -> list[dict[str, Any]]:
             "key_id": receipt.key_id,
             "signature": _b64(receipt.signature),
         },
-        "issuer_public_keys": {"ISSUER1": _public_key("ISSUER1")},
+        "verification_keys": _registered_keyring(ISSUER1="issuer"),
         "expected": {
             "accepted": True,
             "payload": payload,
             "canonical_json": receipt.canonical_bytes.decode("utf-8"),
             "digest": canonical_digest(payload),
-            "record_digest": signing_digest(record),
+            "record_digest": canonical_digest(record),
             "measured_clock_skew_ms": measure_clock_skew_ms(
                 source_time=record.clocks.source_time,
                 ingest_time=payload["ingest_time"],
@@ -822,7 +829,7 @@ def _receipt_vectors() -> list[dict[str, Any]]:
             "key_id": receipt.key_id,
             "signature": _b64(receipt.signature),
         },
-        "issuer_public_keys": {"ISSUER1": _public_key("ISSUER1")},
+        "verification_keys": _registered_keyring(ISSUER1="issuer"),
         "expected": {
             "accepted": False,
             "error_code": "receipt.signature_invalid",
@@ -852,7 +859,28 @@ def _receipt_vectors() -> list[dict[str, Any]]:
             "key_id": foreign.key_id,
             "signature": _b64(foreign.signature),
         },
-        "issuer_public_keys": {"ISSUER1": _public_key("ISSUER1")},
+        "verification_keys": _registered_keyring(ISSUER1="issuer"),
+        "expected": {
+            "accepted": False,
+            "error_code": "receipt.record_mismatch",
+        },
+    }
+
+    # The receipt identifies the complete artifact observed on the wire, not
+    # merely the signature-excluded bytes the customer signed. Substituting a
+    # different valid customer signature over the same payload must break the
+    # receipt binding even though `signed_digest` remains unchanged.
+    signature_substitution = sign_record(
+        _agent_record(1), key_id="K2", private_key=_key("K2")
+    )
+    assert signing_digest(signature_substitution) == signing_digest(record)
+    assert canonical_digest(signature_substitution) != canonical_digest(record)
+    wrong_signature = {
+        "id": "reject-receipt-after-customer-signature-substitution",
+        "operation": "verify_ingestion_receipt",
+        "record": _dump(signature_substitution),
+        "receipt": accepted["receipt"],
+        "verification_keys": _registered_keyring(ISSUER1="issuer"),
         "expected": {
             "accepted": False,
             "error_code": "receipt.record_mismatch",
@@ -875,8 +903,8 @@ def _receipt_vectors() -> list[dict[str, Any]]:
         }
 
     # DM-008 / SE-003: an evidence-namespace key may never counter-sign a
-    # hosted receipt. Expressed the way a verifier meets it -- the signer is
-    # absent from the issuer keyring, so the proof has no standing.
+    # hosted receipt. The key is present and its proof is valid: only the
+    # explicit evidence namespace makes this vector fail.
     evidence_signed = create_ingestion_receipt(
         record,
         ingest_time=ingest_time,
@@ -892,10 +920,27 @@ def _receipt_vectors() -> list[dict[str, Any]]:
             "key_id": evidence_signed.key_id,
             "signature": _b64(evidence_signed.signature),
         },
-        "issuer_public_keys": {"ISSUER1": _public_key("ISSUER1")},
+        "verification_keys": _registered_keyring(K1="evidence"),
         "expected": {
             "accepted": False,
-            "error_code": "receipt.unknown_signing_key",
+            "error_code": "key.namespace_mismatch",
+        },
+    }
+
+    # The reverse half of SE-003: an issuer key may not authenticate a
+    # customer evidence record even when its signature is cryptographically
+    # valid and the key is present in the registry.
+    issuer_signed_record = sign_record(
+        _agent_record(1), key_id="ISSUER1", private_key=_key("ISSUER1")
+    )
+    issuer_as_evidence = {
+        "id": "reject-record-signed-by-issuer-namespace-key",
+        "operation": "verify_evidence_record_signature",
+        "record": _dump(issuer_signed_record),
+        "verification_keys": _registered_keyring(ISSUER1="issuer"),
+        "expected": {
+            "accepted": False,
+            "error_code": "key.namespace_mismatch",
         },
     }
 
@@ -930,13 +975,13 @@ def _receipt_vectors() -> list[dict[str, Any]]:
                 "key_id": signed.key_id,
                 "signature": _b64(signed.signature),
             },
-            "issuer_public_keys": {"ISSUER1": _public_key("ISSUER1")},
+            "verification_keys": _registered_keyring(ISSUER1="issuer"),
             "expected": {
                 "accepted": True,
                 "payload": body,
                 "canonical_json": signed.canonical_bytes.decode("utf-8"),
                 "digest": canonical_digest(body),
-                "record_digest": signing_digest(subject),
+                "record_digest": canonical_digest(subject),
                 "measured_clock_skew_ms": expected_skew,
             },
         }
@@ -945,7 +990,9 @@ def _receipt_vectors() -> list[dict[str, Any]]:
         accepted,
         forged_skew,
         wrong_record,
+        wrong_signature,
         wrong_namespace,
+        issuer_as_evidence,
         _hosted_field_refusal("ingest_time", TS),
         _hosted_field_refusal("clock_skew_ms", 0),
         # Ingest before source: the collector clock ran fast.

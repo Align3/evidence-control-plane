@@ -15,6 +15,7 @@ from sdk_python.evidence.schema import IngestionReceipt, validate_record
 from sdk_python.evidence.signing import record_signing_bytes, sign_record
 from services.ingestion.receipts import (
     ReceiptSignatureError,
+    RegisteredPublicKey,
     create_ingestion_receipt,
     verify_ingestion_receipt,
 )
@@ -74,7 +75,11 @@ def issuer_signed_receipt() -> dict[str, Any]:
     assert verify_ingestion_receipt(
         receipt,
         record=record,
-        issuer_public_keys={"issuer-key": issuer_key.public_key()},
+        verification_keys={
+            "issuer-key": RegisteredPublicKey(
+                namespace="issuer", public_key=issuer_key.public_key()
+            )
+        },
     ) == receipt.payload
     return {
         "record": record,
@@ -104,8 +109,11 @@ def receipt_verification_fails(receipt_context: dict[str, Any]) -> None:
         verify_ingestion_receipt(
             receipt_context["tampered"],
             record=receipt_context["record"],
-            issuer_public_keys={
-                "issuer-key": receipt_context["issuer_key"].public_key()
+            verification_keys={
+                "issuer-key": RegisteredPublicKey(
+                    namespace="issuer",
+                    public_key=receipt_context["issuer_key"].public_key(),
+                )
             },
         )
 

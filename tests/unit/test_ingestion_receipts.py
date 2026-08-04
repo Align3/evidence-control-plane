@@ -9,14 +9,17 @@ import pytest
 from cryptography.hazmat.primitives.asymmetric.ed25519 import Ed25519PrivateKey
 from pydantic import ValidationError
 
-from sdk_python.evidence.canonical import canonicalize
+from sdk_python.evidence.canonical import canonical_digest, canonicalize
 from sdk_python.evidence.schema import IngestionReceipt
-from sdk_python.evidence.signing import sign_record
+from sdk_python.evidence.signing import sign_record, signing_digest
 from services.ingestion.receipts import (
+    KeyNamespaceError,
     ReceiptError,
     ReceiptSignatureError,
+    RegisteredPublicKey,
     create_ingestion_receipt,
     measure_clock_skew_ms,
+    verify_evidence_record_signature,
     verify_ingestion_receipt,
 )
 from tests.steps.test_ingestion_receipt_steps import _unsigned_record
@@ -25,6 +28,12 @@ from tests.steps.test_ingestion_receipt_steps import _unsigned_record
 def _signed_record():
     key = Ed25519PrivateKey.generate()
     return sign_record(_unsigned_record(), key_id="customer", private_key=key)
+
+
+def _registered(
+    private_key: Ed25519PrivateKey, *, namespace: str = "issuer"
+) -> RegisteredPublicKey:
+    return RegisteredPublicKey(namespace=namespace, public_key=private_key.public_key())
 
 
 def test_receipt_for_another_record_is_refused_even_with_a_valid_issuer_signature() -> None:
@@ -44,7 +53,34 @@ def test_receipt_for_another_record_is_refused_even_with_a_valid_issuer_signatur
         verify_ingestion_receipt(
             receipt,
             record=second,
-            issuer_public_keys={"issuer": issuer.public_key()},
+            verification_keys={"issuer": _registered(issuer)},
+        )
+
+
+def test_receipt_binds_the_customer_signature_as_part_of_the_received_wire() -> None:
+    first_customer = Ed25519PrivateKey.generate()
+    second_customer = Ed25519PrivateKey.generate()
+    issuer = Ed25519PrivateKey.generate()
+    first = sign_record(
+        _unsigned_record(), key_id="customer-1", private_key=first_customer
+    )
+    signature_substitution = sign_record(
+        _unsigned_record(), key_id="customer-2", private_key=second_customer
+    )
+    assert signing_digest(first) == signing_digest(signature_substitution)
+    assert canonical_digest(first) != canonical_digest(signature_substitution)
+    receipt = create_ingestion_receipt(
+        first,
+        ingest_time=datetime(2026, 8, 1, 12, 0, 1, tzinfo=UTC),
+        issuer_key_id="issuer",
+        issuer_private_key=issuer,
+    )
+
+    with pytest.raises(ReceiptSignatureError, match="different customer record"):
+        verify_ingestion_receipt(
+            receipt,
+            record=signature_substitution,
+            verification_keys={"issuer": _registered(issuer)},
         )
 
 
@@ -58,7 +94,40 @@ def test_unknown_receipt_key_is_refused() -> None:
         issuer_private_key=issuer,
     )
     with pytest.raises(ReceiptSignatureError, match="unknown receipt signing key"):
-        verify_ingestion_receipt(receipt, record=record, issuer_public_keys={})
+        verify_ingestion_receipt(receipt, record=record, verification_keys={})
+
+
+def test_evidence_namespace_receipt_key_is_refused_even_when_registered() -> None:
+    evidence_key = Ed25519PrivateKey.generate()
+    record = _signed_record()
+    receipt = create_ingestion_receipt(
+        record,
+        ingest_time=datetime(2026, 8, 1, 12, 0, 1, tzinfo=UTC),
+        issuer_key_id="evidence-key",
+        issuer_private_key=evidence_key,
+    )
+
+    with pytest.raises(KeyNamespaceError, match="key namespace mismatch"):
+        verify_ingestion_receipt(
+            receipt,
+            record=record,
+            verification_keys={
+                "evidence-key": _registered(evidence_key, namespace="evidence")
+            },
+        )
+
+
+def test_issuer_namespace_key_is_refused_for_an_evidence_record() -> None:
+    issuer_key = Ed25519PrivateKey.generate()
+    record = sign_record(
+        _unsigned_record(), key_id="issuer-key", private_key=issuer_key
+    )
+
+    with pytest.raises(KeyNamespaceError, match="key namespace mismatch"):
+        verify_evidence_record_signature(
+            record,
+            verification_keys={"issuer-key": _registered(issuer_key)},
+        )
 
 
 def test_noncanonical_receipt_bytes_are_refused_before_use() -> None:
@@ -76,7 +145,7 @@ def test_noncanonical_receipt_bytes_are_refused_before_use() -> None:
         verify_ingestion_receipt(
             resigned,
             record=record,
-            issuer_public_keys={"issuer": issuer.public_key()},
+            verification_keys={"issuer": _registered(issuer)},
         )
 
 
@@ -102,7 +171,7 @@ def test_correctly_signed_but_miscomputed_skew_is_refused() -> None:
         verify_ingestion_receipt(
             wrongly_measured,
             record=record,
-            issuer_public_keys={"issuer": issuer.public_key()},
+            verification_keys={"issuer": _registered(issuer)},
         )
 
 

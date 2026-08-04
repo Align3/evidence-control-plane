@@ -38,7 +38,7 @@ from sdk_python.evidence.signing import (
     verify_attestation_signatures,
     verify_record_signature,
 )
-from services.ingestion.receipts import IngestionReceipt
+from services.ingestion.receipts import IngestionReceipt, RegisteredPublicKey
 from tests.vectors.generate import VECTOR_PATH, render_vectors
 
 DOCUMENT: dict[str, Any] = json.loads(VECTOR_PATH.read_text(encoding="utf-8"))
@@ -49,9 +49,11 @@ REQUIRED_ATTACK_VECTORS = {
     "receipt-issuer-signed-hosted-clocks",
     "reject-receipt-suppressed-clock-skew",
     "reject-receipt-bound-to-another-record",
+    "reject-receipt-after-customer-signature-substitution",
     "reject-hosted-ingest_time-in-customer-record",
     "reject-hosted-clock_skew_ms-in-customer-record",
     "reject-receipt-signed-by-evidence-namespace-key",
+    "reject-record-signed-by-issuer-namespace-key",
     "receipt-negative-clock-skew",
     "receipt-negative-sub-millisecond-skew-truncates-to-zero",
     "receipt-negative-skew-truncates-toward-zero-not-downward",
@@ -87,6 +89,18 @@ def _public_keys(encoded: dict[str, str]) -> dict[str, Ed25519PublicKey]:
     }
 
 
+def _registered_public_keys(
+    encoded: dict[str, dict[str, str]],
+) -> dict[str, RegisteredPublicKey]:
+    return {
+        key_id: RegisteredPublicKey(
+            namespace=value["namespace"],
+            public_key=Ed25519PublicKey.from_public_bytes(_decode(value["public_key"])),
+        )
+        for key_id, value in encoded.items()
+    }
+
+
 def _record(value: dict[str, Any]) -> RecordEnvelope:
     return validate_record(value)
 
@@ -94,7 +108,7 @@ def _record(value: dict[str, Any]) -> RecordEnvelope:
 def _error_code(error: Exception) -> str:
     from pydantic import ValidationError
 
-    from services.ingestion.receipts import ReceiptSignatureError
+    from services.ingestion.receipts import KeyNamespaceError, ReceiptSignatureError
 
     message = str(error)
     if isinstance(error, ValidationError):
@@ -107,6 +121,8 @@ def _error_code(error: Exception) -> str:
             return "receipt.signature_invalid"
         if "unknown receipt signing key" in message:
             return "receipt.unknown_signing_key"
+    if isinstance(error, KeyNamespaceError):
+        return "key.namespace_mismatch"
     if isinstance(error, CanonicalizationError):
         if "lone surrogates" in message:
             return "canonicalization.lone_surrogate"
@@ -311,14 +327,11 @@ def _run_verify_ingestion_receipt(vector: dict[str, Any]) -> None:
         key_id=vector["receipt"]["key_id"],
         signature=_decode(vector["receipt"]["signature"]),
     )
-    issuer_keys = {
-        key_id: Ed25519PublicKey.from_public_bytes(_decode(value))
-        for key_id, value in vector["issuer_public_keys"].items()
-    }
+    verification_keys = _registered_public_keys(vector["verification_keys"])
     expected = vector["expected"]
     try:
         payload = verify_ingestion_receipt(
-            receipt, record=record, issuer_public_keys=issuer_keys
+            receipt, record=record, verification_keys=verification_keys
         )
     except Exception as error:  # noqa: BLE001 - the vector states the code
         assert not expected["accepted"]
@@ -336,6 +349,25 @@ def _run_verify_ingestion_receipt(vector: dict[str, Any]) -> None:
     assert canonicalize(record) == before
 
 
+def _run_verify_evidence_record_signature(vector: dict[str, Any]) -> None:
+    """SE-003: an issuer-namespace key cannot authenticate evidence."""
+    from services.ingestion.receipts import verify_evidence_record_signature
+
+    record = _record(vector["record"])
+    expected = vector["expected"]
+    try:
+        key_id = verify_evidence_record_signature(
+            record,
+            verification_keys=_registered_public_keys(vector["verification_keys"]),
+        )
+    except Exception as error:  # noqa: BLE001 - the vector states the code
+        assert not expected["accepted"]
+        assert _error_code(error) == expected["error_code"]
+        return
+    assert expected["accepted"]
+    assert key_id == expected["key_id"]
+
+
 RUNNERS = {
     "canonicalize": _run_canonicalization,
     "sign_record": _run_sign_record,
@@ -344,6 +376,7 @@ RUNNERS = {
     "verify_stream": _run_verify_stream,
     "validate_record": _run_validate_record,
     "verify_ingestion_receipt": _run_verify_ingestion_receipt,
+    "verify_evidence_record_signature": _run_verify_evidence_record_signature,
 }
 
 

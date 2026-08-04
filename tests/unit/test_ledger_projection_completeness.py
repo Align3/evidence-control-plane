@@ -102,13 +102,15 @@ def test_every_derived_column_has_a_tamper_case() -> None:
     assert set(_TAMPER) == set(CANONICAL_DERIVED_COLUMNS)
 
 
-def test_signature_and_authoritative_bytes_are_not_claimed_as_derived() -> None:
-    """Proofs and the signed bytes themselves are authorities, not projections."""
+def test_proofs_authoritative_bytes_and_namespace_guards_are_not_derived() -> None:
+    """Authorities and fixed FK discriminators are not projections."""
     for column in (
         "key_id",
+        "record_key_namespace",
         "signature",
         "canonical_bytes",
         "receipt_key_id",
+        "receipt_key_namespace",
         "receipt_signature",
         "receipt_canonical_bytes",
     ):

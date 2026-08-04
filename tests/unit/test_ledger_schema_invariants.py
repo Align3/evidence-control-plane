@@ -154,6 +154,34 @@ def test_non_ed25519_length_receipt_signature_is_refused(
     assert getattr(caught.value.orig, "sqlstate", None) == CHECK_VIOLATION
 
 
+def test_evidence_record_cannot_reference_an_issuer_namespace_key(
+    tenant_engines: TenantEngines, record_factories: dict[str, RecordFactory]
+) -> None:
+    """SE-003: the customer-proof FK includes namespace = evidence."""
+    factory = record_factories[TENANT_A]
+    row = dict(factory.next_record())
+    row["key_id"] = factory.receipt_key_id
+
+    with pytest.raises(IntegrityError) as caught:
+        with tenant_connection(tenant_engines, TENANT_A) as conn:
+            conn.execute(evidence_partition(TENANT_A).insert(), row)
+    assert getattr(caught.value.orig, "sqlstate", None) == "23503"
+
+
+def test_ingestion_receipt_cannot_reference_an_evidence_namespace_key(
+    tenant_engines: TenantEngines, record_factories: dict[str, RecordFactory]
+) -> None:
+    """SE-003: the hosted-receipt FK includes namespace = issuer."""
+    factory = record_factories[TENANT_A]
+    row = dict(factory.next_record())
+    row["receipt_key_id"] = factory.key_id
+
+    with pytest.raises(IntegrityError) as caught:
+        with tenant_connection(tenant_engines, TENANT_A) as conn:
+            conn.execute(evidence_partition(TENANT_A).insert(), row)
+    assert getattr(caught.value.orig, "sqlstate", None) == "23503"
+
+
 def test_receipt_migration_refuses_to_fabricate_history(
     owner_engine: Engine,
     populated_ledger: dict[str, list[dict[str, Any]]],

@@ -2155,25 +2155,22 @@
     {
       "expected": {
         "accepted": true,
-        "canonical_json": "{\"clock_skew_ms\":1500,\"ingest_time\":\"2026-08-01T11:00:01.500Z\",\"record_digest\":\"sha256:271e3cf3dcee3a4a20933e3fc4d09e1f0ee880ccfbeb31fb46f622fdd377d152\"}",
-        "digest": "sha256:56d7b0b60f7f3356808922137c9591482d286d1578b0db453278e2a18c0505cd",
+        "canonical_json": "{\"clock_skew_ms\":1500,\"ingest_time\":\"2026-08-01T11:00:01.500Z\",\"record_digest\":\"sha256:08a97a32cd3ca6ff9a206ec3631cf378c6836bd97dd91094c8b10e08b86fa2e8\"}",
+        "digest": "sha256:1f2d0ef9b4beb3e749d92cb38df00d19671200a021e440b33b15a1c19f14082b",
         "measured_clock_skew_ms": 1500,
         "payload": {
           "clock_skew_ms": 1500,
           "ingest_time": "2026-08-01T11:00:01.500Z",
-          "record_digest": "sha256:271e3cf3dcee3a4a20933e3fc4d09e1f0ee880ccfbeb31fb46f622fdd377d152"
+          "record_digest": "sha256:08a97a32cd3ca6ff9a206ec3631cf378c6836bd97dd91094c8b10e08b86fa2e8"
         },
-        "record_digest": "sha256:271e3cf3dcee3a4a20933e3fc4d09e1f0ee880ccfbeb31fb46f622fdd377d152"
+        "record_digest": "sha256:08a97a32cd3ca6ff9a206ec3631cf378c6836bd97dd91094c8b10e08b86fa2e8"
       },
       "id": "receipt-issuer-signed-hosted-clocks",
-      "issuer_public_keys": {
-        "ISSUER1": "F0VTtFbd38aQjsqxwQH-arIeK6oGF3lbfUOmNIKZP9U"
-      },
       "operation": "verify_ingestion_receipt",
       "receipt": {
-        "canonical_utf8_hex": "7b22636c6f636b5f736b65775f6d73223a313530302c22696e676573745f74696d65223a22323032362d30382d30315431313a30303a30312e3530305a222c227265636f72645f646967657374223a227368613235363a32373165336366336463656533613461323039333365336663346430396531663065653838306363666265623331666234366636323266646433373764313532227d",
+        "canonical_utf8_hex": "7b22636c6f636b5f736b65775f6d73223a313530302c22696e676573745f74696d65223a22323032362d30382d30315431313a30303a30312e3530305a222c227265636f72645f646967657374223a227368613235363a30386139376133326364336361366666396132303665633336333163663337386336383336626439376464393130393463386231306530386238366661326538227d",
         "key_id": "ISSUER1",
-        "signature": "-lY0i_lpj0VBlkTI9UhGGtAr_x9pElNVmztGo4qeaDX0gXsqJsbse4rB2wlMFKl5kz39FpQP1hAM44tWDCLLBQ"
+        "signature": "4DrRVpHPFLszl1frGZ_YJu42UJqLRWNMl58GZEag0XT40fWdSho6W4JpCBXACMAVK7x-imIKTj00QLWpjOkXAA"
       },
       "record": {
         "body": {
@@ -2211,6 +2208,12 @@
         },
         "stream_id": "stream-1",
         "tenant_id": "tenant-1"
+      },
+      "verification_keys": {
+        "ISSUER1": {
+          "namespace": "issuer",
+          "public_key": "F0VTtFbd38aQjsqxwQH-arIeK6oGF3lbfUOmNIKZP9U"
+        }
       }
     },
     {
@@ -2220,14 +2223,11 @@
         "error_code": "receipt.signature_invalid"
       },
       "id": "reject-receipt-suppressed-clock-skew",
-      "issuer_public_keys": {
-        "ISSUER1": "F0VTtFbd38aQjsqxwQH-arIeK6oGF3lbfUOmNIKZP9U"
-      },
       "operation": "verify_ingestion_receipt",
       "receipt": {
-        "canonical_utf8_hex": "7b22636c6f636b5f736b65775f6d73223a302c22696e676573745f74696d65223a22323032362d30382d30315431313a30303a30312e3530305a222c227265636f72645f646967657374223a227368613235363a32373165336366336463656533613461323039333365336663346430396531663065653838306363666265623331666234366636323266646433373764313532227d",
+        "canonical_utf8_hex": "7b22636c6f636b5f736b65775f6d73223a302c22696e676573745f74696d65223a22323032362d30382d30315431313a30303a30312e3530305a222c227265636f72645f646967657374223a227368613235363a30386139376133326364336361366666396132303665633336333163663337386336383336626439376464393130393463386231306530386238366661326538227d",
         "key_id": "ISSUER1",
-        "signature": "-lY0i_lpj0VBlkTI9UhGGtAr_x9pElNVmztGo4qeaDX0gXsqJsbse4rB2wlMFKl5kz39FpQP1hAM44tWDCLLBQ"
+        "signature": "4DrRVpHPFLszl1frGZ_YJu42UJqLRWNMl58GZEag0XT40fWdSho6W4JpCBXACMAVK7x-imIKTj00QLWpjOkXAA"
       },
       "record": {
         "body": {
@@ -2265,6 +2265,12 @@
         },
         "stream_id": "stream-1",
         "tenant_id": "tenant-1"
+      },
+      "verification_keys": {
+        "ISSUER1": {
+          "namespace": "issuer",
+          "public_key": "F0VTtFbd38aQjsqxwQH-arIeK6oGF3lbfUOmNIKZP9U"
+        }
       }
     },
     {
@@ -2273,14 +2279,11 @@
         "error_code": "receipt.record_mismatch"
       },
       "id": "reject-receipt-bound-to-another-record",
-      "issuer_public_keys": {
-        "ISSUER1": "F0VTtFbd38aQjsqxwQH-arIeK6oGF3lbfUOmNIKZP9U"
-      },
       "operation": "verify_ingestion_receipt",
       "receipt": {
-        "canonical_utf8_hex": "7b22636c6f636b5f736b65775f6d73223a313530302c22696e676573745f74696d65223a22323032362d30382d30315431313a30303a30312e3530305a222c227265636f72645f646967657374223a227368613235363a31326361616462303330373937643966316232353062646330346566383662396365303834323034333162636530626561383636616233346463373766613061227d",
+        "canonical_utf8_hex": "7b22636c6f636b5f736b65775f6d73223a313530302c22696e676573745f74696d65223a22323032362d30382d30315431313a30303a30312e3530305a222c227265636f72645f646967657374223a227368613235363a38646632303131663939646361303961363538383135633032376131376639353262363463343733636565643163336537646431303830343735376637333034227d",
         "key_id": "ISSUER1",
-        "signature": "4cdf8hn0xGRRlWCdvb7LsIQc4B3egE9U4Fy7ziyBeJb4AkF9s-TGt7Om2hsW7fM5zM64IQvDdrNlw8zLnVY_BA"
+        "signature": "bWeLAn2kkxYiw6btUWlND4Z8dNN1Mzh4-kcdVTrngHAyBFf02kuDJdy3lt-Gvho_JKYn6fQzvBtemSsEF_EHDA"
       },
       "record": {
         "body": {
@@ -2318,22 +2321,81 @@
         },
         "stream_id": "stream-1",
         "tenant_id": "tenant-1"
+      },
+      "verification_keys": {
+        "ISSUER1": {
+          "namespace": "issuer",
+          "public_key": "F0VTtFbd38aQjsqxwQH-arIeK6oGF3lbfUOmNIKZP9U"
+        }
       }
     },
     {
       "expected": {
         "accepted": false,
-        "error_code": "receipt.unknown_signing_key"
+        "error_code": "receipt.record_mismatch"
       },
-      "id": "reject-receipt-signed-by-evidence-namespace-key",
-      "issuer_public_keys": {
-        "ISSUER1": "F0VTtFbd38aQjsqxwQH-arIeK6oGF3lbfUOmNIKZP9U"
-      },
+      "id": "reject-receipt-after-customer-signature-substitution",
       "operation": "verify_ingestion_receipt",
       "receipt": {
-        "canonical_utf8_hex": "7b22636c6f636b5f736b65775f6d73223a313530302c22696e676573745f74696d65223a22323032362d30382d30315431313a30303a30312e3530305a222c227265636f72645f646967657374223a227368613235363a32373165336366336463656533613461323039333365336663346430396531663065653838306363666265623331666234366636323266646433373764313532227d",
+        "canonical_utf8_hex": "7b22636c6f636b5f736b65775f6d73223a313530302c22696e676573745f74696d65223a22323032362d30382d30315431313a30303a30312e3530305a222c227265636f72645f646967657374223a227368613235363a30386139376133326364336361366666396132303665633336333163663337386336383336626439376464393130393463386231306530386238366661326538227d",
+        "key_id": "ISSUER1",
+        "signature": "4DrRVpHPFLszl1frGZ_YJu42UJqLRWNMl58GZEag0XT40fWdSho6W4JpCBXACMAVK7x-imIKTj00QLWpjOkXAA"
+      },
+      "record": {
+        "body": {
+          "agent_id": "agent-1",
+          "credential_ref": "service_identity",
+          "deployment": "prod",
+          "model_versions": [
+            "model-1"
+          ],
+          "runtime": "python-3.12",
+          "service_identity": "collector@example.invalid",
+          "tenant_scope": "tenant-1",
+          "tool_versions": [
+            "tool-1"
+          ]
+        },
+        "boundary_ref": "boundary-1",
+        "clocks": {
+          "source_time": "2026-08-01T12:00:00.000+01:00"
+        },
+        "prev_digest": null,
+        "record_id": "01890f47-2f58-7cc0-98c4-000000000001",
+        "record_type": "AgentIdentity",
+        "schema_version": "1.0.0",
+        "sequence": 1,
+        "signature": {
+          "alg": "ed25519",
+          "key_id": "K2",
+          "sig": "8hJ83ak2MNTZhkCwK_qFuwN8mWp6rAuM2kVjsFqKT2dXrYRUVx2y0tDR_PQLJ9FPkEEeV5g89JofDvyA8-HrBQ",
+          "signed_digest": "sha256:271e3cf3dcee3a4a20933e3fc4d09e1f0ee880ccfbeb31fb46f622fdd377d152"
+        },
+        "source": {
+          "collector": "vector-generator",
+          "version": "0.1.0"
+        },
+        "stream_id": "stream-1",
+        "tenant_id": "tenant-1"
+      },
+      "verification_keys": {
+        "ISSUER1": {
+          "namespace": "issuer",
+          "public_key": "F0VTtFbd38aQjsqxwQH-arIeK6oGF3lbfUOmNIKZP9U"
+        }
+      }
+    },
+    {
+      "expected": {
+        "accepted": false,
+        "error_code": "key.namespace_mismatch"
+      },
+      "id": "reject-receipt-signed-by-evidence-namespace-key",
+      "operation": "verify_ingestion_receipt",
+      "receipt": {
+        "canonical_utf8_hex": "7b22636c6f636b5f736b65775f6d73223a313530302c22696e676573745f74696d65223a22323032362d30382d30315431313a30303a30312e3530305a222c227265636f72645f646967657374223a227368613235363a30386139376133326364336361366666396132303665633336333163663337386336383336626439376464393130393463386231306530386238366661326538227d",
         "key_id": "K1",
-        "signature": "kVaDyKvutG5s5DozESDNdxu1uOMmhAV76gdsg63DU3HWjpN61NFHu9fS8tZQxmqJb4AL091qLm_zXf0MhtnDDw"
+        "signature": "k01seiqx2_hkjQ6P4tPjlfyDWN1HQkXiEriCNtOGTrXgqIlXHyQ6QqcOzOgaRenKrZ38NAp4Wzl287jY20DlCQ"
       },
       "record": {
         "body": {
@@ -2371,6 +2433,63 @@
         },
         "stream_id": "stream-1",
         "tenant_id": "tenant-1"
+      },
+      "verification_keys": {
+        "K1": {
+          "namespace": "evidence",
+          "public_key": "A6EHv_POEL4dcN0Y50vAmWfk1jCbpQ1fHdyGZBJVMbg"
+        }
+      }
+    },
+    {
+      "expected": {
+        "accepted": false,
+        "error_code": "key.namespace_mismatch"
+      },
+      "id": "reject-record-signed-by-issuer-namespace-key",
+      "operation": "verify_evidence_record_signature",
+      "record": {
+        "body": {
+          "agent_id": "agent-1",
+          "credential_ref": "service_identity",
+          "deployment": "prod",
+          "model_versions": [
+            "model-1"
+          ],
+          "runtime": "python-3.12",
+          "service_identity": "collector@example.invalid",
+          "tenant_scope": "tenant-1",
+          "tool_versions": [
+            "tool-1"
+          ]
+        },
+        "boundary_ref": "boundary-1",
+        "clocks": {
+          "source_time": "2026-08-01T12:00:00.000+01:00"
+        },
+        "prev_digest": null,
+        "record_id": "01890f47-2f58-7cc0-98c4-000000000001",
+        "record_type": "AgentIdentity",
+        "schema_version": "1.0.0",
+        "sequence": 1,
+        "signature": {
+          "alg": "ed25519",
+          "key_id": "ISSUER1",
+          "sig": "PBXxBgmTGx4HnMPcoDu3Wl51Pai2qHgVRoBV47AYAxG4ujUPCCWgXskx4R0f9Z8eShBO-wq4H0UiB7vWoDiZBA",
+          "signed_digest": "sha256:271e3cf3dcee3a4a20933e3fc4d09e1f0ee880ccfbeb31fb46f622fdd377d152"
+        },
+        "source": {
+          "collector": "vector-generator",
+          "version": "0.1.0"
+        },
+        "stream_id": "stream-1",
+        "tenant_id": "tenant-1"
+      },
+      "verification_keys": {
+        "ISSUER1": {
+          "namespace": "issuer",
+          "public_key": "F0VTtFbd38aQjsqxwQH-arIeK6oGF3lbfUOmNIKZP9U"
+        }
       }
     },
     {
@@ -2458,25 +2577,22 @@
     {
       "expected": {
         "accepted": true,
-        "canonical_json": "{\"clock_skew_ms\":-1500,\"ingest_time\":\"2026-08-01T10:59:58.500Z\",\"record_digest\":\"sha256:271e3cf3dcee3a4a20933e3fc4d09e1f0ee880ccfbeb31fb46f622fdd377d152\"}",
-        "digest": "sha256:055230c243df9c29ab00712e9bae3d982e2ed7f71b175544e929c2a6f4b4db82",
+        "canonical_json": "{\"clock_skew_ms\":-1500,\"ingest_time\":\"2026-08-01T10:59:58.500Z\",\"record_digest\":\"sha256:08a97a32cd3ca6ff9a206ec3631cf378c6836bd97dd91094c8b10e08b86fa2e8\"}",
+        "digest": "sha256:a8ba1d411bbc7782d6e78c3cecc110da41ddb5855262d56b21237a629ad5194d",
         "measured_clock_skew_ms": -1500,
         "payload": {
           "clock_skew_ms": -1500,
           "ingest_time": "2026-08-01T10:59:58.500Z",
-          "record_digest": "sha256:271e3cf3dcee3a4a20933e3fc4d09e1f0ee880ccfbeb31fb46f622fdd377d152"
+          "record_digest": "sha256:08a97a32cd3ca6ff9a206ec3631cf378c6836bd97dd91094c8b10e08b86fa2e8"
         },
-        "record_digest": "sha256:271e3cf3dcee3a4a20933e3fc4d09e1f0ee880ccfbeb31fb46f622fdd377d152"
+        "record_digest": "sha256:08a97a32cd3ca6ff9a206ec3631cf378c6836bd97dd91094c8b10e08b86fa2e8"
       },
       "id": "receipt-negative-clock-skew",
-      "issuer_public_keys": {
-        "ISSUER1": "F0VTtFbd38aQjsqxwQH-arIeK6oGF3lbfUOmNIKZP9U"
-      },
       "operation": "verify_ingestion_receipt",
       "receipt": {
-        "canonical_utf8_hex": "7b22636c6f636b5f736b65775f6d73223a2d313530302c22696e676573745f74696d65223a22323032362d30382d30315431303a35393a35382e3530305a222c227265636f72645f646967657374223a227368613235363a32373165336366336463656533613461323039333365336663346430396531663065653838306363666265623331666234366636323266646433373764313532227d",
+        "canonical_utf8_hex": "7b22636c6f636b5f736b65775f6d73223a2d313530302c22696e676573745f74696d65223a22323032362d30382d30315431303a35393a35382e3530305a222c227265636f72645f646967657374223a227368613235363a30386139376133326364336361366666396132303665633336333163663337386336383336626439376464393130393463386231306530386238366661326538227d",
         "key_id": "ISSUER1",
-        "signature": "83K2PGGJHVNShY0fb-f6PUXPVUOONJ00RJSB_gsSO20P5Bin3c0pm4m1gCh-GQ7u6qdJwQ73q2caPmbnZczEAw"
+        "signature": "9e1GG88KEghSUyvlq0N2LK1Cu82_8uRIlvm6MtWXYbDAgF8ZLLd0vbVjGhSQj3O5rtc8bpuCQ2QEHCQDadgbCg"
       },
       "record": {
         "body": {
@@ -2514,30 +2630,33 @@
         },
         "stream_id": "stream-1",
         "tenant_id": "tenant-1"
+      },
+      "verification_keys": {
+        "ISSUER1": {
+          "namespace": "issuer",
+          "public_key": "F0VTtFbd38aQjsqxwQH-arIeK6oGF3lbfUOmNIKZP9U"
+        }
       }
     },
     {
       "expected": {
         "accepted": true,
-        "canonical_json": "{\"clock_skew_ms\":0,\"ingest_time\":\"2026-08-01T11:00:00.000Z\",\"record_digest\":\"sha256:72298920737f86868e95952e80e86f64dab6747417d6fc1dcb62db5a33c0d58d\"}",
-        "digest": "sha256:af25e0662a92cc09fe196d0515853f98e1451b9ff0303ecbb181b2b34280ae9a",
+        "canonical_json": "{\"clock_skew_ms\":0,\"ingest_time\":\"2026-08-01T11:00:00.000Z\",\"record_digest\":\"sha256:a3552445e7527b486e63047a8e12978e3ba2d7c479fbccaa286626dd4393059b\"}",
+        "digest": "sha256:996635fee58dd582d73d80206f54e7e1668d4148455d435fa9eb137096772f08",
         "measured_clock_skew_ms": 0,
         "payload": {
           "clock_skew_ms": 0,
           "ingest_time": "2026-08-01T11:00:00.000Z",
-          "record_digest": "sha256:72298920737f86868e95952e80e86f64dab6747417d6fc1dcb62db5a33c0d58d"
+          "record_digest": "sha256:a3552445e7527b486e63047a8e12978e3ba2d7c479fbccaa286626dd4393059b"
         },
-        "record_digest": "sha256:72298920737f86868e95952e80e86f64dab6747417d6fc1dcb62db5a33c0d58d"
+        "record_digest": "sha256:a3552445e7527b486e63047a8e12978e3ba2d7c479fbccaa286626dd4393059b"
       },
       "id": "receipt-negative-sub-millisecond-skew-truncates-to-zero",
-      "issuer_public_keys": {
-        "ISSUER1": "F0VTtFbd38aQjsqxwQH-arIeK6oGF3lbfUOmNIKZP9U"
-      },
       "operation": "verify_ingestion_receipt",
       "receipt": {
-        "canonical_utf8_hex": "7b22636c6f636b5f736b65775f6d73223a302c22696e676573745f74696d65223a22323032362d30382d30315431313a30303a30302e3030305a222c227265636f72645f646967657374223a227368613235363a37323239383932303733376638363836386539353935326538306538366636346461623637343734313764366663316463623632646235613333633064353864227d",
+        "canonical_utf8_hex": "7b22636c6f636b5f736b65775f6d73223a302c22696e676573745f74696d65223a22323032362d30382d30315431313a30303a30302e3030305a222c227265636f72645f646967657374223a227368613235363a61333535323434356537353237623438366536333034376138653132393738653362613264376334373966626363616132383636323664643433393330353962227d",
         "key_id": "ISSUER1",
-        "signature": "Pdc2GV4Jy6lDT82mZ81bqK5YmsikmuSIheEdEl4PmnMmX-QLDgxI-MavwY4gt_bnxsrChsBZmdJKGa3KlYRHCA"
+        "signature": "Z4t6RU9W3bV1BGKTJY6U059YmDTSsNYJRWZxA3u3IS2fuZyTmn4f_weNGctmRMsEbGdfRSb9AK2JHkXiUy2LBQ"
       },
       "record": {
         "body": {
@@ -2575,30 +2694,33 @@
         },
         "stream_id": "stream-1",
         "tenant_id": "tenant-1"
+      },
+      "verification_keys": {
+        "ISSUER1": {
+          "namespace": "issuer",
+          "public_key": "F0VTtFbd38aQjsqxwQH-arIeK6oGF3lbfUOmNIKZP9U"
+        }
       }
     },
     {
       "expected": {
         "accepted": true,
-        "canonical_json": "{\"clock_skew_ms\":-1000,\"ingest_time\":\"2026-08-01T10:59:59.000Z\",\"record_digest\":\"sha256:72298920737f86868e95952e80e86f64dab6747417d6fc1dcb62db5a33c0d58d\"}",
-        "digest": "sha256:de8b21299a43c86094c8b4a9020591d9e3bdcf5985446924614cb4b5e8804a35",
+        "canonical_json": "{\"clock_skew_ms\":-1000,\"ingest_time\":\"2026-08-01T10:59:59.000Z\",\"record_digest\":\"sha256:a3552445e7527b486e63047a8e12978e3ba2d7c479fbccaa286626dd4393059b\"}",
+        "digest": "sha256:5623342ae4d952afe68ef1e0e0f4855497d6dfbf4042f8ff33523475fa7df15c",
         "measured_clock_skew_ms": -1000,
         "payload": {
           "clock_skew_ms": -1000,
           "ingest_time": "2026-08-01T10:59:59.000Z",
-          "record_digest": "sha256:72298920737f86868e95952e80e86f64dab6747417d6fc1dcb62db5a33c0d58d"
+          "record_digest": "sha256:a3552445e7527b486e63047a8e12978e3ba2d7c479fbccaa286626dd4393059b"
         },
-        "record_digest": "sha256:72298920737f86868e95952e80e86f64dab6747417d6fc1dcb62db5a33c0d58d"
+        "record_digest": "sha256:a3552445e7527b486e63047a8e12978e3ba2d7c479fbccaa286626dd4393059b"
       },
       "id": "receipt-negative-skew-truncates-toward-zero-not-downward",
-      "issuer_public_keys": {
-        "ISSUER1": "F0VTtFbd38aQjsqxwQH-arIeK6oGF3lbfUOmNIKZP9U"
-      },
       "operation": "verify_ingestion_receipt",
       "receipt": {
-        "canonical_utf8_hex": "7b22636c6f636b5f736b65775f6d73223a2d313030302c22696e676573745f74696d65223a22323032362d30382d30315431303a35393a35392e3030305a222c227265636f72645f646967657374223a227368613235363a37323239383932303733376638363836386539353935326538306538366636346461623637343734313764366663316463623632646235613333633064353864227d",
+        "canonical_utf8_hex": "7b22636c6f636b5f736b65775f6d73223a2d313030302c22696e676573745f74696d65223a22323032362d30382d30315431303a35393a35392e3030305a222c227265636f72645f646967657374223a227368613235363a61333535323434356537353237623438366536333034376138653132393738653362613264376334373966626363616132383636323664643433393330353962227d",
         "key_id": "ISSUER1",
-        "signature": "4HBgsqssExuZv96oSB9zxgRZUvUte-AJX3jYC6wyHOu9-o1gF68JeA8dIKlEgJxc-vq6PQaJ7asQLV0sslTvAA"
+        "signature": "m8uKVcA4vA6OAdn8e8bfCrr0QDrb65CbQR1e8I9MlWeZEQItfBlRn6QwXZY7GtG0re8N25Lo3xc73IzEbtfJCA"
       },
       "record": {
         "body": {
@@ -2636,30 +2758,33 @@
         },
         "stream_id": "stream-1",
         "tenant_id": "tenant-1"
+      },
+      "verification_keys": {
+        "ISSUER1": {
+          "namespace": "issuer",
+          "public_key": "F0VTtFbd38aQjsqxwQH-arIeK6oGF3lbfUOmNIKZP9U"
+        }
       }
     },
     {
       "expected": {
         "accepted": true,
-        "canonical_json": "{\"clock_skew_ms\":999,\"ingest_time\":\"2026-08-01T11:00:01.000Z\",\"record_digest\":\"sha256:72298920737f86868e95952e80e86f64dab6747417d6fc1dcb62db5a33c0d58d\"}",
-        "digest": "sha256:9f45c7e571ab116af4b84b2feef47b4b113217a9f308310bb433ad60bd33adfc",
+        "canonical_json": "{\"clock_skew_ms\":999,\"ingest_time\":\"2026-08-01T11:00:01.000Z\",\"record_digest\":\"sha256:a3552445e7527b486e63047a8e12978e3ba2d7c479fbccaa286626dd4393059b\"}",
+        "digest": "sha256:38fb83ec6cb19d0876e3d818fa4d5dfdc490e008037d0e83e7f9fa6ecb34867d",
         "measured_clock_skew_ms": 999,
         "payload": {
           "clock_skew_ms": 999,
           "ingest_time": "2026-08-01T11:00:01.000Z",
-          "record_digest": "sha256:72298920737f86868e95952e80e86f64dab6747417d6fc1dcb62db5a33c0d58d"
+          "record_digest": "sha256:a3552445e7527b486e63047a8e12978e3ba2d7c479fbccaa286626dd4393059b"
         },
-        "record_digest": "sha256:72298920737f86868e95952e80e86f64dab6747417d6fc1dcb62db5a33c0d58d"
+        "record_digest": "sha256:a3552445e7527b486e63047a8e12978e3ba2d7c479fbccaa286626dd4393059b"
       },
       "id": "receipt-positive-sub-millisecond-skew-truncates-down",
-      "issuer_public_keys": {
-        "ISSUER1": "F0VTtFbd38aQjsqxwQH-arIeK6oGF3lbfUOmNIKZP9U"
-      },
       "operation": "verify_ingestion_receipt",
       "receipt": {
-        "canonical_utf8_hex": "7b22636c6f636b5f736b65775f6d73223a3939392c22696e676573745f74696d65223a22323032362d30382d30315431313a30303a30312e3030305a222c227265636f72645f646967657374223a227368613235363a37323239383932303733376638363836386539353935326538306538366636346461623637343734313764366663316463623632646235613333633064353864227d",
+        "canonical_utf8_hex": "7b22636c6f636b5f736b65775f6d73223a3939392c22696e676573745f74696d65223a22323032362d30382d30315431313a30303a30312e3030305a222c227265636f72645f646967657374223a227368613235363a61333535323434356537353237623438366536333034376138653132393738653362613264376334373966626363616132383636323664643433393330353962227d",
         "key_id": "ISSUER1",
-        "signature": "8rpx0Qk_UgH9SZ8HVVtlYgnJnryuIXGKkcdYE6FuiYUlLNnQ9JmXxhHRAN2btPaneGJdPK_efOFoGm_BRDngCw"
+        "signature": "_zvXR4xnIjKMJBkkPowoXz19EkiX2m-mNy-U_Fg_AE1sxi_AT8VXobhpGR-SyicX8Jmsjyj9BfdUJoSKULaiCw"
       },
       "record": {
         "body": {
@@ -2697,6 +2822,12 @@
         },
         "stream_id": "stream-1",
         "tenant_id": "tenant-1"
+      },
+      "verification_keys": {
+        "ISSUER1": {
+          "namespace": "issuer",
+          "public_key": "F0VTtFbd38aQjsqxwQH-arIeK6oGF3lbfUOmNIKZP9U"
+        }
       }
     }
   ]

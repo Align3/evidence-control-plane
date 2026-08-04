@@ -6,6 +6,7 @@ builder directly without going through a fixture.
 
 from __future__ import annotations
 
+import base64
 import hashlib
 import subprocess
 import sys
@@ -125,9 +126,22 @@ class RecordFactory:
         }
         canonical = canonicalize(envelope)
         digest = hashlib.sha256(canonical).digest()
+        signature = self.private_key.sign(canonical)
+        received_wire = {
+            **envelope,
+            "signature": {
+                "alg": "ed25519",
+                "key_id": self.key_id,
+                "sig": base64.urlsafe_b64encode(signature)
+                .rstrip(b"=")
+                .decode("ascii"),
+                "signed_digest": "sha256:" + digest.hex(),
+            },
+        }
+        received_wire_digest = hashlib.sha256(canonicalize(received_wire)).digest()
         ingest_time = source_time + timedelta(milliseconds=4)
         receipt = IngestionReceipt(
-            record_digest="sha256:" + digest.hex(),
+            record_digest="sha256:" + received_wire_digest.hex(),
             ingest_time=ingest_time.isoformat(timespec="milliseconds").replace(
                 "+00:00", "Z"
             ),
@@ -148,7 +162,7 @@ class RecordFactory:
             "record_digest": digest,
             "collector_id": self.collector_id,
             "key_id": self.key_id,
-            "signature": self.private_key.sign(canonical),
+            "signature": signature,
             "source_time": source_time,
             "ingest_time": ingest_time,
             "authoritative_time": None,

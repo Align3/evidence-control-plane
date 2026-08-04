@@ -151,6 +151,7 @@ Partitioned by `tenant_id`. Append-only.
 | `record_digest` | bytea | |
 | `collector_id` | text FK | |
 | `key_id` | text FK | |
+| `record_key_namespace` | key_namespace | Fixed to `evidence`; part of the key FK |
 | `signature` | bytea | |
 | `source_time` | timestamptz | |
 | `ingest_time` | timestamptz | |
@@ -158,6 +159,7 @@ Partitioned by `tenant_id`. Append-only.
 | `clock_skew_ms` | integer | |
 | `canonical_bytes` | bytea | **Authoritative** |
 | `receipt_key_id` | text FK | Issuer-namespace key used for ES-030 |
+| `receipt_key_namespace` | key_namespace | Fixed to `issuer`; part of the receipt-key FK |
 | `receipt_signature` | bytea | Raw Ed25519 signature over `receipt_canonical_bytes` |
 | `receipt_canonical_bytes` | bytea | **Authoritative hosted receipt** |
 | `body` | jsonb | Projection — rebuildable |
@@ -194,7 +196,7 @@ The **length** bound carries as much of that guarantee as the alphabet does, and
 
 The consequence is a reassembly step: an export bundle must carry the **full** record including `signature`, so EV-19 needs a defined, tested reconstruction from `canonical_bytes` + `signature` + `key_id` back to the wire form. Not built here; recorded so it is not discovered late.
 
-**DM-024** — `receipt_canonical_bytes` holds the exact ES-030 payload bytes signed by the hosted issuer key. `ingest_time` and `clock_skew_ms` are projections of those bytes and MUST reproduce from them; they MUST NOT reproduce from, or be accepted from, customer `canonical_bytes`. `receipt_key_id` resolves to an issuer-namespace key and `receipt_signature` is the raw 64-byte Ed25519 proof. Record and receipt columns are inserted together, so append-only grants make an unreceipted accepted record and a receipt attached after acknowledgment equally inexpressible. Migration 0010 refuses to apply to a non-empty ledger rather than fabricate issuer observations for historical rows.
+**DM-024** — `receipt_canonical_bytes` holds the exact ES-030 payload bytes signed by the hosted issuer key. Its `record_digest` binds the complete received wire record, reconstructed from `canonical_bytes`, `key_id`, and `signature`, including the `signature` member; it is not the signature-excluded `record_digest` column governed by DM-023. `ingest_time` and `clock_skew_ms` are projections of the receipt bytes and MUST reproduce from them; they MUST NOT reproduce from, or be accepted from, customer `canonical_bytes`. The customer-key FK includes a discriminator fixed to namespace `evidence`, and the receipt-key FK includes one fixed to `issuer`; either cross-namespace use is rejected by the database. `receipt_signature` is the raw 64-byte Ed25519 proof. Record and receipt columns are inserted together, so append-only grants make an unreceipted accepted record and a receipt attached after acknowledgment equally inexpressible. Migration 0010 refuses to apply to a non-empty ledger rather than fabricate issuer observations for historical rows.
 
 **DM-021** — Writing the projection requires `UPDATE`, which SE-012 grants to no application role. Projection rebuild (`services/ledger/projection.py`) therefore runs under the migrator credential and is unreachable from any service handling traffic. This is the design and not a workaround: a rebuild path the ingestion role could execute would mean that role held `UPDATE`, and AC-012 would be false.
 

@@ -95,9 +95,10 @@ keys = Table(
         ForeignKey("tenants.tenant_id", ondelete="RESTRICT", onupdate="RESTRICT"),
         nullable=False,
     ),
-    # DM-008: the namespace is a column, not a convention. An issuer key can
-    # never sign an evidence record because the record's key_id must resolve
-    # to a row whose namespace is 'evidence'.
+    # DM-008: the namespace is a column, not a convention. Migration 0010
+    # includes it in both evidence-record key FKs, with fixed discriminator
+    # columns enforcing evidence for the customer proof and issuer for the
+    # hosted receipt proof.
     Column("namespace", key_namespace, nullable=False),
     Column("public_key", LargeBinary, nullable=False),
     Column("custody", key_custody, nullable=False),
@@ -178,6 +179,12 @@ def _evidence_columns() -> list[Column[Any]]:
         Column("record_digest", LargeBinary, nullable=False),
         Column("collector_id", Text, nullable=False),
         Column("key_id", Text, nullable=False),
+        Column(
+            "record_key_namespace",
+            key_namespace,
+            nullable=False,
+            server_default="evidence",
+        ),
         Column("signature", LargeBinary, nullable=False),
         Column("source_time", TIMESTAMP(timezone=True), nullable=False),
         Column("ingest_time", TIMESTAMP(timezone=True), nullable=False),
@@ -186,6 +193,12 @@ def _evidence_columns() -> list[Column[Any]]:
         # Authoritative. Everything else about the record is derived from it.
         Column("canonical_bytes", LargeBinary, nullable=False),
         Column("receipt_key_id", Text, nullable=False),
+        Column(
+            "receipt_key_namespace",
+            key_namespace,
+            nullable=False,
+            server_default="issuer",
+        ),
         Column("receipt_signature", LargeBinary, nullable=False),
         Column("receipt_canonical_bytes", LargeBinary, nullable=False),
         # Projection (PROJECTION_COLUMNS) -- rebuildable, never trusted.
