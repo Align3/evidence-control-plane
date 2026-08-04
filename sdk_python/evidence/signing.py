@@ -19,6 +19,7 @@ import hmac
 import re
 from collections.abc import Mapping
 from copy import deepcopy
+from hashlib import sha256
 from typing import Any, Final
 
 from cryptography.exceptions import InvalidSignature
@@ -273,6 +274,26 @@ def verify_record_signature(
 ) -> str:
     """Verify the customer signature and return its key ID."""
 
+    return verify_record_signature_bytes(
+        record,
+        signing_bytes=record_signing_bytes(record),
+        public_keys=public_keys,
+    )
+
+
+def verify_record_signature_bytes(
+    record: RecordEnvelope,
+    *,
+    signing_bytes: bytes,
+    public_keys: Mapping[str, Ed25519PublicKey],
+) -> str:
+    """Verify against the exact customer bytes retained by ingestion.
+
+    Callers that possess the received canonical representation pass those
+    bytes here.  The ordinary model-only verifier remains available for
+    offline callers that necessarily have to render the model first.
+    """
+
     signature = _signature_object(record)
     _validate_signature_members(record, signature)
     _algorithm(signature)
@@ -282,7 +303,7 @@ def verify_record_signature(
         raise UnknownKeyError(f"unknown evidence signing key: {key_id}")
 
     claimed_digest = _required_text(signature.get("signed_digest"), label="signed_digest")
-    actual_digest = signing_digest(record)
+    actual_digest = f"sha256:{sha256(signing_bytes).hexdigest()}"
     if not hmac.compare_digest(claimed_digest, actual_digest):
         raise InvalidSignatureError("signed_digest does not match the canonical record")
 

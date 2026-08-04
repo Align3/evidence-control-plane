@@ -161,6 +161,7 @@ Partitioned by `tenant_id`. Append-only.
 | `authoritative_time` | timestamptz null | Governs where present (ES-020) |
 | `clock_skew_ms` | integer | |
 | `canonical_bytes` | bytea | **Authoritative** |
+| `received_wire_bytes` | bytea | Exact accepted canonical wire record, including `signature`; receipt-bound |
 | `receipt_key_id` | text FK | Issuer-namespace key used for ES-030 |
 | `receipt_key_namespace` | key_namespace | Fixed to `issuer`; part of the receipt-key FK |
 | `receipt_signature` | bytea | Raw Ed25519 signature over `receipt_canonical_bytes` |
@@ -195,11 +196,28 @@ The trust boundary remains the application process, which holds the secret each 
 
 The **length** bound carries as much of that guarantee as the alphabet does, and for a less obvious reason. Postgres truncates an identifier longer than `NAMEDATALEN - 1` (63 bytes) **silently** — no error, no warning. Injectivity therefore has to hold on the truncated name, not on the string the application computed. The longest prefix in use is `evidence_records_` at 17 bytes, so a tenant id may be at most 46. At the original bound of 48, `evidence_records_` + `tenant_id` was 65 bytes and `evidence_tenant_` + `tenant_id` was 64: two tenant ids agreeing on their first 47 characters truncated to **one partition and one role**, and either tenant's ordinary session could read the other's evidence. Any future prefix must be counted against the same 63-byte budget; `services/ledger/naming.py` derives the bound rather than restating it, and raises if a derived identifier would not fit.
 
-**DM-023** — `canonical_bytes` holds the JCS-canonical record **excluding** the `signature` field: the exact bytes that were signed (ES-021). The signature itself is decomposed into the `signature` and `key_id` columns. Storing what was signed, verbatim, means verification never re-canonicalises — and re-canonicalisation is precisely where two independent implementations diverge, which is what makes `ES-S-007` achievable at EV-05.
+**DM-023** — `canonical_bytes` holds the JCS-canonical record **excluding** the `signature` field: the exact bytes that were signed (ES-021). The signature itself is decomposed into the `signature` and `key_id` columns. Ingestion first proves that `received_wire_bytes` equals the canonical form of the complete parsed record; a difference is refused as `wire.non_canonical`. It then verifies against, and stores, the signature-excluded canonical bytes. It never accepts a non-canonical request by re-rendering it into a different authoritative artifact — precisely the divergence `ES-S-007` exists to catch.
 
 The consequence is a reassembly step: an export bundle must carry the **full** record including `signature`, so EV-19 needs a defined, tested reconstruction from `canonical_bytes` + `signature` + `key_id` back to the wire form. Not built here; recorded so it is not discovered late.
 
-**DM-024** — `receipt_canonical_bytes` holds the exact ES-030 payload bytes signed by the hosted issuer key. Its `record_digest` binds the complete received wire record, reconstructed from `canonical_bytes`, `key_id`, and `signature`, including the `signature` member; it is not the signature-excluded `record_digest` column governed by DM-023. `ingest_time` and `clock_skew_ms` are projections of the receipt bytes and MUST reproduce from them; they MUST NOT reproduce from, or be accepted from, customer `canonical_bytes`. The customer-key FK includes a discriminator fixed to namespace `evidence`, and the receipt-key FK includes one fixed to `issuer`; either cross-namespace use is rejected by the database. `receipt_signature` is the raw 64-byte Ed25519 proof. Record and receipt columns are inserted together, so append-only grants make an unreceipted accepted record and a receipt attached after acknowledgment equally inexpressible. Migration 0010 refuses to apply to a non-empty ledger rather than fabricate issuer observations for historical rows.
+**DM-024** — `receipt_canonical_bytes` holds the exact ES-030 payload bytes signed by the hosted issuer key. Its `record_digest` binds `received_wire_bytes`, the complete accepted wire record including its `signature` member; it is not the signature-excluded `record_digest` column governed by DM-023. `ingest_time` and `clock_skew_ms` are projections of the receipt bytes and MUST reproduce from them; they MUST NOT reproduce from, or be accepted from, customer `canonical_bytes`. The customer-key FK includes a discriminator fixed to namespace `evidence`, and the receipt-key FK includes one fixed to `issuer`; either cross-namespace use is rejected by the database. `receipt_signature` is the raw 64-byte Ed25519 proof. Record and receipt columns are inserted together, so append-only grants make an unreceipted accepted record and a receipt attached after acknowledgment equally inexpressible. Migration 0010 refuses to apply to a non-empty ledger rather than fabricate issuer observations for historical rows.
+
+### 2.6.1 `ingestion_integrity_events`
+
+Append-only and partitioned by `tenant_id`, with the same tenant role holding only `INSERT` and `SELECT` on its own partition. Replays are reported but not retained as integrity events; forks and content substitutions are retained after the rejected evidence transaction rolls back.
+
+| Column | Type | Notes |
+|---|---|---|
+| `event_id` | uuid | Returned to the tenant with the refusal |
+| `tenant_id` | text | Partition key |
+| `event_type` | text | `stream_fork` or `content_substitution` |
+| `record_id` | uuid | Submitted identity |
+| `conflicting_record_id` | uuid null | Previously accepted identity |
+| `stream_id` / `sequence` | text / bigint | Submitted stream position |
+| `submitted_wire_bytes` | bytea | Exact rejected canonical artifact |
+| `existing_wire_bytes` | bytea null | Exact accepted artifact |
+| `occurred_at` | timestamptz | Detection time |
+| `surfaced_to_tenant_at` | timestamptz | Same synchronous response boundary |
 
 **DM-021** — Writing the projection requires `UPDATE`, which SE-012 grants to no application role. Projection rebuild (`services/ledger/projection.py`) therefore runs under the migrator credential and is unreachable from any service handling traffic. This is the design and not a workaround: a rebuild path the ingestion role could execute would mean that role held `UPDATE`, and AC-012 would be false.
 
@@ -326,7 +344,7 @@ Claim a number here before writing the migration (DM-001).
 | 0008 | EV-18 | Revocations | unclaimed |
 | 0009 | EV-20 | Admin audit log | unclaimed |
 | 0010 | EV-27 | Signed ingestion receipts and receipt-derived clock metadata | claimed |
-| 0011 | EV-07 | Bind evidence signing keys to registered collectors | claimed |
+| 0011 | EV-07 | Collector-key binding, exact received wire retention, tenant-visible ingestion integrity events | claimed |
 
 ---
 

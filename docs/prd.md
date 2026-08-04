@@ -131,12 +131,14 @@ Remove hosted clock observations from the customer-signed record. Define and imp
 
 #### EV-07 — Ingestion service
 FastAPI. Validate schema, verify signature, check collector registration, check sequence, durable append, acknowledge. **No queue anywhere in this path** (AC-001). Out-of-order arrival reconciled by sequence.
-**Touches:** `services/ingestion/`, `migrations/`, `docs/data-model.md`
+**Touches:** `services/ingestion/`, `services/ledger/schema.py`, `services/ledger/tenancy.py`, `sdk_python/evidence/signing.py`, `migrations/`, `docs/evidence-spec.md`, `docs/data-model.md`, `tests/vectors/`, ingestion and ledger tests
 **Depends on:** EV-03, EV-06, EV-27
-**Satisfies:** AC-001, AC-010, IN-003, IN-012, SE-018, ES-019 (runtime portion — see note), ES-020
+**Satisfies:** AC-001, AC-010, IN-003, IN-012, SE-018, ES-001, ES-006, ES-019 (runtime portion — see note), ES-020
 **Acceptance:** AC-S-001, IN-S-001, IN-S-003, SE-S-006
 
 **Note on ES-019 / ES-020.** EV-27 defines the separate hosted receipt because a collector cannot honestly sign our receipt time or a skew derived from it. EV-07 stamps `ingest_time`, computes `clock_skew_ms = ingest_time - source_time`, signs the receipt without changing the customer bytes, and appends both atomically. `authoritative_time` remains a customer-signed relayed claim and governs reconciliation ordering where present. Where it is absent, EV-16 applies the signed measured skew to numerator eligibility under ES-S-014. A customer record that supplies `ingest_time` or `clock_skew_ms` is rejected by schema validation rather than trusted.
+
+**Review scope additions.** F3 required EV-07 to consume EV-27's namespaced verification API rather than duplicate its SQL policy, so the shared signing entry point and ledger runtime schema are explicit Touches exceptions. F4 makes non-canonical received wire a distinct refusal and adds the normative ES-029 vector. F5 persists rejected forks and content substitutions in a tenant-visible append-only operational table, with distinct response codes for fork, replay, and substitution. No evidence record type is added; whether the operational event should later become signed evidence remains a separate specification question.
 
 ---
 

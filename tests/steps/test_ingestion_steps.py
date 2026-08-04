@@ -26,7 +26,11 @@ from sdk_python.evidence.schema import (
 )
 from sdk_python.evidence.signing import sign_record
 from services.ingestion.api import create_app
-from services.ingestion.receipts import SignedIngestionReceipt, verify_ingestion_receipt
+from services.ingestion.receipts import (
+    RegisteredPublicKey,
+    SignedIngestionReceipt,
+    verify_ingestion_receipt,
+)
 from services.ingestion.service import IngestionService, IssuerSigningKey
 from services.ledger import (
     LedgerConfig,
@@ -261,9 +265,13 @@ def _stored_records(
         verify_ingestion_receipt(
             receipt,
             record=record,
-            issuer_public_keys={
-                factory.receipt_key_id: factory.receipt_private_key.public_key()
+            verification_keys={
+                factory.receipt_key_id: RegisteredPublicKey(
+                    namespace="issuer",
+                    public_key=factory.receipt_private_key.public_key(),
+                )
             },
+            received_wire_bytes=bytes(row["received_wire_bytes"]),
         )
         records.append(record)
     return records
@@ -484,3 +492,51 @@ def test_http_refuses_malformed_json(ingestion_harness: IngestionHarness) -> Non
         _asgi_post(ingestion_harness.app, "/v1/evidence", b'{"record_id":')
     )
     assert response.status_code == 422
+
+
+def test_http_reports_distinct_wire_and_integrity_error_codes(
+    ingestion_harness: IngestionHarness,
+) -> None:
+    accepted = ingestion_harness.stream(
+        stream_id="ev07-http-error-codes", count=1, id_offset=8000
+    )[0]
+    assert ingestion_harness.submit(accepted).status_code == 201
+
+    replay = ingestion_harness.submit(accepted)
+    assert replay.status_code == 409
+    assert replay.json()["detail"]["code"] == "ingestion.replay"
+
+    fork = ingestion_harness.stream(
+        stream_id="ev07-http-error-codes", count=1, id_offset=8100
+    )[0]
+    fork_response = ingestion_harness.submit(fork)
+    assert fork_response.status_code == 409
+    assert fork_response.json()["detail"]["code"] == "integrity.stream_fork"
+    assert fork_response.json()["detail"]["event_id"]
+
+    original = ingestion_harness.stream(
+        stream_id="ev07-http-original", count=1, id_offset=8200
+    )[0]
+    substitute = ingestion_harness.stream(
+        stream_id="ev07-http-substitute", count=1, id_offset=8200
+    )[0]
+    assert ingestion_harness.submit(original).status_code == 201
+    substitute_response = ingestion_harness.submit(substitute)
+    assert substitute_response.status_code == 409
+    assert (
+        substitute_response.json()["detail"]["code"]
+        == "integrity.content_substitution"
+    )
+    assert substitute_response.json()["detail"]["event_id"]
+
+    noncanonical_record = ingestion_harness.stream(
+        stream_id="ev07-http-noncanonical", count=1, id_offset=8300
+    )[0]
+    noncanonical = json.dumps(
+        noncanonical_record.model_dump(mode="json", exclude_unset=True), indent=2
+    ).encode()
+    noncanonical_response = asyncio.run(
+        _asgi_post(ingestion_harness.app, "/v1/evidence", noncanonical)
+    )
+    assert noncanonical_response.status_code == 422
+    assert noncanonical_response.json()["detail"]["code"] == "wire.non_canonical"

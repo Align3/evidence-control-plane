@@ -16,8 +16,10 @@ import re
 #: naming it is how a cross-tenant read would be spelled, so it must fail
 #: (SE-011, AC-014).
 EVIDENCE_PARENT_TABLE = "evidence_records"
+INTEGRITY_EVENT_PARENT_TABLE = "ingestion_integrity_events"
 
 PARTITION_PREFIX = f"{EVIDENCE_PARENT_TABLE}_"
+INTEGRITY_EVENT_PARTITION_PREFIX = "integrity_events_"
 TENANT_ROLE_PREFIX = "evidence_tenant_"
 
 #: Group role holding SELECT on the registry tables (`tenants`, `collectors`,
@@ -39,7 +41,11 @@ APP_GRANTS: tuple[str, ...] = ("INSERT", "SELECT")
 MAX_IDENTIFIER_BYTES = 63
 
 #: Both derived names carry a prefix; the longer one sets the budget.
-_LONGEST_PREFIX = max(len(PARTITION_PREFIX), len(TENANT_ROLE_PREFIX))
+_LONGEST_PREFIX = max(
+    len(PARTITION_PREFIX),
+    len(INTEGRITY_EVENT_PARTITION_PREFIX),
+    len(TENANT_ROLE_PREFIX),
+)
 
 #: Longest tenant id whose every derived identifier still fits untruncated.
 MAX_TENANT_ID_LENGTH = MAX_IDENTIFIER_BYTES - _LONGEST_PREFIX
@@ -92,6 +98,14 @@ def _fits(identifier: str) -> str:
 def partition_name(tenant_id: str) -> str:
     """Name of the tenant's evidence partition."""
     return _fits(f"{PARTITION_PREFIX}{validate_tenant_id(tenant_id)}")
+
+
+def integrity_event_partition_name(tenant_id: str) -> str:
+    """Name of the tenant-visible rejected-integrity-event partition."""
+
+    return _fits(
+        f"{INTEGRITY_EVENT_PARTITION_PREFIX}{validate_tenant_id(tenant_id)}"
+    )
 
 
 def application_role(tenant_id: str) -> str:

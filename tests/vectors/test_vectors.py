@@ -54,6 +54,7 @@ REQUIRED_ATTACK_VECTORS = {
     "reject-hosted-clock_skew_ms-in-customer-record",
     "reject-receipt-signed-by-evidence-namespace-key",
     "reject-record-signed-by-issuer-namespace-key",
+    "reject-non-canonical-customer-record-wire",
     "receipt-negative-clock-skew",
     "receipt-negative-sub-millisecond-skew-truncates-to-zero",
     "receipt-negative-skew-truncates-toward-zero-not-downward",
@@ -108,7 +109,11 @@ def _record(value: dict[str, Any]) -> RecordEnvelope:
 def _error_code(error: Exception) -> str:
     from pydantic import ValidationError
 
-    from services.ingestion.receipts import KeyNamespaceError, ReceiptSignatureError
+    from services.ingestion.receipts import (
+        KeyNamespaceError,
+        NonCanonicalWireError,
+        ReceiptSignatureError,
+    )
 
     message = str(error)
     if isinstance(error, ValidationError):
@@ -123,6 +128,8 @@ def _error_code(error: Exception) -> str:
             return "receipt.unknown_signing_key"
     if isinstance(error, KeyNamespaceError):
         return "key.namespace_mismatch"
+    if isinstance(error, NonCanonicalWireError):
+        return "wire.non_canonical"
     if isinstance(error, CanonicalizationError):
         if "lone surrogates" in message:
             return "canonicalization.lone_surrogate"
@@ -368,6 +375,28 @@ def _run_verify_evidence_record_signature(vector: dict[str, Any]) -> None:
     assert key_id == expected["key_id"]
 
 
+def _run_verify_canonical_evidence_record(vector: dict[str, Any]) -> None:
+    """DM-023: valid proof does not authorize wire normalization."""
+
+    from services.ingestion.receipts import verify_canonical_evidence_record
+
+    verification_keys = _registered_public_keys(vector["verification_keys"])
+    control = bytes.fromhex(vector["canonical_control_utf8_hex"])
+    verify_canonical_evidence_record(control, verification_keys=verification_keys)
+
+    expected = vector["expected"]
+    try:
+        verify_canonical_evidence_record(
+            bytes.fromhex(vector["received_wire_utf8_hex"]),
+            verification_keys=verification_keys,
+        )
+    except Exception as error:  # noqa: BLE001 - the vector states the code
+        assert not expected["accepted"]
+        assert _error_code(error) == expected["error_code"]
+        return
+    assert expected["accepted"]
+
+
 RUNNERS = {
     "canonicalize": _run_canonicalization,
     "sign_record": _run_sign_record,
@@ -377,6 +406,7 @@ RUNNERS = {
     "validate_record": _run_validate_record,
     "verify_ingestion_receipt": _run_verify_ingestion_receipt,
     "verify_evidence_record_signature": _run_verify_evidence_record_signature,
+    "verify_canonical_evidence_record": _run_verify_canonical_evidence_record,
 }
 
 

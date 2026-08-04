@@ -18,9 +18,11 @@ from .config import LedgerConfig, derive_tenant_password
 from .naming import (
     APP_GRANTS,
     EVIDENCE_PARENT_TABLE,
+    INTEGRITY_EVENT_PARENT_TABLE,
     REGISTRY_READER_ROLE,
     TENANT_ROLE_PREFIX,
     application_role,
+    integrity_event_partition_name,
     partition_name,
     validate_tenant_id,
 )
@@ -54,6 +56,7 @@ def provision_tenant(
     if tenant_secret is None:
         tenant_secret = LedgerConfig.from_env().tenant_secret
     partition = partition_name(tenant_id)
+    integrity_partition = integrity_event_partition_name(tenant_id)
     role = application_role(tenant_id)
 
     connection.execute(
@@ -71,6 +74,13 @@ def provision_tenant(
             "custody": key_custody,
             "region": evidence_region,
         },
+    )
+    connection.execute(
+        text(  # noqa: S608 -- literal is constrained to [a-z0-9_] above
+            f'CREATE TABLE IF NOT EXISTS "{integrity_partition}"'
+            f' PARTITION OF "{INTEGRITY_EVENT_PARENT_TABLE}"'
+            f" FOR VALUES IN ('{tenant_id}')"
+        )
     )
 
     # DDL cannot take bind parameters, so the partition bound is a literal.
@@ -111,6 +121,8 @@ def provision_tenant(
         # INSERT and SELECT. Nothing else, ever (DM-004, AC-012, SE-012).
         f'GRANT {grants} ON TABLE "{partition}" TO "{role}"',
         f'REVOKE {forbidden} ON TABLE "{partition}" FROM "{role}"',
+        f'GRANT {grants} ON TABLE "{integrity_partition}" TO "{role}"',
+        f'REVOKE {forbidden} ON TABLE "{integrity_partition}" FROM "{role}"',
         # Registry reads (tenants, collectors, keys) for registration checks.
         # Row-level security scopes them to this tenant's own rows.
         f'GRANT "{REGISTRY_READER_ROLE}" TO "{role}"',
@@ -118,6 +130,7 @@ def provision_tenant(
         connection.execute(text(statement))
 
     _assert_append_only(connection, role=role, partition=partition)
+    _assert_append_only(connection, role=role, partition=integrity_partition)
     _assert_no_cross_tenant_membership(connection, role=role)
     # The new tenant role gains SELECT on the registry through
     # REGISTRY_READER_ROLE. If row-level isolation were missing, that grant
@@ -191,8 +204,10 @@ def deprovision_tenant(connection: Connection, *, tenant_id: str) -> None:
     """
     validate_tenant_id(tenant_id)
     partition = partition_name(tenant_id)
+    integrity_partition = integrity_event_partition_name(tenant_id)
     role = application_role(tenant_id)
     connection.execute(text(f'DROP TABLE IF EXISTS "{partition}"'))
+    connection.execute(text(f'DROP TABLE IF EXISTS "{integrity_partition}"'))
     connection.execute(
         text(
             "DO $$ BEGIN"  # noqa: S608 -- role name validated by application_role
