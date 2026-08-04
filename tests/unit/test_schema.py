@@ -29,8 +29,6 @@ def agent_identity_record() -> dict[str, Any]:
         "source": {"collector": "sdk-python", "version": "0.1.0"},
         "clocks": {
             "source_time": "2026-07-31T12:00:00.000+01:00",
-            "ingest_time": "2026-07-31T12:00:00.001+01:00",
-            "clock_skew_ms": 1,
         },
         "body": {
             "agent_id": "agent-1",
@@ -110,6 +108,14 @@ def test_float_in_unknown_body_extension_is_refused() -> None:
     raw = agent_identity_record()
     raw["body"]["future"] = {"quantity": 1.5}
     with pytest.raises(ValidationError, match="IEEE-754 floats"):
+        validate_record(raw)
+
+
+@pytest.mark.parametrize("hosted_field", ["ingest_time", "clock_skew_ms"])
+def test_customer_record_cannot_supply_hosted_clock_field(hosted_field: str) -> None:
+    raw = agent_identity_record()
+    raw["clocks"][hosted_field] = 0
+    with pytest.raises(ValidationError, match="extra"):
         validate_record(raw)
 
 

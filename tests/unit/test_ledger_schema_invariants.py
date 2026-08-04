@@ -11,6 +11,7 @@ Negative-first (AG-007): each one asserts a refusal.
 
 from __future__ import annotations
 
+import importlib
 from typing import Any
 
 import pytest
@@ -127,6 +128,42 @@ def test_short_digest_is_refused(
         with tenant_connection(tenant_engines, TENANT_A) as conn:
             conn.execute(evidence_partition(TENANT_A).insert(), row)
     assert getattr(caught.value.orig, "sqlstate", None) == CHECK_VIOLATION
+
+
+def test_unreceipted_record_is_refused(
+    tenant_engines: TenantEngines, record_factories: dict[str, RecordFactory]
+) -> None:
+    """DM-024: record and issuer receipt are one append, never two phases."""
+    row = dict(record_factories[TENANT_A].next_record())
+    for field in ("receipt_key_id", "receipt_signature", "receipt_canonical_bytes"):
+        row.pop(field)
+    with pytest.raises(IntegrityError) as caught:
+        with tenant_connection(tenant_engines, TENANT_A) as conn:
+            conn.execute(evidence_partition(TENANT_A).insert(), row)
+    assert getattr(caught.value.orig, "sqlstate", None) == "23502"
+
+
+def test_non_ed25519_length_receipt_signature_is_refused(
+    tenant_engines: TenantEngines, record_factories: dict[str, RecordFactory]
+) -> None:
+    row = dict(record_factories[TENANT_A].next_record())
+    row["receipt_signature"] = b"short"
+    with pytest.raises(IntegrityError) as caught:
+        with tenant_connection(tenant_engines, TENANT_A) as conn:
+            conn.execute(evidence_partition(TENANT_A).insert(), row)
+    assert getattr(caught.value.orig, "sqlstate", None) == CHECK_VIOLATION
+
+
+def test_receipt_migration_refuses_to_fabricate_history(
+    owner_engine: Engine,
+    populated_ledger: dict[str, list[dict[str, Any]]],
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    migration = importlib.import_module("migrations.versions.0010_ingestion_receipts")
+    with owner_engine.connect() as conn:
+        monkeypatch.setattr(migration.op, "get_bind", lambda: conn)
+        with pytest.raises(RuntimeError, match="refuses a non-empty ledger"):
+            migration.upgrade()
 
 
 def test_record_citing_another_tenants_collector_is_refused(

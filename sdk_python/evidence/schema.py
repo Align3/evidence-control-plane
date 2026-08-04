@@ -164,17 +164,25 @@ class JsonModel(BaseModel):
 
 
 class ClocksModel(JsonModel):
-    """ES-019 clock fields. Part of the closed envelope, so extras are refused."""
+    """Customer-observed ES-019 clocks; hosted observations live in a receipt."""
 
     model_config = ConfigDict(strict=True, extra="forbid")
 
     presence_optional_fields: ClassVar[frozenset[str]] = frozenset({"authoritative_time"})
 
     source_time: Timestamp
-    ingest_time: Timestamp
-    clock_skew_ms: SafeInteger
     # ES-020: present only where the destination supplies one.
     authoritative_time: Timestamp | None = None
+
+
+class IngestionReceipt(JsonModel):
+    """The closed issuer-observed payload paired with an accepted record (ES-030)."""
+
+    model_config = ConfigDict(strict=True, extra="forbid")
+
+    record_digest: Digest
+    ingest_time: Timestamp
+    clock_skew_ms: SafeInteger
 
 
 class BodyModel(JsonModel):

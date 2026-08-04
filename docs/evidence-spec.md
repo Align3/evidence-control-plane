@@ -70,7 +70,7 @@ Every record shares an envelope.
 | `sequence` | integer | yes | Monotonic within `stream_id`, starting at 1, no gaps |
 | `prev_digest` | digest \| null | yes | Digest of the previous record in the stream; `null` at sequence 1 |
 | `source` | object | yes | Collector identity, implementation, version, deployment |
-| `clocks` | object | yes | §6 |
+| `clocks` | object | yes | Customer-observed clocks: `source_time` and optional `authoritative_time`; hosted receipt clocks are in §6 |
 | `body` | object | yes | Type-specific payload |
 | `signature` | object | yes | §7 |
 
@@ -182,9 +182,9 @@ Body: `attestation_ref`, `reason`, `issuer`, `effective_at`, `superseding_ref`, 
 
 ## 6. Clocks
 
-**ES-019** — Every record carries three clock fields: `source_time` (the emitting component), `ingest_time` (our receipt), and where applicable `authoritative_time` (the destination's). `clock_skew_ms` between source and ingest MUST be recorded.
+**ES-019** — Every customer-signed record carries `source_time` (the emitting component) and, where applicable, `authoritative_time` (the destination's timestamp relayed by the collector). `ingest_time` is observed by the hosted ingestion service and `clock_skew_ms` is derived from that observation and `source_time`; neither may appear in the customer-signed record. On accepted ingestion both MUST instead be recorded in the issuer-signed ingestion receipt defined by ES-030. A verifier MUST reject a customer record that supplies either hosted field.
 
-**ES-020** — Where `authoritative_time` is present it governs reconciliation ordering. Where it is absent, and skew exceeds the boundary's declared threshold, affected records are excluded from the numerator and counted as unknown per CM-018.
+**ES-020** — Where `authoritative_time` is present it governs reconciliation ordering. Where it is absent, and the issuer-signed receipt's measured skew exceeds the boundary's declared threshold, affected records are excluded from the numerator and counted as unknown per CM-018. A collector-provided skew value has no standing.
 
 ---
 
@@ -227,6 +227,8 @@ Body: `attestation_ref`, `reason`, `issuer`, `effective_at`, `superseding_ref`, 
 An implementation is conformant if it produces records that our reference verifier accepts, and accepts records our reference implementation produces. Both directions are required.
 
 **ES-029** — Test vectors are published alongside this specification and are normative. Where this prose and a vector disagree, the vector is authoritative and the prose is a defect.
+
+**ES-030** — Every durably accepted customer record has an ingestion receipt produced by the hosted ingestion service and appended atomically with it. The receipt payload contains exactly `record_digest`, `ingest_time`, and `clock_skew_ms`, where `record_digest` identifies the unchanged customer-signed bytes, `ingest_time` is the service's RFC 3339 receipt time at millisecond precision, and `clock_skew_ms` is the signed integer difference `ingest_time - source_time` in whole milliseconds, truncating sub-millisecond remainder toward zero. The payload is RFC 8785 canonicalized and signed with an issuer-namespace Ed25519 key; its canonical bytes, raw signature, and key ID are stored separately from the customer record. No acknowledgment may be returned unless both record and receipt committed in the same transaction. Changing a receipt field MUST invalidate its signature and MUST make the hosted clock observation unusable for ES-020. `authoritative_time` remains in the customer-signed record as a relayed claim about the destination response; it is not represented as an observation made by the collector.
 
 ---
 
@@ -346,4 +348,23 @@ Given a valid key-continuity assertion bound to tenant A and stream X
 When it is replayed into tenant B on stream X
 Then verification fails with "continuity tenant_id does not match"
 And the rotated record is not accepted
+```
+
+### ES-S-013 — Collector cannot suppress measured skew *(ES-019, ES-030, DM-005, DM-024, TM-006)*
+
+```gherkin
+Given an issuer-signed ingestion receipt whose measured clock_skew_ms is non-zero
+When clock_skew_ms is replaced with a collector-reported value of 0
+Then receipt verification fails
+And the customer-signed record bytes remain unchanged
+```
+
+### ES-S-014 — Measured skew withholds numerator eligibility *(ES-020, TM-006)*
+
+```gherkin
+Given a record without authoritative_time
+And its issuer-signed ingestion receipt exceeds the boundary clock-skew threshold
+When coverage eligibility is evaluated
+Then the record is excluded from the numerator
+And the affected interval is counted as unknown
 ```

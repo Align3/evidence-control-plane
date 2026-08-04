@@ -237,11 +237,15 @@ def test_canonical_bytes_cannot_be_rewritten_by_reinsert(
                     " (record_id, tenant_id, record_type, schema_version, boundary_ref,"
                     "  stream_id, sequence, record_digest, collector_id, key_id,"
                     "  signature, source_time, ingest_time, clock_skew_ms,"
-                    "  canonical_bytes, body)"
+                    "  canonical_bytes, receipt_key_id, receipt_signature,"
+                    "  receipt_canonical_bytes, body)"
                     " SELECT record_id, tenant_id, record_type, schema_version,"
                     "  boundary_ref, stream_id, sequence, record_digest, collector_id,"
                     "  key_id, signature, source_time, ingest_time, clock_skew_ms,"
-                    "  canonical_bytes, body FROM \"" + partition_name(TENANT_A) + '" '
+                    "  canonical_bytes, receipt_key_id, receipt_signature,"
+                    "  receipt_canonical_bytes, body FROM \""
+                    + partition_name(TENANT_A)
+                    + '" '
                     " ON CONFLICT (tenant_id, record_id)"
                     " DO UPDATE SET canonical_bytes = '\\x00'::bytea"
                 )

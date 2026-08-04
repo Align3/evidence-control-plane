@@ -27,7 +27,7 @@ from cryptography.hazmat.primitives.asymmetric.ed25519 import (
     Ed25519PublicKey,
 )
 
-from sdk_python.evidence.canonical import canonical_digest
+from sdk_python.evidence.canonical import canonical_digest, canonicalize
 from sdk_python.evidence.schema import AttestationWindowRecord, RecordEnvelope
 
 ALGORITHM: Final = "ed25519"
@@ -227,6 +227,12 @@ def signing_digest(record: RecordEnvelope) -> str:
     """Return the ES-021 digest of a record with ``signature`` excluded."""
 
     return canonical_digest(_unsigned_mapping(record))
+
+
+def record_signing_bytes(record: RecordEnvelope) -> bytes:
+    """Return the exact customer-authored bytes covered by ``signed_digest``."""
+
+    return canonicalize(_unsigned_mapping(record))
 
 
 def sign_record[RecordT: RecordEnvelope](
