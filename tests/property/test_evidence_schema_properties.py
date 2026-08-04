@@ -315,7 +315,7 @@ def _record(record_type: str, body: dict[str, Any]) -> dict[str, Any]:
         "sequence": 1,
         "prev_digest": None,
         "source": {"collector": "sdk-python", "version": "0.1.0"},
-        "clocks": {"source_time": TS, "ingest_time": TS, "clock_skew_ms": 0},
+        "clocks": {"source_time": TS},
         "body": body,
         "signature": {},
     }

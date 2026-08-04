@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import hashlib
 from copy import deepcopy
 
 import pytest
@@ -13,6 +14,7 @@ from sdk_python.evidence.signing import (
     SignatureError,
     UnsupportedAlgorithmError,
     counter_sign_attestation,
+    record_signing_bytes,
     sign_record,
     signing_digest,
     verify_attestation_counter_signature,
@@ -35,7 +37,7 @@ def _agent_record():
             "sequence": 1,
             "prev_digest": None,
             "source": {"collector": "sdk-python"},
-            "clocks": {"source_time": TS, "ingest_time": TS, "clock_skew_ms": 0},
+            "clocks": {"source_time": TS},
             "body": {
                 "agent_id": "agent-1",
                 "deployment": "prod",
@@ -63,7 +65,7 @@ def _attestation_record() -> AttestationWindowRecord:
             "sequence": 1,
             "prev_digest": None,
             "source": {"collector": "sdk-python"},
-            "clocks": {"source_time": TS, "ingest_time": TS, "clock_skew_ms": 0},
+            "clocks": {"source_time": TS},
             "body": {
                 "boundary_ref": "boundary-1",
                 "window_start": TS,
@@ -91,6 +93,14 @@ def _attestation_record() -> AttestationWindowRecord:
     )
     assert isinstance(record, AttestationWindowRecord)
     return record
+
+
+def test_signing_digest_names_the_exact_customer_bytes() -> None:
+    record = _agent_record()
+
+    assert signing_digest(record) == "sha256:" + hashlib.sha256(
+        record_signing_bytes(record)
+    ).hexdigest()
 
 
 def test_record_signature_round_trip_and_shape() -> None:

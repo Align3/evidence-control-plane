@@ -1,4 +1,4 @@
-"""DM-005: every column the canonical bytes determine is checked (AC-015).
+"""DM-005: every column either signed byte string determines is checked.
 
 Review found `verify_projection` checking eight of sixteen derived columns.
 A transactional edit to `source_time`, leaving `canonical_bytes` untouched,
@@ -8,7 +8,9 @@ tampered column was one nobody had thought to list, which is the whole
 difficulty: the defect is in the *absence* of a check, so no existing test
 covers it and no failure points at it.
 
-These tests are therefore written against the column list rather than
+Receipt-derived columns are subject to the same rule against the independent
+`receipt_canonical_bytes` authority. These tests are therefore written against
+the column list rather than
 against a chosen example. Every column in `CANONICAL_DERIVED_COLUMNS` is
 tampered with in turn and must be reported, so adding a derived column to
 the schema without adding it to the projection maps fails here.
@@ -24,13 +26,19 @@ from sqlalchemy import Engine, text
 from services.ledger import (
     CANONICAL_DERIVED_COLUMNS,
     PROJECTION_COLUMNS,
+    RECEIPT_DERIVED_COLUMNS,
     REPAIRABLE_DERIVED_COLUMNS,
     VERIFIED_HEADER_COLUMNS,
     drop_projection,
     rebuild_projection,
     verify_projection,
 )
-from services.ledger.projection import _HEADER_SQL, _PROJECTION_SQL, _REPAIRABLE_SQL
+from services.ledger.projection import (
+    _HEADER_SQL,
+    _PROJECTION_SQL,
+    _RECEIPT_SQL,
+    _REPAIRABLE_SQL,
+)
 
 #: How to make each column disagree with the canonical bytes.
 #:
@@ -51,6 +59,7 @@ _TAMPER: dict[str, str] = {
     "record_digest": "record_digest = decode(repeat('ab', 32), 'hex')",
     "source_time": "source_time = source_time + interval '1 day'",
     "authoritative_time": "authoritative_time = now()",
+    "ingest_time": "ingest_time = ingest_time + interval '1 day'",
     "clock_skew_ms": "clock_skew_ms = clock_skew_ms + 1",
     "body": "body = body || '{\"tampered\": true}'::jsonb",
     "action_id": "action_id = gen_random_uuid()",
@@ -75,10 +84,16 @@ def test_the_projection_maps_cover_exactly_the_derived_columns() -> None:
     not declared derived is just as wrong, because it would be rebuilt from
     bytes that do not determine it.
     """
-    mapped = set(_PROJECTION_SQL) | set(_REPAIRABLE_SQL) | set(_HEADER_SQL)
+    mapped = (
+        set(_PROJECTION_SQL)
+        | set(_REPAIRABLE_SQL)
+        | set(_RECEIPT_SQL)
+        | set(_HEADER_SQL)
+    )
     assert mapped == set(CANONICAL_DERIVED_COLUMNS)
     assert set(PROJECTION_COLUMNS) == set(_PROJECTION_SQL)
     assert set(REPAIRABLE_DERIVED_COLUMNS) == set(_REPAIRABLE_SQL)
+    assert set(RECEIPT_DERIVED_COLUMNS) == set(_RECEIPT_SQL)
     assert set(VERIFIED_HEADER_COLUMNS) == set(_HEADER_SQL)
 
 
@@ -87,15 +102,18 @@ def test_every_derived_column_has_a_tamper_case() -> None:
     assert set(_TAMPER) == set(CANONICAL_DERIVED_COLUMNS)
 
 
-def test_ingest_time_and_signature_are_not_claimed_as_derived() -> None:
-    """They are not in the canonical bytes and must not be rebuilt from them.
-
-    `ingest_time` records our receipt rather than anything the writer
-    signed; `key_id` and `signature` live in the signature member that
-    `canonical_bytes` excludes (ES-021). Rebuilding any of them would be
-    inventing a value, which is worse than not checking it.
-    """
-    for column in ("ingest_time", "key_id", "signature", "canonical_bytes"):
+def test_proofs_authoritative_bytes_and_namespace_guards_are_not_derived() -> None:
+    """Authorities and fixed FK discriminators are not projections."""
+    for column in (
+        "key_id",
+        "record_key_namespace",
+        "signature",
+        "canonical_bytes",
+        "receipt_key_id",
+        "receipt_key_namespace",
+        "receipt_signature",
+        "receipt_canonical_bytes",
+    ):
         assert column not in CANONICAL_DERIVED_COLUMNS
 
 
@@ -151,7 +169,9 @@ _REPAIR_TAMPER: dict[str, str] = {
 }
 
 
-@pytest.mark.parametrize("column", sorted(REPAIRABLE_DERIVED_COLUMNS))
+@pytest.mark.parametrize(
+    "column", sorted((*REPAIRABLE_DERIVED_COLUMNS, *RECEIPT_DERIVED_COLUMNS))
+)
 def test_rebuild_repairs_every_repairable_column(
     owner_engine: Engine,
     populated_ledger: dict[str, list[dict[str, Any]]],

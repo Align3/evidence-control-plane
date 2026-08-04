@@ -68,8 +68,6 @@ def _record(
             "source": {"collector": "sdk-python", "version": "0.1.0"},
             "clocks": {
                 "source_time": "2026-07-31T12:00:00.000+01:00",
-                "ingest_time": "2026-07-31T12:00:00.001+01:00",
-                "clock_skew_ms": 1,
             },
             "body": {
                 "agent_id": "agent-1",

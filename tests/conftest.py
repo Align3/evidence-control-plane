@@ -101,8 +101,10 @@ def record_factories(owner_engine: Engine, tenants: list[str]) -> dict[str, Reco
     with owner_engine.begin() as conn:
         for tenant_id in tenants:
             private_key = Ed25519PrivateKey.generate()
+            receipt_private_key = Ed25519PrivateKey.generate()
             collector_id = f"{tenant_id}-collector-1"
             key_id = f"{tenant_id}-evidence-1"
+            receipt_key_id = f"{tenant_id}-issuer-1"
             conn.execute(
                 text(
                     "INSERT INTO collectors (collector_id, tenant_id, implementation,"
@@ -125,8 +127,26 @@ def record_factories(owner_engine: Engine, tenants: list[str]) -> dict[str, Reco
                     "pk": private_key.public_key().public_bytes_raw(),
                 },
             )
+            conn.execute(
+                text(
+                    "INSERT INTO keys (key_id, tenant_id, namespace, public_key,"
+                    " custody, valid_from)"
+                    " VALUES (:kid, :tid, 'issuer', :pk, 'client_held', now())"
+                    " ON CONFLICT (key_id) DO NOTHING"
+                ),
+                {
+                    "kid": receipt_key_id,
+                    "tid": tenant_id,
+                    "pk": receipt_private_key.public_key().public_bytes_raw(),
+                },
+            )
             factories[tenant_id] = RecordFactory(
-                tenant_id, collector_id, key_id, private_key
+                tenant_id,
+                collector_id,
+                key_id,
+                private_key,
+                receipt_key_id,
+                receipt_private_key,
             )
     return factories
 

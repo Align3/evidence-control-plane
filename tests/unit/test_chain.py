@@ -41,7 +41,7 @@ def _record(
             "sequence": sequence,
             "prev_digest": prev_digest,
             "source": {"collector": "sdk-python"},
-            "clocks": {"source_time": TS, "ingest_time": TS, "clock_skew_ms": 0},
+            "clocks": {"source_time": TS},
             "body": {
                 "agent_id": f"agent-{sequence}",
                 "deployment": "prod",

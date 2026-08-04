@@ -77,12 +77,12 @@ Monorepo: `services/`, `sdk_python/`, `sdk-typescript/`, `verifier-go/`, `docs/`
 Typed record models for every type in `evidence-spec.md` §5. RFC 8785 JCS canonicalisation. Digest computation. Envelope validation including unknown-field rules. Typed `clocks` member carrying the ES-019 fields.
 **Touches:** `sdk_python/evidence/schema.py`, `canonical.py`
 **Depends on:** EV-01
-**Satisfies:** ES-001…005, ES-002a, ES-002b, ES-019 (record-shape portion — see note)
+**Satisfies:** ES-001…005, ES-002a, ES-002b, ES-019 (customer-observed record-shape portion — see note)
 **Acceptance:** ES-S-008
 
 **Note on ES-002a / ES-002b.** Both were added to `evidence-spec.md` §2 during review of EV-02, which found that the rule they state existed only in the Python implementation. ES-002a requires a conformant canonicalizer to reject rather than serialize non-integer numbers, out-of-range integers, and `NaN`/`Infinity`; ES-002b requires optional members to be encoded by absence rather than explicit `null`. Both bind EV-05 as much as EV-02 — the Go verifier must reach the same conclusions independently, and until it does, ES-S-007 cannot detect a disagreement. **Neither has an acceptance scenario in `evidence-spec.md` §12.** One is not invented here; writing it is a documentation change and belongs to whoever next amends that document.
 
-**Note on ES-019.** The requirement splits across two stories. The *record-shape* half — that every record carries `source_time`, `ingest_time`, `clock_skew_ms`, and `authoritative_time` where applicable, correctly typed and required — is schema and is claimed here. The *runtime* half is claimed by EV-07. **ES-019 has no acceptance scenario in `evidence-spec.md` §12**; as above, one is not invented here.
+**Note on ES-019.** The requirement splits across three stories. EV-02 types the customer-observed fields: required `source_time` and optional `authoritative_time`. EV-27 types and authenticates the hosted observation (`ingest_time`, measured `clock_skew_ms`) in a separate issuer-signed receipt. EV-07 creates that receipt at runtime. The previous model placed hosted observations in the customer-signed record, falsely attributing them to the collector and allowing the collector to suppress TM-006 by reporting zero skew; EV-27 corrects that shape before normative vectors freeze it.
 
 #### EV-03 — Signing and chain primitives (Python)
 Ed25519 sign/verify. Envelope signature construction. Chain linking via `prev_digest`. Sequence validation. Fork detection. Key continuity assertions.
@@ -94,7 +94,7 @@ Ed25519 sign/verify. Envelope signature construction. Chain linking via `prev_di
 #### EV-04 — Conformance vectors
 Language-neutral JSON fixtures covering canonicalisation edge cases, digests, signatures, valid and invalid chains, key rotation with and without continuity. Published as normative (ES-029).
 **Touches:** `tests/vectors/`
-**Depends on:** EV-03
+**Depends on:** EV-03, EV-27
 **Satisfies:** ES-029, QA-001 (L1)
 **Acceptance:** Python implementation passes all vectors.
 
@@ -116,14 +116,27 @@ Append-only evidence table per `data-model.md`. Per-tenant partitioning. Applica
 **Satisfies:** AC-012…015, SE-011, SE-012
 **Acceptance:** AC-S-004, AC-S-006
 
+#### EV-27 — Issuer-signed ingestion receipts
+Remove hosted clock observations from the customer-signed record. Define and implement an issuer-signed receipt over the complete received wire record, including its customer signature, plus hosted `ingest_time` and measured `clock_skew_ms`; store its authoritative canonical bytes and proof atomically beside the record. Refuse migration of a non-empty unreceipted ledger rather than fabricate historical observations.
+**Touches:** `docs/evidence-spec.md`, `docs/data-model.md`, `docs/prd.md`, `sdk_python/evidence/schema.py`, `services/ledger/`, `services/ingestion/receipts.py`, `migrations/`, `tests/vectors/`, receipt and schema tests
+
+**Scope change — `tests/vectors/` added after EV-04 merged.** EV-04 published 41 vectors carrying `ingest_time` and `clock_skew_ms` inside the customer-signed record. ES-029 makes those vectors normative and authoritative over prose, so the amended ES-019 here contradicts a published artefact until they are regenerated. The story that changes the shape owns everything the shape governs: regenerating inside EV-27 means `develop` is never in a state where the specification and its normative vectors disagree, which splitting into a follow-up would guarantee for the interval between two merges.
+
+**Scoped review exception — `services/ledger/schema.py`.** The SE-003 repair changes migration 0010's customer-key and receipt-key foreign keys to include fixed `evidence` and `issuer` namespace discriminators. The runtime table declaration and its previously false namespace comment must change with the migration so application inserts and schema-drift checks describe the enforced database shape. This exception is limited to those discriminator columns and comment.
+**Depends on:** EV-03, EV-06
+**Satisfies:** ES-019 (hosted receipt shape), ES-030, DM-005, DM-024, TM-006 (tamper resistance)
+**Acceptance:** ES-S-013
+
+**AG-011 debt.** EV-05 does not yet exist, so the repository's Go verifier cannot independently reproduce this schema/signature change today. EV-04 MUST publish normative receipt vectors and EV-05 MUST reproduce them independently. This known sequencing gap is recorded rather than represented by a vacuous Go build.
+
 #### EV-07 — Ingestion service
 FastAPI. Validate schema, verify signature, check collector registration, check sequence, durable append, acknowledge. **No queue anywhere in this path** (AC-001). Out-of-order arrival reconciled by sequence.
 **Touches:** `services/ingestion/`
-**Depends on:** EV-03, EV-06
+**Depends on:** EV-03, EV-06, EV-27
 **Satisfies:** AC-001, AC-010, IN-003, IN-012, SE-018, ES-019 (runtime portion — see note), ES-020
 **Acceptance:** AC-S-001, IN-S-001, IN-S-003, SE-S-006
 
-**Note on ES-019 / ES-020.** EV-02 types and requires the clock fields on the record; it cannot populate them. Stamping `ingest_time` at the moment of receipt, computing `clock_skew_ms` between source and ingest rather than trusting a collector-supplied value, and applying the ES-020 precedence — `authoritative_time` governs reconciliation ordering where present, and where it is absent and skew exceeds the boundary's declared threshold the affected records are excluded from the numerator and counted as unknown per CM-018 — are runtime behaviours of this path and are claimed here. A collector that supplies its own `clock_skew_ms` is asserting something ingestion is in a position to check; treating that field as attacker-controlled is the correct posture.
+**Note on ES-019 / ES-020.** EV-27 defines the separate hosted receipt because a collector cannot honestly sign our receipt time or a skew derived from it. EV-07 stamps `ingest_time`, computes `clock_skew_ms = ingest_time - source_time`, signs the receipt without changing the customer bytes, and appends both atomically. `authoritative_time` remains a customer-signed relayed claim and governs reconciliation ordering where present. Where it is absent, EV-16 applies the signed measured skew to numerator eligibility under ES-S-014. A customer record that supplies `ingest_time` or `clock_skew_ms` is rejected by schema validation rather than trusted.
 
 ---
 
@@ -194,8 +207,8 @@ Pure function matching evidence to population and confirmations. Closed classifi
 Applies the lattice: claimed level = min(evidence-supported, class-admissible). Ratio emitted only at C1/C2/C3. Gap conservation. No imputation.
 **Touches:** `services/computation/coverage.py`
 **Depends on:** EV-15
-**Satisfies:** CM-008, CM-009, CM-011, CM-014, AC-005
-**Acceptance:** CM-S-001, CM-S-003, CM-S-004, CM-S-010, QA-S-002
+**Satisfies:** CM-008, CM-009, CM-011, CM-014, AC-005, ES-020, TM-006
+**Acceptance:** CM-S-001, CM-S-003, CM-S-004, CM-S-010, QA-S-002, ES-S-014
 
 ---
 
@@ -296,7 +309,7 @@ This story does not implement the product scenarios owned by EV-05 through EV-21
 
 ## 4. Build order
 
-Critical path: **EV-01 → 02 → 03 → 04 → 05 → 06 → 07 → 12 → 13 → 14 → 15 → 16 → 17 → 19**.
+Critical path: **EV-01 → 02 → 03 → 06 → 27 → 07 → 12 → 13 → 14 → 15 → 16 → 17 → 19**. EV-04 also depends on EV-27 before publishing normative vectors; EV-05 follows EV-04.
 
 Parallelisable once EV-07 lands (disjoint Touches):
 

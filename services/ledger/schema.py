@@ -95,9 +95,10 @@ keys = Table(
         ForeignKey("tenants.tenant_id", ondelete="RESTRICT", onupdate="RESTRICT"),
         nullable=False,
     ),
-    # DM-008: the namespace is a column, not a convention. An issuer key can
-    # never sign an evidence record because the record's key_id must resolve
-    # to a row whose namespace is 'evidence'.
+    # DM-008: the namespace is a column, not a convention. Migration 0010
+    # includes it in both evidence-record key FKs, with fixed discriminator
+    # columns enforcing evidence for the customer proof and issuer for the
+    # hosted receipt proof.
     Column("namespace", key_namespace, nullable=False),
     Column("public_key", LargeBinary, nullable=False),
     Column("custody", key_custody, nullable=False),
@@ -128,8 +129,11 @@ REPAIRABLE_DERIVED_COLUMNS: tuple[str, ...] = (
     "collector_id",
     "source_time",
     "authoritative_time",
-    "clock_skew_ms",
 )
+
+#: Hosted observations derived from the separately issuer-signed receipt
+#: rather than from the customer record (ES-019, ES-030, DM-024).
+RECEIPT_DERIVED_COLUMNS: tuple[str, ...] = ("ingest_time", "clock_skew_ms")
 
 #: Columns parsed from `canonical_bytes` that carry constraints the ledger's
 #: integrity depends on -- the partition key, the record identity, and the
@@ -148,14 +152,12 @@ VERIFIED_HEADER_COLUMNS: tuple[str, ...] = (
     "sequence",
 )
 
-#: Every column `canonical_bytes` determines. DM-005 says each one must be
-#: reproducible from the authoritative bytes, so each one is checked.
-#: `ingest_time` is absent by design -- it records our receipt, not anything
-#: the writer signed -- as are `key_id` and `signature`, which live in the
-#: signature member that `canonical_bytes` excludes (ES-021).
+#: Every column either authoritative signed byte string determines. DM-005
+#: says each one must be reproducible from its actual attestor's bytes.
 CANONICAL_DERIVED_COLUMNS: tuple[str, ...] = (
     *VERIFIED_HEADER_COLUMNS,
     *REPAIRABLE_DERIVED_COLUMNS,
+    *RECEIPT_DERIVED_COLUMNS,
     *PROJECTION_COLUMNS,
 )
 
@@ -177,6 +179,12 @@ def _evidence_columns() -> list[Column[Any]]:
         Column("record_digest", LargeBinary, nullable=False),
         Column("collector_id", Text, nullable=False),
         Column("key_id", Text, nullable=False),
+        Column(
+            "record_key_namespace",
+            key_namespace,
+            nullable=False,
+            server_default="evidence",
+        ),
         Column("signature", LargeBinary, nullable=False),
         Column("source_time", TIMESTAMP(timezone=True), nullable=False),
         Column("ingest_time", TIMESTAMP(timezone=True), nullable=False),
@@ -184,6 +192,15 @@ def _evidence_columns() -> list[Column[Any]]:
         Column("clock_skew_ms", Integer, nullable=False),
         # Authoritative. Everything else about the record is derived from it.
         Column("canonical_bytes", LargeBinary, nullable=False),
+        Column("receipt_key_id", Text, nullable=False),
+        Column(
+            "receipt_key_namespace",
+            key_namespace,
+            nullable=False,
+            server_default="issuer",
+        ),
+        Column("receipt_signature", LargeBinary, nullable=False),
+        Column("receipt_canonical_bytes", LargeBinary, nullable=False),
         # Projection (PROJECTION_COLUMNS) -- rebuildable, never trusted.
         Column("body", JSONB, nullable=False),
         Column("action_id", UUID(as_uuid=True), nullable=True),
@@ -230,6 +247,7 @@ def evidence_partition(tenant_id: str) -> Table:
 __all__ = [
     "EVIDENCE_PARENT_TABLE",
     "PROJECTION_COLUMNS",
+    "RECEIPT_DERIVED_COLUMNS",
     "VERIFIED_HEADER_COLUMNS",
     "collectors",
     "evidence_partition",

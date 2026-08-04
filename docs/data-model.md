@@ -22,9 +22,9 @@ This is the shared contract between concurrently working agents. On DamDam, a re
 
 **DM-004** — The `evidence_records` table is append-only. The application role holds `INSERT` and `SELECT` only; `UPDATE` and `DELETE` are granted to no application role (AC-012, SE-012).
 
-**DM-005** — `canonical_bytes` is authoritative. Every parsed column is a projection and must be rebuildable from it (AC-015). A migration that changes a projection column does not touch `canonical_bytes`.
+**DM-005** — `canonical_bytes` is authoritative for the customer-signed record, and `receipt_canonical_bytes` is authoritative for the issuer-signed hosted receipt. Every parsed column is a projection and must be rebuildable from the signed bytes of the attestor that observed it (AC-015). A migration that changes a projection column does not touch either authoritative byte string.
 
-"Every parsed column" is the whole list, not the droppable subset. Columns split three ways: **droppable** ones are dropped and rebuilt outright; **repairable** ones are recomputed in place, because no identity or uniqueness guarantee hangs off them; and **verified-only** ones — the record identity, the partition key, and the fork-detection key `(stream_id, sequence)` — are checked but never rewritten, because rewriting them would relocate rows between partitions or silently resolve a fork that ES-006 says must be reported. Review found the earlier implementation verifying eight of sixteen derived columns, which let a `source_time` edited away from the bytes go undetected and survive a rebuild. `ingest_time` is deliberately not derived — it records our receipt, not anything the writer signed — as are `key_id` and `signature`, which live in the signature member `canonical_bytes` excludes (ES-021).
+"Every parsed column" is the whole list, not the droppable subset. Columns split three ways: **droppable** ones are dropped and rebuilt outright; **repairable** ones are recomputed in place, because no identity or uniqueness guarantee hangs off them; and **verified-only** ones — the record identity, the partition key, and the fork-detection key `(stream_id, sequence)` — are checked but never rewritten, because rewriting them would relocate rows between partitions or silently resolve a fork that ES-006 says must be reported. Review found the earlier implementation verifying eight of sixteen derived columns, which let a `source_time` edited away from the bytes go undetected and survive a rebuild. `ingest_time` and `clock_skew_ms` are deliberately not derived from customer `canonical_bytes`: they reproduce from `receipt_canonical_bytes`, signed by the service that observed and computed them (ES-019, ES-030). `key_id` and `signature` live in the customer signature member that `canonical_bytes` excludes (ES-021); `receipt_key_id` and `receipt_signature` likewise authenticate but are not members of the receipt payload they sign.
 
 **DM-006** — Cross-tenant reads must be inexpressible at the query layer, not filtered in application code (SE-011). Two mechanisms, because two access patterns:
 
@@ -151,12 +151,17 @@ Partitioned by `tenant_id`. Append-only.
 | `record_digest` | bytea | |
 | `collector_id` | text FK | |
 | `key_id` | text FK | |
+| `record_key_namespace` | key_namespace | Fixed to `evidence`; part of the key FK |
 | `signature` | bytea | |
 | `source_time` | timestamptz | |
 | `ingest_time` | timestamptz | |
 | `authoritative_time` | timestamptz null | Governs where present (ES-020) |
 | `clock_skew_ms` | integer | |
 | `canonical_bytes` | bytea | **Authoritative** |
+| `receipt_key_id` | text FK | Issuer-namespace key used for ES-030 |
+| `receipt_key_namespace` | key_namespace | Fixed to `issuer`; part of the receipt-key FK |
+| `receipt_signature` | bytea | Raw Ed25519 signature over `receipt_canonical_bytes` |
+| `receipt_canonical_bytes` | bytea | **Authoritative hosted receipt** |
 | `body` | jsonb | Projection — rebuildable |
 | `action_id` | uuid null | Projection for join performance |
 | `action_family` | text null | Projection |
@@ -190,6 +195,8 @@ The **length** bound carries as much of that guarantee as the alphabet does, and
 **DM-023** — `canonical_bytes` holds the JCS-canonical record **excluding** the `signature` field: the exact bytes that were signed (ES-021). The signature itself is decomposed into the `signature` and `key_id` columns. Storing what was signed, verbatim, means verification never re-canonicalises — and re-canonicalisation is precisely where two independent implementations diverge, which is what makes `ES-S-007` achievable at EV-05.
 
 The consequence is a reassembly step: an export bundle must carry the **full** record including `signature`, so EV-19 needs a defined, tested reconstruction from `canonical_bytes` + `signature` + `key_id` back to the wire form. Not built here; recorded so it is not discovered late.
+
+**DM-024** — `receipt_canonical_bytes` holds the exact ES-030 payload bytes signed by the hosted issuer key. Its `record_digest` binds the complete received wire record, reconstructed from `canonical_bytes`, `key_id`, and `signature`, including the `signature` member; it is not the signature-excluded `record_digest` column governed by DM-023. `ingest_time` and `clock_skew_ms` are projections of the receipt bytes and MUST reproduce from them; they MUST NOT reproduce from, or be accepted from, customer `canonical_bytes`. The customer-key FK includes a discriminator fixed to namespace `evidence`, and the receipt-key FK includes one fixed to `issuer`; either cross-namespace use is rejected by the database. `receipt_signature` is the raw 64-byte Ed25519 proof. Record and receipt columns are inserted together, so append-only grants make an unreceipted accepted record and a receipt attached after acknowledgment equally inexpressible. Migration 0010 refuses to apply to a non-empty ledger rather than fabricate issuer observations for historical rows.
 
 **DM-021** — Writing the projection requires `UPDATE`, which SE-012 grants to no application role. Projection rebuild (`services/ledger/projection.py`) therefore runs under the migrator credential and is unreachable from any service handling traffic. This is the design and not a workaround: a rebuild path the ingestion role could execute would mean that role held `UPDATE`, and AC-012 would be false.
 
@@ -315,6 +322,7 @@ Claim a number here before writing the migration (DM-001).
 | 0007 | EV-17 | Attestations | unclaimed |
 | 0008 | EV-18 | Revocations | unclaimed |
 | 0009 | EV-20 | Admin audit log | unclaimed |
+| 0010 | EV-27 | Signed ingestion receipts and receipt-derived clock metadata | claimed |
 
 ---
 

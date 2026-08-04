@@ -1,9 +1,9 @@
-"""AC-S-006 -- Projection rebuildable from canonical bytes (AC-015, DM-005).
+"""AC-S-006 -- Projection rebuildable from signed bytes (AC-015, DM-005).
 
-`canonical_bytes` is authoritative. `body`, `action_id` and `action_family`
-are a cache. The test physically DROPs those columns and rebuilds them from
-the canonical bytes alone, then requires byte-identical reproduction and
-unbroken signatures.
+Customer `canonical_bytes` and hosted `receipt_canonical_bytes` are independent
+authorities. Parsed columns are caches. The test physically DROPs the droppable
+columns and rebuilds every cache from the appropriate signed bytes alone, then
+requires byte-identical reproduction and unbroken signatures.
 
 The rebuild runs under the migrator role, not the application role: writing
 a projection requires UPDATE, which SE-012 forbids any application role from
@@ -15,6 +15,7 @@ from __future__ import annotations
 
 import hashlib
 import json
+from datetime import datetime
 from typing import Any
 
 from cryptography.exceptions import InvalidSignature
@@ -42,7 +43,8 @@ def _snapshot(engine: Engine) -> dict[tuple[str, str], dict[str, Any]]:
         rows = conn.execute(
             text(
                 "SELECT tenant_id, record_id, record_digest, canonical_bytes,"  # noqa: S608
-                " signature, key_id, body, action_id, action_family"
+                " signature, key_id, receipt_canonical_bytes, receipt_signature,"
+                " receipt_key_id, body, action_id, action_family"
                 f' FROM "{EVIDENCE_PARENT_TABLE}" ORDER BY tenant_id, stream_id, sequence'
             )
         ).mappings().all()
@@ -55,7 +57,12 @@ def _ledger_before(
     populated_ledger: dict[str, list[dict[str, Any]]],
 ) -> dict[tuple[str, str], dict[str, Any]]:
     snapshot = _snapshot(owner_engine)
-    assert len(snapshot) == sum(len(v) for v in populated_ledger.values())
+    fixture_rows = {
+        (tenant_id, str(row["record_id"]))
+        for tenant_id, rows in populated_ledger.items()
+        for row in rows
+    }
+    assert fixture_rows <= set(snapshot), "fixture records are missing from the ledger"
     assert snapshot, "an empty ledger would make this scenario vacuous"
     # The projection must actually be populated beforehand, or "reproduces
     # identically" would be satisfied by null equals null.
@@ -97,12 +104,14 @@ def _reproduces_identically(
                 f"projection column {column} differs for {key}: "
                 f"{before[column]!r} -> {now[column]!r}"
             )
-        # The authoritative bytes must not have been touched by the rebuild.
+        # Neither attestor's authoritative bytes may be touched by the rebuild.
         assert now["canonical_bytes"] == before["canonical_bytes"], (
             "the rebuild rewrote canonical_bytes -- DM-005 forbids it"
         )
         assert now["record_digest"] == before["record_digest"]
         assert now["signature"] == before["signature"]
+        assert now["receipt_canonical_bytes"] == before["receipt_canonical_bytes"]
+        assert now["receipt_signature"] == before["receipt_signature"]
 
 
 @then("all digests and signatures still verify")
@@ -113,9 +122,13 @@ def _digests_and_signatures_verify(
         rows = conn.execute(
             text(
                 "SELECT e.tenant_id, e.record_id, e.canonical_bytes, e.record_digest,"  # noqa: S608
-                " e.signature, k.public_key, e.body"
+                " e.signature, k.public_key, e.receipt_canonical_bytes,"
+                " e.receipt_signature, rk.public_key AS receipt_public_key,"
+                " e.ingest_time, e.clock_skew_ms, e.body"
                 f' FROM "{EVIDENCE_PARENT_TABLE}" e'
                 " JOIN keys k ON k.key_id = e.key_id AND k.tenant_id = e.tenant_id"
+                " JOIN keys rk ON rk.key_id = e.receipt_key_id"
+                "  AND rk.tenant_id = e.tenant_id"
             )
         ).mappings().all()
     assert rows, "no records to verify"
@@ -131,6 +144,21 @@ def _digests_and_signatures_verify(
             raise AssertionError(
                 f"signature no longer verifies for {row['record_id']}"
             ) from None
+        receipt_bytes = bytes(row["receipt_canonical_bytes"])
+        receipt_public_key = Ed25519PublicKey.from_public_bytes(
+            bytes(row["receipt_public_key"])
+        )
+        try:
+            receipt_public_key.verify(bytes(row["receipt_signature"]), receipt_bytes)
+        except InvalidSignature:  # pragma: no cover -- failure path
+            raise AssertionError(
+                f"receipt signature no longer verifies for {row['record_id']}"
+            ) from None
+        receipt = json.loads(receipt_bytes)
+        assert datetime.fromisoformat(
+            receipt["ingest_time"].replace("Z", "+00:00")
+        ) == row["ingest_time"]
+        assert receipt["clock_skew_ms"] == row["clock_skew_ms"]
         # And the rebuilt projection is genuinely derived from those bytes.
         assert row["body"] == json.loads(canonical)["body"]
 

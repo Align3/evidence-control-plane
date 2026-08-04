@@ -1,11 +1,12 @@
 """Dropping and rebuilding the parsed projection (AC-015, DM-005, DM-013).
 
-`canonical_bytes` is authoritative. Every other column the bytes determine
-is a cache over them, and DM-005 requires *every* such column to be
-reproducible -- not merely the three that happen to be droppable. The claim
-AC-S-006 makes is falsifiable only if the rebuild path actually exists and
-is exercised, so it is built here and now rather than assumed to be
-possible later.
+`canonical_bytes` is authoritative for customer observations and
+`receipt_canonical_bytes` is authoritative for hosted observations. Every
+other column either signed byte string determines is a cache over its actual
+attestor's bytes, and DM-005 requires *every* such column to be reproducible
+-- not merely the three that happen to be droppable. The claim AC-S-006 makes
+is falsifiable only if the rebuild path actually exists and is exercised, so
+it is built here and now rather than assumed to be possible later.
 
 The columns split three ways, and the split is the design:
 
@@ -26,9 +27,10 @@ asserts the groups cover exactly `CANONICAL_DERIVED_COLUMNS`.
 
 Two properties this module is responsible for:
 
-* the rebuild reads **only** `canonical_bytes` -- if it consulted the columns
-  it is rebuilding, the test would pass for the wrong reason;
-* the rebuild never writes `canonical_bytes` or `signature`.
+* the rebuild reads **only** the two signed canonical byte strings -- if it
+  consulted the columns it is rebuilding, the test would pass for the wrong
+  reason;
+* the rebuild never writes either canonical byte string or either signature.
 
 It requires `UPDATE`/DDL and therefore runs under the migrator credential.
 No application role can reach it, which is the point: if the rebuild were
@@ -46,13 +48,19 @@ from .naming import EVIDENCE_PARENT_TABLE
 from .schema import (
     CANONICAL_DERIVED_COLUMNS,
     PROJECTION_COLUMNS,
+    RECEIPT_DERIVED_COLUMNS,
     REPAIRABLE_DERIVED_COLUMNS,
     VERIFIED_HEADER_COLUMNS,
 )
 
-#: The record as JSON, decoded from the authoritative bytes. Every derived
-#: expression below starts here and nowhere else.
+#: The customer record as JSON, decoded from its authoritative bytes. Every
+#: customer-derived expression below starts here and nowhere else.
 _PARSED = f'convert_from({EVIDENCE_PARENT_TABLE}.canonical_bytes, \'UTF8\')::jsonb'
+#: The hosted receipt as JSON, decoded independently from the issuer's
+#: authoritative bytes.
+_RECEIPT_PARSED = (
+    f'convert_from({EVIDENCE_PARENT_TABLE}.receipt_canonical_bytes, \'UTF8\')::jsonb'
+)
 
 #: SQL expression per droppable projection column, in terms of `_PARSED`.
 _PROJECTION_SQL: dict[str, str] = {
@@ -81,7 +89,11 @@ _REPAIRABLE_SQL: dict[str, str] = {
     "authoritative_time": (
         f"(({_PARSED}) -> 'clocks' ->> 'authoritative_time')::timestamptz"
     ),
-    "clock_skew_ms": f"(({_PARSED}) -> 'clocks' ->> 'clock_skew_ms')::integer",
+}
+
+_RECEIPT_SQL: dict[str, str] = {
+    "ingest_time": f"(({_RECEIPT_PARSED}) ->> 'ingest_time')::timestamptz",
+    "clock_skew_ms": f"(({_RECEIPT_PARSED}) ->> 'clock_skew_ms')::integer",
 }
 
 #: Header columns are not dropped and not rewritten -- the partition key,
@@ -114,7 +126,7 @@ _PROJECTION_INDEXES: dict[str, str] = {
 
 @dataclass(frozen=True)
 class ProjectionMismatch:
-    """A stored projection value that disagrees with the canonical bytes."""
+    """A stored projection value that disagrees with its authoritative bytes."""
 
     tenant_id: str
     record_id: str
@@ -146,7 +158,7 @@ def drop_projection(connection: Connection) -> None:
 
 
 def rebuild_projection(connection: Connection) -> int:
-    """Recreate and repopulate the projection from `canonical_bytes`.
+    """Recreate and repopulate projections from their signed canonical bytes.
 
     Returns the number of records reprojected.
     """
@@ -158,7 +170,11 @@ def rebuild_projection(connection: Connection) -> int:
 
     assignments = ", ".join(
         f"{column} = {expression}"
-        for column, expression in {**_PROJECTION_SQL, **_REPAIRABLE_SQL}.items()
+        for column, expression in {
+            **_PROJECTION_SQL,
+            **_REPAIRABLE_SQL,
+            **_RECEIPT_SQL,
+        }.items()
     )
     result = connection.execute(
         text(f'UPDATE "{EVIDENCE_PARENT_TABLE}" SET {assignments}')  # noqa: S608 -- assignments built from module constants
@@ -181,7 +197,7 @@ def rebuild_projection(connection: Connection) -> int:
 
 
 def verify_projection(connection: Connection) -> list[ProjectionMismatch]:
-    """Report every stored value that the canonical bytes do not reproduce.
+    """Report values that their attestor's canonical bytes do not reproduce.
 
     Covers the header columns as well as the droppable projection: DM-005
     says *every* parsed column must be rebuildable, and the header columns
@@ -192,7 +208,7 @@ def verify_projection(connection: Connection) -> list[ProjectionMismatch]:
     columns and its authoritative bytes disagree, which is a tampering or
     corruption signal, not a cache miss.
     """
-    checks = {**_PROJECTION_SQL, **_REPAIRABLE_SQL, **_HEADER_SQL}
+    checks = {**_PROJECTION_SQL, **_REPAIRABLE_SQL, **_RECEIPT_SQL, **_HEADER_SQL}
     present = projection_columns_present(connection)
     mismatches: list[ProjectionMismatch] = []
     for column, expression in checks.items():
@@ -224,6 +240,7 @@ def verify_projection(connection: Connection) -> list[ProjectionMismatch]:
 __all__ = [
     "CANONICAL_DERIVED_COLUMNS",
     "PROJECTION_COLUMNS",
+    "RECEIPT_DERIVED_COLUMNS",
     "REPAIRABLE_DERIVED_COLUMNS",
     "VERIFIED_HEADER_COLUMNS",
     "ProjectionMismatch",

@@ -33,3 +33,32 @@ changed vector is a normative format change and its byte diff must be reviewed.
 `test_vectors.py` refuses drift and executes every stored vector through the
 Python implementation. EV-05 must implement the same operations independently
 in Go; until that happens, AG-011 remains explicitly unsatisfied.
+
+## Implementer note: sub-millisecond `source_time`
+
+`clock_skew_ms` truncates the sub-millisecond remainder **toward zero**
+(ES-030). That is not a floor, and the difference is only observable when the
+collector clock ran ahead of ours:
+
+| exact skew | truncate (correct) | floor (wrong) |
+|---|---|---|
+| `-500 us` | `0` | `-1` |
+| `-1000500 us` | `-1000` | `-1001` |
+| `+999500 us` | `999` | `999` |
+
+Positive skews cannot distinguish the two, so an implementation tested only on
+late-arriving records will look correct. `receipt-negative-sub-millisecond-skew-truncates-to-zero`
+and `receipt-negative-skew-truncates-toward-zero-not-downward` exist for this
+and nothing else.
+
+Two traps for a port:
+
+* Python's `//` floors. `-1 // 2 == -1`, not `0`. Go's `/` truncates. A
+  direct transliteration in either direction is wrong on one of them.
+* The remainder can only originate in `source_time`, which the customer
+  supplies -- `ingest_time` is quantised to whole milliseconds before the
+  measurement. An implementation whose time type is millisecond-resolution
+  cannot represent these inputs at all and will silently compute a different
+  skew. JavaScript `Date` is such a type: `Date.parse` collapses
+  `12:00:00.0005` and `12:00:00.000` to the same instant. Parse the fractional
+  field exactly rather than through a millisecond clock.

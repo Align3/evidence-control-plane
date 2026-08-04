@@ -6,8 +6,8 @@ builder directly without going through a fixture.
 
 from __future__ import annotations
 
+import base64
 import hashlib
-import json
 import subprocess
 import sys
 import uuid
@@ -16,6 +16,9 @@ from pathlib import Path
 from typing import Any
 
 from cryptography.hazmat.primitives.asymmetric.ed25519 import Ed25519PrivateKey
+
+from sdk_python.evidence.canonical import canonicalize
+from sdk_python.evidence.schema import IngestionReceipt
 
 REPO = Path(__file__).resolve().parents[1]
 
@@ -49,14 +52,26 @@ class RecordFactory:
     the writer's job (ES-001), and a ledger that re-derived the bytes before
     hashing would be asserting agreement with its own canonicalizer rather
     than storing what the customer's key actually covered.
+
+    `receipt_canonical_bytes` is separately canonicalized and signed by the
+    hosted issuer. It is never derived from the customer envelope.
     """
 
-    def __init__(self, tenant_id: str, collector_id: str, key_id: str,
-                 private_key: Ed25519PrivateKey) -> None:
+    def __init__(
+        self,
+        tenant_id: str,
+        collector_id: str,
+        key_id: str,
+        private_key: Ed25519PrivateKey,
+        receipt_key_id: str,
+        receipt_private_key: Ed25519PrivateKey,
+    ) -> None:
         self.tenant_id = tenant_id
         self.collector_id = collector_id
         self.key_id = key_id
         self.private_key = private_key
+        self.receipt_key_id = receipt_key_id
+        self.receipt_private_key = receipt_private_key
         self.public_key = private_key.public_key().public_bytes_raw()
         self._sequence = 0
         self._prev_digest: bytes | None = None
@@ -106,14 +121,33 @@ class RecordFactory:
             "clocks": {
                 "source_time": source_time.isoformat().replace("+00:00", "Z"),
                 "authoritative_time": None,
-                "clock_skew_ms": 4,
             },
             "body": body,
         }
-        canonical = json.dumps(
-            envelope, sort_keys=True, separators=(",", ":"), ensure_ascii=False
-        ).encode("utf-8")
+        canonical = canonicalize(envelope)
         digest = hashlib.sha256(canonical).digest()
+        signature = self.private_key.sign(canonical)
+        received_wire = {
+            **envelope,
+            "signature": {
+                "alg": "ed25519",
+                "key_id": self.key_id,
+                "sig": base64.urlsafe_b64encode(signature)
+                .rstrip(b"=")
+                .decode("ascii"),
+                "signed_digest": "sha256:" + digest.hex(),
+            },
+        }
+        received_wire_digest = hashlib.sha256(canonicalize(received_wire)).digest()
+        ingest_time = source_time + timedelta(milliseconds=4)
+        receipt = IngestionReceipt(
+            record_digest="sha256:" + received_wire_digest.hex(),
+            ingest_time=ingest_time.isoformat(timespec="milliseconds").replace(
+                "+00:00", "Z"
+            ),
+            clock_skew_ms=4,
+        )
+        receipt_bytes = canonicalize(receipt)
         prev_digest = self._prev_digest
         self._prev_digest = digest
         return {
@@ -128,12 +162,15 @@ class RecordFactory:
             "record_digest": digest,
             "collector_id": self.collector_id,
             "key_id": self.key_id,
-            "signature": self.private_key.sign(canonical),
+            "signature": signature,
             "source_time": source_time,
-            "ingest_time": datetime.now(UTC),
+            "ingest_time": ingest_time,
             "authoritative_time": None,
             "clock_skew_ms": 4,
             "canonical_bytes": canonical,
+            "receipt_key_id": self.receipt_key_id,
+            "receipt_signature": self.receipt_private_key.sign(receipt_bytes),
+            "receipt_canonical_bytes": receipt_bytes,
             "body": body,
             "action_id": action_id,
             "action_family": action_family,
