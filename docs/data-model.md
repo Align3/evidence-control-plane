@@ -336,15 +336,48 @@ Claim a number here before writing the migration (DM-001).
 |---|---|---|---|
 | 0001 | EV-06 | Tenants, collectors, keys; registry row-level security (DM-022) | applied |
 | 0002 | EV-06 | `evidence_records` + partitioning + role grants | applied |
-| 0003 | EV-12 | Boundaries, qualification records | unclaimed |
-| 0004 | EV-14 | Population records | unclaimed |
-| 0005 | EV-15 | Reconciliation results | unclaimed |
-| 0006 | EV-09 | Coverage gaps | unclaimed |
-| 0007 | EV-17 | Attestations | unclaimed |
-| 0008 | EV-18 | Revocations | unclaimed |
-| 0009 | EV-20 | Admin audit log | unclaimed |
-| 0010 | EV-27 | Signed ingestion receipts and receipt-derived clock metadata | claimed |
-| 0011 | EV-07 | Collector-key binding, exact received wire retention, tenant-visible ingestion integrity events | claimed |
+| 0003 | — | *void* — was EV-12's pre-allocation; see §3 amendment 1 | void, never written |
+| 0004 | — | *void* — was EV-14's pre-allocation (population records) | void, never written |
+| 0005 | — | *void* — was EV-15's pre-allocation (reconciliation results) | void, never written |
+| 0006 | — | *void* — was EV-09's pre-allocation (coverage gaps) | void, never written |
+| 0007 | — | *void* — was EV-17's pre-allocation (attestations) | void, never written |
+| 0008 | — | *void* — was EV-18's pre-allocation (revocations) | void, never written |
+| 0009 | — | *void* — was EV-20's pre-allocation (admin audit log) | void, never written |
+| 0010 | EV-27 | Signed ingestion receipts and receipt-derived clock metadata | applied |
+| 0011 | EV-07 | Collector-key binding, exact received wire retention, tenant-visible ingestion integrity events | applied |
+| 0012 | EV-12 | Boundaries, qualification records, `evidence_records.boundary_ref` FK | claimed |
+
+### §3 amendment 1 — register reconciliation (EV-12)
+
+The register above had drifted from the database. Two corrections, and one new
+rule so the drift does not recur.
+
+**What was wrong.** 0010 and 0011 were recorded as `claimed` when both are
+applied — `alembic upgrade head` on a base database runs 0001, 0002, 0010,
+0011 and stops. And 0003 through 0009 were pre-allocated by story rather than
+by order of arrival, so the register asserted a chain that Alembic could not
+build: 0011 is the current head, and EV-12 writing "0003" would have to declare
+`down_revision = "0011"`, leaving a revision whose number says it precedes 0010
+and whose chain says it follows 0011. A migration number that disagrees with
+the chain it sits in is worse than no number, because the register is the one
+place a reviewer looks to reconstruct apply order without reading every file.
+
+**DM-025** — Migration numbers are allocated **in order of claim, above the
+current chain head**, not reserved per story in advance. A story claiming a
+number takes the next integer after the highest number in this table, whatever
+its own story ID, and its `down_revision` is the previous row. Pre-allocation
+was the source of the collision above: a reserved number is claimed at planning
+time and written at implementation time, and nothing keeps those two orders the
+same. The unwritten reservations 0003–0009 are therefore voided rather than
+renumbered; the stories that held them (EV-14, EV-15, EV-09, EV-17, EV-18,
+EV-20) claim fresh numbers here when they are ready to write. Voided numbers
+are never reused, so a database or a review comment naming "0003" is
+unambiguous about referring to something that was never applied.
+
+**Consequence for DM-017.** DM-017 states that the `evidence_records.boundary_ref`
+foreign key is "deferred to migration 0003, because `boundaries` is created by
+EV-12". The reasoning stands unchanged and the deferral is discharged as
+described; only the number moves. Read DM-017 as naming **0012**.
 
 ---
 
