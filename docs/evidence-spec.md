@@ -74,7 +74,7 @@ Every record shares an envelope.
 | `record_type` | string | yes | One of §5 |
 | `schema_version` | string | yes | Semver of this spec |
 | `tenant_id` | string | yes | Issuing tenant |
-| `boundary_ref` | string | yes | Assurance boundary version this record falls under |
+| `boundary_ref` | string | versioned | Assurance boundary version this record falls under; §3.1 defines the schema-2 exceptions |
 | `stream_id` | string | yes | Chain this record belongs to (§4) |
 | `sequence` | integer | yes | Monotonic within `stream_id`, starting at 1, no gaps |
 | `prev_digest` | digest \| null | yes | Digest of the previous record in the stream; `null` at sequence 1 |
@@ -84,6 +84,28 @@ Every record shares an envelope.
 | `signature` | object | yes | §7 |
 
 **ES-005** — Unknown envelope fields MUST cause verification failure. Unknown fields inside `body` MUST be preserved for digest computation and MUST NOT cause failure, permitting forward-compatible extension of payloads but not of the envelope.
+
+### 3.1 Constitutive records
+
+The envelope table above assumes every record is *governed by* an assurance boundary. Two record types are not: they are what a boundary is *made of*. `boundary_ref` on such a record either names the record itself or names something that cannot exist yet, and neither is the relationship the field was defined to express.
+
+**ES-031** — Beginning with `schema_version: "2.0.0"`, the **constitutive record types** are exactly `AssuranceBoundary` and `QualificationRecord`. This list is closed; every other type in §5 is a governed record and MUST carry `boundary_ref`.
+
+* An `AssuranceBoundary` MUST carry `boundary_ref`, and it MUST equal the version the record itself declares — its `{tenant}:{name}:{version}` under `data-model.md` §2.4. The field is self-referential and is therefore an integrity check on the record rather than a reference outward: a verifier MUST reject an `AssuranceBoundary` whose `boundary_ref` does not agree with `body.tenant` and `body.boundary_version`.
+* A `QualificationRecord` MUST omit `boundary_ref`. It is referenced *by* a boundary under ES-009 and must therefore exist before any boundary that cites it; a reference forward to the boundary that will cite it names a record that has not been written and, if a later version cites the same qualification, names the wrong one.
+
+Omitted means **absent**, not `null`. This follows the rule `authoritative_time` already establishes in §6: a member that does not apply is left out rather than encoded as a null, so that one record has exactly one canonical form and the digest does not depend on which of two spellings the writer chose.
+
+Schema `1.x` retains the original envelope rule: every record type, including
+`QualificationRecord`, carries `boundary_ref`. Removing that member changes
+the canonical bytes and makes old and new validators disagree, so ES-028 makes
+this a major-version transition rather than a reinterpretation of `1.0.0`.
+Every verifier supporting schema 2 MUST continue to validate schema-1 records
+under the schema-1 rule; records are never rewritten to acquire the new shape.
+
+> **Why this is a closed enumeration and not a per-type judgement.** The alternative — "carry it where meaningful" as guidance — makes the answer for each new record type a fresh argument, and the arguments will be made by whoever is adding the type, at the moment they are least inclined to widen their own story. A closed list is checkable: adding a constitutive type is an amendment to this requirement, visible in review, rather than a decision recorded only in whichever validator was written first. It also makes the negative case testable, which "where meaningful" does not.
+
+> **Not a null-with-reason.** An earlier framing allowed `boundary_ref: null` with the record type explaining itself. That invites the question "which records may omit it?" to be answered case by case at each call site, and a nullable required field is one an implementation forgets to check on the path that matters.
 
 ---
 
@@ -245,6 +267,12 @@ An implementation is conformant if it produces records that our reference verifi
 
 **ES-030** — Every durably accepted customer record has an ingestion receipt produced by the hosted ingestion service and appended atomically with it. The receipt payload contains exactly `record_digest`, `ingest_time`, and `clock_skew_ms`, where `record_digest` identifies the complete JCS-canonical customer record received on the wire, **including its `signature` member**. This receipt binding is distinct from the customer's `signed_digest`, which excludes `signature` under ES-021: DM-023 governs what the customer signs, while the receipt attests which complete artifact the service observed. `ingest_time` is the service's RFC 3339 receipt time at millisecond precision, and `clock_skew_ms` is the signed integer difference `ingest_time - source_time` in whole milliseconds, truncating sub-millisecond remainder toward zero. The payload is RFC 8785 canonicalized and signed with an issuer-namespace Ed25519 key; its canonical bytes, raw signature, and key ID are stored separately from the customer record. No acknowledgment may be returned unless both record and receipt committed in the same transaction. Changing a receipt field or substituting the customer's signature MUST invalidate the binding and MUST make the hosted clock observation unusable for ES-020. `authoritative_time` remains in the customer-signed record as a relayed claim about the destination response; it is not represented as an observation made by the collector.
 
+**ES-032** — The ES-030 receipt mechanism extends to the constitutive record types of ES-031. Recording an `AssuranceBoundary` or a `QualificationRecord` MUST produce an issuer-signed receipt of the same payload shape, committed in the same transaction, and the recorded time of such a record MUST be read from that receipt rather than from any value the signer supplied. A boundary version's effective interval under `attestation-reliance.md` AR-027 is computed from the receipt's `ingest_time`; where no receipt exists, A-02 MUST be withheld rather than computed from an unattested recording time.
+
+> **Why this is not simply ES-030 restated with a wider subject.** ES-030 is discharged by EV-27 over the ingestion path, and widening its text would retroactively make a landed story incomplete — the traceability matrix would then report a requirement as satisfied by a story that never covered half of it, which is the citation problem QA-018 names, arriving from the other direction. ES-032 carries the extension so that the obligation, its scenario, and its owning story stay attached to each other.
+
+> **The gap this closes, stated plainly.** EV-12 stores a boundary's recording time as a hosted observation with no issuer signature over it. AR-027 floors a boundary's effective interval at that value precisely so a boundary cannot be backdated into force — but an unsigned hosted claim is one the party the attestation is *about* can edit, so A-02 currently rests on trusting the issuer not to have moved it. The receipt mechanism exists to make our own observations checkable by someone who does not trust us, and leaving two record types outside it is an inconsistency rather than a scope boundary. Until this lands, AR-027's endpoints are only as good as our word.
+
 ---
 
 ## 11. Open questions requiring input
@@ -382,4 +410,45 @@ And its issuer-signed ingestion receipt exceeds the boundary clock-skew threshol
 When coverage eligibility is evaluated
 Then the record is excluded from the numerator
 And the affected interval is counted as unknown
+```
+
+### ES-S-015 — The schema-2 constitutive enumeration is closed *(ES-031)*
+
+```gherkin
+Given a schema-2 QualificationRecord whose envelope omits boundary_ref
+And schema-2 PopulationRecord, AgentIdentity, ActionProposal, AuthorityDecision, HumanReview, ExecutionReceipt, ExternalConfirmation, FinalityRecord, OutcomeRecord, CoverageGap, AttestationWindow, and RevocationRecord each omit boundary_ref
+And a schema-2 QualificationRecord whose envelope carries boundary_ref as null
+When each is validated
+Then the QualificationRecord omitting the field is accepted
+And all twelve governed records are rejected with their record types identified
+And the QualificationRecord carrying null is rejected
+```
+
+### ES-S-016 — A boundary's self-reference is checked, not assumed *(ES-031)*
+
+```gherkin
+Given a schema-2 AssuranceBoundary whose boundary_ref names version 2
+And whose body declares boundary_version 1
+When it is validated
+Then verification fails with "boundary_ref does not match the declared version"
+And the boundary is not recorded
+```
+
+### ES-S-017 — An unattested recording time withholds the boundary assertion *(ES-032, AR-027)*
+
+```gherkin
+Given an AssuranceBoundary recorded without an issuer-signed receipt
+When an attestation referencing that boundary version is generated
+Then A-02 is withheld
+And the effective interval is not computed from the stored recording time
+```
+
+### ES-S-018 — The schema-2 verifier retains schema-1 envelope support *(ES-027, ES-028, ES-031)*
+
+```gherkin
+Given a schema-1 QualificationRecord carrying boundary_ref
+And the equivalent schema-2 QualificationRecord omitting boundary_ref
+When the current verifier validates both records under their declared versions
+Then both records are accepted
+And neither record is rewritten into the other version's canonical form
 ```

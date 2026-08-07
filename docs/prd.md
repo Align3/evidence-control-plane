@@ -359,6 +359,29 @@ each records results measured against `9e5904b`, at least one shipping entry
 point accepted the subject before the fix, and no harness supplies an unstated
 namespace or other trust-decision input.
 
+#### EV-31 — Receipts for constitutive records
+Extend the ES-030 receipt mechanism to `AssuranceBoundary` and `QualificationRecord` (ES-032). Issuer-signed receipt, committed in the same transaction as the record, recorded time read from the receipt rather than from anything the signer supplied. Migration adds the receipt columns to `boundaries` and `qualification_records` on the shape migration 0010 established, and `services/admin/` writes both halves in one statement.
+
+**Why this is not deferrable to EV-17.** EV-12 stores a boundary's recording time as a hosted observation with no issuer signature over it (DM-028). AR-027 floors a boundary version's effective interval at that value precisely so a boundary cannot be backdated into force — so an unsigned recording time means A-02 rests on trusting the issuer not to have moved it, which is the one thing an attestation cannot ask a relying party to take on trust. EV-17 consumes AR-027's arithmetic; if this has not landed by then, EV-17 inherits the weakness silently and nothing in the attestation says so.
+
+Small: the mechanism, the payload shape, and the key namespacing all exist. What is new is two more call sites and a migration.
+**Touches:** `services/admin/`, `services/ingestion/receipts.py`, migrations, `docs/data-model.md`
+**Depends on:** EV-12, EV-27
+**Satisfies:** ES-032
+**Acceptance:** ES-S-017
+**Sequenced before:** EV-17.
+
+#### EV-32 — Constitutive-record envelope rule
+Implement ES-031 as the `2.0.0` envelope: `boundary_ref` is present on an `AssuranceBoundary`, where it is self-referential and cross-checked against the signed body, and absent from a `QualificationRecord`. Absent, not null. Every other record type in §5 continues to require it.
+
+The rule is written; what is unbuilt is the version-dispatching validator. `RecordEnvelope.boundary_ref` in `sdk_python/evidence/schema.py` is unconditionally required today, so a conformant schema-2 `QualificationRecord` under ES-031 is currently rejected by our own schema — EV-12 works around this by supplying a plausible value that nothing resolves, which is exactly the state a closed enumeration exists to end. Both Python and Go must retain the schema-1 rule and validate historical `1.0.0` records without rewriting them; this is a major-version change under ES-028, not a reinterpretation of the existing wire version.
+
+Touches the envelope, so per §7 of the working agreement this is an architectural decision and not an implementation detail. ES-005 continues to reject any member not in the version-and-type-specific envelope. The negative vector set covers every governed §5 type rather than one representative, because a dispatcher that special-cases that representative would otherwise pass while leaving the closed enumeration open.
+**Touches:** `sdk_python/evidence/schema.py`, `services/admin/`, `verifier-go/`, `tests/vectors/`
+**Depends on:** EV-02, EV-05, EV-12
+**Satisfies:** ES-031
+**Acceptance:** ES-S-015, ES-S-016, ES-S-018
+
 ---
 
 ## 4. Build order
