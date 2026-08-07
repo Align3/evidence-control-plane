@@ -53,6 +53,15 @@ Not a telemetry or tracing format — no spans, no sampling, no performance inst
 
 > **Implementer note.** Canonicalization is the most common source of cross-implementation divergence. Two implementations that agree on semantics but disagree on byte-level serialization will fail verification for reasons that are extremely hard to debug. The conformance vectors in `verifier-conformance.md` exist primarily to catch this.
 
+> **Implementer note — parse at the token level, not through your standard library.** Conformance to §2 generally cannot be reached by handing input to a general-purpose JSON parser and inspecting the result, because the rules here constrain the *source token* and most standard libraries have already discarded it by the time you see a value.
+>
+> Two concrete losses, both silent:
+>
+> * **The fraction and exponent ban is a property of the token.** ES-002a refuses any number carrying a fraction or an exponent, which is why `1e0` is refused even though its value is the integer 1. Once a token has become a double there is nothing left to distinguish `1e0` from `1`, and an implementation that checks the parsed value instead of the token accepts input this specification refuses.
+> * **Surrogate handling is usually normalized away.** ES requires an unpaired surrogate to be **rejected**. Go's `encoding/json` substitutes U+FFFD; JavaScript's `JSON.parse` admits lone surrogates into strings that later encode as U+FFFD; Python's `json` accepts them and defers the failure to encoding time. Each turns a refusal into a different byte string, and whatever is signed afterwards inherits that substitution.
+>
+> The practical consequence is that an implementer who reaches for the obvious library will usually produce something that passes casual testing, fails the vectors on a handful of inputs, and — if the vectors are skipped — interoperates until the first record containing one of these constructions. Run the vectors. They are normative under ES-029 precisely because this class of defect is invisible without them.
+
 ---
 
 ## 3. Record envelope
@@ -87,6 +96,8 @@ The ingestion response distinguishes `integrity.stream_fork`, `ingestion.replay`
 **ES-006a** — `prev_digest` is the digest of the **complete** previous record, including its `signature` member, over the RFC 8785 canonical form of the whole record. This differs deliberately from `signed_digest` (ES-021), which excludes `signature`. Including the signature makes the chain commit to the authentication of each link: replacing a signature, or altering anything carried inside the `signature` member, MUST break the chain at the following record. Implementations MUST NOT use the signature-excluded form for `prev_digest`.
 
 **ES-006b — refusal precedence.** Where more than one integrity failure is independently determinable at a single stream position, a verifier MUST report **all** of them, ordered by chain traversal: the link (ES-006a) before the key state (ES-024). It MUST NOT emit one and suppress the others. A verifier MAY designate the traversal-order first failure as the primary code for interfaces that carry only one, provided the remainder are still reported alongside it.
+
+> **Non-testable (deferred) — EV-30.** No acceptance scenario yet. Demonstrating it requires both implementations to report the full set, and the Python side reports a single code today (EV-28); a scenario written before that lands would assert cross-implementation agreement that does not exist. EV-30 writes the scenario once EV-28 has made it satisfiable.
 
 > **This is a behavioural rule, not a clarification.** A re-signed predecessor breaks the link *and* presents an unauthenticated key change, and an implementation that returns on the first check it happens to run reports one of the two. Which one then depends on the verifier's internal ordering rather than on the evidence, so two conformant verifiers describe the same attack differently and a relying party comparing them sees a disagreement that is not there. Collapsing distinct failures into one signal is the same defect as an undifferentiated conflict response in the ingestion path, and it runs against the rule this methodology applies everywhere else: what is wrong or unknown stays visible instead of being absorbed into whatever is reported next to it.
 
