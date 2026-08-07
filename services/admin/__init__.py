@@ -1,0 +1,139 @@
+"""Administrative writes: assurance boundaries and denominator qualification.
+
+Reached by the separately-credentialed schema path (SE-012 §6), not by the
+ingestion role. Recording a boundary or a qualification is an administrative
+act on a tenant's scope declaration, and a role that handles traffic must not
+be able to perform it on itself.
+"""
+
+from __future__ import annotations
+
+from sqlalchemy import Connection, text
+
+from .boundary import (
+    BoundaryError,
+    BoundaryVersion,
+    DeclaredFamily,
+    EffectiveInterval,
+    IntervalCoverage,
+    UnqualifiedActionFamilyError,
+    boundary_versions,
+    effective_interval,
+    interval_coverage,
+    record_boundary,
+)
+from .qualification import (
+    QUALIFICATION_POSTDATES_WINDOW,
+    ClassNotQualifiedError,
+    CoverageLevel,
+    DenominatorClass,
+    Qualification,
+    QualificationError,
+    QualificationPostdatesWindowError,
+    UnqualifiedWindowError,
+    assert_class_claimable,
+    class_in_force,
+    qualification_history,
+    record_qualification,
+)
+from .schema import ADMIN_TABLES, IMMUTABILITY_TRIGGER_SUFFIX
+
+#: Same policy name the registry uses, so a missing one is obvious across
+#: every tenant-scoped relation rather than only within one story's tables.
+TENANT_ISOLATION_POLICY = "tenant_isolation"
+
+
+def admin_isolation_status(connection: Connection) -> dict[str, dict[str, object]]:
+    """Per table: row-level isolation, and whether the mutation trigger is armed.
+
+    Introspection rather than trust, following `services.ledger.registry`. A
+    table whose immutability trigger was dropped reads exactly like an
+    immutable one until someone issues an `UPDATE`, and the whole of TM-002
+    rests on that statement failing.
+    """
+    rows = connection.execute(
+        text(
+            "SELECT c.relname AS table_name,"
+            "       c.relrowsecurity AS rls_enabled,"
+            "       p.policyname,"
+            "       EXISTS ("
+            "         SELECT 1 FROM pg_trigger t"
+            "          WHERE t.tgrelid = c.oid"
+            "            AND t.tgname = c.relname || :suffix"
+            "            AND NOT t.tgisinternal"
+            "            AND t.tgenabled <> 'D'"
+            "       ) AS immutability_trigger"
+            "  FROM pg_class c"
+            "  LEFT JOIN pg_policies p"
+            "    ON p.tablename = c.relname AND p.policyname = :policy"
+            " WHERE c.relname = ANY(:tables)"
+        ),
+        {
+            "policy": TENANT_ISOLATION_POLICY,
+            "tables": list(ADMIN_TABLES),
+            "suffix": IMMUTABILITY_TRIGGER_SUFFIX,
+        },
+    )
+    return {
+        row.table_name: {
+            "rls_enabled": row.rls_enabled,
+            "policy": row.policyname,
+            "immutability_trigger": row.immutability_trigger,
+        }
+        for row in rows
+    }
+
+
+def assert_admin_tables_protected(connection: Connection) -> None:
+    """Raise unless every admin table has isolation and immutability in force."""
+    status = admin_isolation_status(connection)
+    faults: dict[str, list[str]] = {}
+    for name in ADMIN_TABLES:
+        table = status.get(name)
+        problems: list[str] = []
+        if table is None:
+            problems.append("table absent")
+        else:
+            if not table.get("rls_enabled"):
+                problems.append("row-level security disabled")
+            if table.get("policy") != TENANT_ISOLATION_POLICY:
+                problems.append("tenant isolation policy missing")
+            if not table.get("immutability_trigger"):
+                problems.append("immutability trigger absent or disabled")
+        if problems:
+            faults[name] = problems
+    if faults:
+        raise RuntimeError(
+            f"boundary and qualification tables are unprotected: {faults} "
+            f"(TM-002, ES-010, SE-011)"
+        )
+
+
+__all__ = [
+    "ADMIN_TABLES",
+    "QUALIFICATION_POSTDATES_WINDOW",
+    "TENANT_ISOLATION_POLICY",
+    "BoundaryError",
+    "BoundaryVersion",
+    "ClassNotQualifiedError",
+    "CoverageLevel",
+    "DeclaredFamily",
+    "DenominatorClass",
+    "EffectiveInterval",
+    "IntervalCoverage",
+    "Qualification",
+    "QualificationError",
+    "QualificationPostdatesWindowError",
+    "UnqualifiedActionFamilyError",
+    "UnqualifiedWindowError",
+    "admin_isolation_status",
+    "assert_admin_tables_protected",
+    "assert_class_claimable",
+    "boundary_versions",
+    "class_in_force",
+    "effective_interval",
+    "interval_coverage",
+    "qualification_history",
+    "record_boundary",
+    "record_qualification",
+]

@@ -42,17 +42,25 @@ from services.ledger.projection import (
 
 #: How to make each column disagree with the canonical bytes.
 #:
-#: Most are edited in place. `tenant_id` and `collector_id` cannot be: the
-#: first is the partition key, so changing it relocates the row rather than
-#: leaving a mismatch, and the second is a composite foreign key to
-#: `collectors`. For those two the *bytes* are edited instead, which moves
+#: Most are edited in place. `tenant_id`, `collector_id` and `boundary_ref`
+#: cannot be: the first is the partition key, so changing it relocates the row
+#: rather than leaving a mismatch, and the other two are composite foreign
+#: keys -- to `collectors`, and (from migration 0012, discharging DM-017) to
+#: `boundaries`. For those three the *bytes* are edited instead, which moves
 #: the derived value while the stored one stays valid -- the same divergence
 #: approached from the other side.
+#:
+#: `boundary_ref` joined that group when EV-12 landed the deferred foreign
+#: key. The in-place edit it used before now fails at the database rather than
+#: at the assertion, which is a stronger outcome than the one this case was
+#: written to demonstrate: a record can no longer name a scope declaration
+#: that does not exist at all. What remains to demonstrate is the case the FK
+#: does not catch -- a stored ref that is valid and still disagrees with the
+#: signed bytes.
 _TAMPER: dict[str, str] = {
     "record_id": "record_id = gen_random_uuid()",
     "record_type": "record_type = record_type || 'X'",
     "schema_version": "schema_version = schema_version || 'X'",
-    "boundary_ref": "boundary_ref = boundary_ref || 'X'",
     "stream_id": "stream_id = stream_id || 'X'",
     "sequence": "sequence = sequence + 1000",
     "prev_digest": "prev_digest = decode(repeat('cd', 32), 'hex')",
@@ -73,6 +81,11 @@ _TAMPER: dict[str, str] = {
         "canonical_bytes = convert_to("
         "  replace(convert_from(canonical_bytes, 'UTF8'),"
         "          '\"collector_id\":\"', '\"collector_id\":\"x'), 'UTF8')"
+    ),
+    "boundary_ref": (
+        "canonical_bytes = convert_to("
+        "  replace(convert_from(canonical_bytes, 'UTF8'),"
+        "          '\"boundary_ref\":\"', '\"boundary_ref\":\"x'), 'UTF8')"
     ),
 }
 

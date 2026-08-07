@@ -113,6 +113,41 @@ Immutable and versioned. Changes create rows; they never update.
 
 Unique on `(tenant_id, name, version)`.
 
+#### §2.4 amendment 1 — as built by migration 0012 (EV-12)
+
+**DM-026 — `superseded_by` is not built, because it cannot be.** Writing it means `UPDATE`ing the row being superseded, which is the single operation an immutable table exists to refuse (TM-002). A column that only ever holds `NULL` is worse than no column: it reads as a supported field and invites a later story to make it work.
+
+Supersession is derived from the version ordering instead. Version *n* is superseded by *n+1* where one exists, and `boundary_versions` in `services/admin/boundary.py` returns the ordered history. This is strictly stronger than the pointer would have been — there is no state in which it is stale, and TM-002's requirement that the change history be *visible* is satisfied by a list of immutable rows rather than by a mutable field pointing between them.
+
+**DM-027 — the signature is bound to a key.** Two columns are added, `key_id` and `key_namespace`, referencing `keys(tenant_id, key_id, namespace)` by the same composite form migration 0010 uses on `evidence_records`, with `key_namespace` CHECK-pinned to `evidence`. §2.4 as originally written carried a `signature` with nothing identifying what verifies it, which makes the signature decorative: a boundary is what every other record's scope claim rests on, and an unverifiable one is a scope declaration asserted by nobody in particular. The namespace pin is DM-008 — an issuer key may not sign customer evidence.
+
+**DM-028 — `created_at` is replaced by `recorded_at`, and it is a hosted observation.** AR-027 floors a boundary version's effective interval at the later of its declared `window_start` and the time the hosted service observed it being recorded, so that a boundary written after the fact cannot be backdated into force. `created_at` with a `now()` default reads as a database convenience; `recorded_at` is a value the issuance rule depends on, is supplied by the service rather than by the signer, and is never read from the signed body — the same separation ES-019 makes between `source_time` and `ingest_time`, for the same reason.
+
+> **Open, and not resolved here.** AR-027 names this value "its signed envelope `clocks.ingest_time`". ES-019 forbids `ingest_time` from appearing in a customer-signed record and puts it in the ES-030 issuer-signed receipt. `recorded_at` is therefore a hosted observation stored beside the boundary but *not* itself under an issuer signature, because ES-030 receipts are defined for `evidence_records` and extending them to `boundaries` is EV-27's machinery, not this story's. Until that is done, a party who does not trust the vendor cannot independently check `recorded_at`, which weakens AR-027 by exactly that much. Recorded so it is not discovered late.
+
+**DM-029 — `boundary_ref`'s format is a CHECK, not a convention.** `boundary_ref = tenant_id || ':' || name || ':' || version::text`, with `name` restricted to an alphabet excluding `:`. A ref parsed anywhere in the system therefore decomposes to the row it names, and a row cannot claim a ref inside another tenant's namespace. `evidence_records` references `(tenant_id, boundary_ref)` compositely for DM-016's reason.
+
+### 2.4.1 `boundary_action_families`
+
+Added by migration 0012. One row per `action_families[]` entry of one boundary version — a projection of the signed body, rebuildable from it, and immutable on the same trigger as its parent.
+
+| Column | Type | Notes |
+|---|---|---|
+| `tenant_id` | text | |
+| `boundary_ref` | text | Composite FK to `boundaries(tenant_id, boundary_ref)` |
+| `action_family` | text | |
+| `qualification_ref` | text **not null** | ES-009 |
+| `destination_system` | text | CM-003 — the declared denominator source |
+| `fail_behaviour` | text | `fail_closed` \| `fail_open` |
+
+Primary key `(tenant_id, boundary_ref, action_family)`.
+
+**DM-030 — ES-009 is a `NOT NULL`, not a validation.** "A boundary declaring a family without qualification is invalid" is a statement about which rows may exist, so it is enforced as one. A family with no `qualification_ref` has no row it could occupy.
+
+The foreign key to `qualification_records` is on **four** columns — `(tenant_id, qualification_ref, action_family, destination_system)` — rather than on the ref alone. A qualification record earns a class for one *(family, destination system)* pair; a single-column reference would let a boundary attach a record that qualified `ticket.resolve` as the qualification for `refund.issue`, producing a well-formed boundary declaring a class nothing ever assessed it at. That is the well-formed-but-false declaration ES-009 and CM-003 exist to prevent, and it is not something an application check would reliably catch.
+
+A boundary with *no* family rows at all is refused by a deferred constraint trigger. The `NOT NULL` above does not reach that case, which is the same defect one step further along: a scope declaration under which every family is undeclared, and which evidence may nonetheless cite through `boundary_ref`.
+
 ### 2.5 `qualification_records`
 
 | Column | Type | Notes |
@@ -136,6 +171,28 @@ Unique on `(tenant_id, name, version)`.
 | `signature` | bytea | |
 
 **DM-009** — No `UPDATE` on `assigned_class`. A stronger class requires a new row with a later `qualified_at`, applying only to windows beginning after it (ES-010, CM-004).
+
+#### §2.5 amendment 1 — as built by migration 0012 (EV-12)
+
+**DM-031 — the whole row is immutable, not only `assigned_class`.** DM-009 names one column; the trigger refuses `UPDATE` and `DELETE` on all of them. Every column except `canonical_bytes` is a projection of the signed record, so an edit to any of them puts the row into a state the signature does not cover — and a trigger holding a case that permits `UPDATE` leaves `assigned_class` one predicate away from being editable. `canonical_bytes` and `key_id`/`key_namespace` are added on the same reasoning as DM-027.
+
+**DM-032 — DM-009's second sentence is enforced at write time, by the database.** A `BEFORE INSERT` trigger refuses a record whose class is *stronger* than an existing record for the same `(tenant_id, action_family, destination_system)` triple and whose `qualified_at` is not strictly later than it. Without this, the ES-010 attack is not amending a record — it is inserting a new, perfectly valid one dated behind the weaker one, so that a resolver taking "the latest record before the window" finds the stronger class and believes it was in force throughout.
+
+The guard is deliberately **directional**. A record assigning a *weaker* class may be dated at any point, because CM-004 permits a mid-window downgrade and a downgrade can only reduce what may be claimed. Attestations already issued over the affected windows are invalidated by it; handling that is supersession (AR-011, EV-18), not something a trigger can do.
+
+`UNIQUE (tenant_id, action_family, destination_system, qualified_at)` accompanies it. Two records for one triple at one instant leave "the class in force at T" with no answer, and the tie would be broken by insertion order — which is to say, by whichever the vendor wrote second.
+
+**DM-033 — the §4 and §6 qualifying constraints are CHECKs.** Each is a numbered requirement that caps a class, so each is a row the database will not hold:
+
+| Constraint | Requirement |
+|---|---|
+| No `identity_isolation_attribute` ⇒ class is `c5` | CM-006 |
+| `c1`/`c2` require an attribute the vendor cannot set per request | CM-005 |
+| `c1`/`c2`/`c3` require `enumeration_capable` | CM-009 — a ratio-emitting class needs an enumerable population |
+
+Nothing constrains `confirmation_capable` against `enumeration_capable`, and that is AC-008 rather than an omission: a record carrying confirmation without enumeration is valid, useful for per-action reconciliation, and capped below the ratio-emitting classes by the third row above. The window-level refusal is the coverage engine's (EV-16) and is not represented here.
+
+**DM-034 — three guards, and the third is not in this repository's Python.** The rule DM-009 states is enforced at write time by DM-032's trigger, at read time by `class_in_force` in `services/admin/qualification.py`, and at verification time by the Go verifier (TM-013: "verifier enforces this independently"). The first two run on our infrastructure under our credentials, so a relying party has no reason to trust either; only the third is reproducible by someone who does not trust us. The verifier half is unbuilt — `verifier-go/` is EV-05's and EV-19's — and TM-S-005 is not closed until it lands.
 
 ### 2.6 `evidence_records` — the core table
 
@@ -373,6 +430,12 @@ renumbered; the stories that held them (EV-14, EV-15, EV-09, EV-17, EV-18,
 EV-20) claim fresh numbers here when they are ready to write. Voided numbers
 are never reused, so a database or a review comment naming "0003" is
 unambiguous about referring to something that was never applied.
+
+> **Non-testable — process.** DM-025 governs how an agent allocates a number
+> before writing a migration, which happens in a commit rather than at
+> runtime. The property a test could assert — that the applied chain is
+> contiguous and ordered — is a consequence of the rule, not the rule, and
+> Alembic already refuses a chain that is neither.
 
 **Consequence for DM-017.** DM-017 states that the `evidence_records.boundary_ref`
 foreign key is "deferred to migration 0003, because `boundaries` is created by
