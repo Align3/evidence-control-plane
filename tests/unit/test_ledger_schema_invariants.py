@@ -182,6 +182,64 @@ def test_ingestion_receipt_cannot_reference_an_evidence_namespace_key(
     assert getattr(caught.value.orig, "sqlstate", None) == "23503"
 
 
+def test_evidence_key_without_collector_binding_is_refused(
+    owner_engine: Engine, tenants: list[str]
+) -> None:
+    """SE-018: a tenant key is not a per-instance collector credential."""
+    with pytest.raises(IntegrityError) as caught:
+        with owner_engine.begin() as conn:
+            conn.execute(
+                text(
+                    "INSERT INTO keys (key_id, tenant_id, namespace, public_key,"
+                    " custody, valid_from)"
+                    " VALUES ('unbound-evidence-key', :tid, 'evidence',"
+                    " decode(repeat('01', 32), 'hex'), 'client_held', now())"
+                ),
+                {"tid": tenants[0]},
+            )
+    assert "ck_keys_collector_binding" in str(caught.value.orig)
+
+
+def test_issuer_key_with_collector_binding_is_refused(
+    owner_engine: Engine, record_factories: dict[str, RecordFactory]
+) -> None:
+    factory = record_factories[TENANT_A]
+    with pytest.raises(IntegrityError) as caught:
+        with owner_engine.begin() as conn:
+            conn.execute(
+                text(
+                    "INSERT INTO keys (key_id, tenant_id, collector_id, namespace,"
+                    " public_key, custody, valid_from)"
+                    " VALUES ('bound-issuer-key', :tid, :cid, 'issuer',"
+                    " decode(repeat('02', 32), 'hex'), 'client_held', now())"
+                ),
+                {"tid": TENANT_A, "cid": factory.collector_id},
+            )
+    assert "ck_keys_collector_binding" in str(caught.value.orig)
+
+
+def test_evidence_key_cannot_bind_another_tenants_collector(
+    owner_engine: Engine, record_factories: dict[str, RecordFactory]
+) -> None:
+    from tests.ledger_support import TENANT_B
+
+    with pytest.raises(IntegrityError) as caught:
+        with owner_engine.begin() as conn:
+            conn.execute(
+                text(
+                    "INSERT INTO keys (key_id, tenant_id, collector_id, namespace,"
+                    " public_key, custody, valid_from)"
+                    " VALUES ('cross-tenant-evidence-key', :tid, :cid, 'evidence',"
+                    " decode(repeat('03', 32), 'hex'), 'client_held', now())"
+                ),
+                {
+                    "tid": TENANT_A,
+                    "cid": record_factories[TENANT_B].collector_id,
+                },
+            )
+    assert getattr(caught.value.orig, "sqlstate", None) == "23503"
+
+
 def test_receipt_migration_refuses_to_fabricate_history(
     owner_engine: Engine,
     populated_ledger: dict[str, list[dict[str, Any]]],
@@ -191,6 +249,18 @@ def test_receipt_migration_refuses_to_fabricate_history(
     with owner_engine.connect() as conn:
         monkeypatch.setattr(migration.op, "get_bind", lambda: conn)
         with pytest.raises(RuntimeError, match="refuses a non-empty ledger"):
+            migration.upgrade()
+
+
+def test_collector_binding_migration_refuses_to_guess_existing_keys(
+    owner_engine: Engine,
+    record_factories: dict[str, RecordFactory],
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    migration = importlib.import_module("migrations.versions.0011_collector_key_binding")
+    with owner_engine.connect() as conn:
+        monkeypatch.setattr(migration.op, "get_bind", lambda: conn)
+        with pytest.raises(RuntimeError, match="refuses existing evidence keys"):
             migration.upgrade()
 
 
@@ -219,12 +289,16 @@ def test_key_continuity_must_be_recorded_in_full(owner_engine: Engine) -> None:
         with owner_engine.begin() as conn:
             conn.execute(
                 text(
-                    "INSERT INTO keys (key_id, tenant_id, namespace, public_key,"
-                    " custody, valid_from, predecessor_key_id)"
-                    " VALUES ('acme-evidence-2', :tid, 'evidence', '\\x00'::bytea,"
-                    " 'client_held', now(), :pred)"
+                    "INSERT INTO keys (key_id, tenant_id, collector_id, namespace,"
+                    " public_key, custody, valid_from, predecessor_key_id)"
+                    " VALUES ('acme-evidence-2', :tid, :cid, 'evidence',"
+                    " '\\x00'::bytea, 'client_held', now(), :pred)"
                 ),
-                {"tid": TENANT_A, "pred": "acme-evidence-1"},
+                {
+                    "tid": TENANT_A,
+                    "cid": f"{TENANT_A}-collector-1",
+                    "pred": "acme-evidence-1",
+                },
             )
     assert "ck_keys_continuity_paired" in str(caught.value.orig)
 

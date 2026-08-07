@@ -37,7 +37,7 @@ Not a telemetry or tracing format — no spans, no sampling, no performance inst
 
 ## 2. Canonical form
 
-**ES-001** — Records MUST be serialized as JSON canonicalized per RFC 8785 (JCS) for the purposes of hashing and signing.
+**ES-001** — Records MUST be serialized as JSON canonicalized per RFC 8785 (JCS) for the purposes of hashing and signing. An ingestion endpoint MUST compare the received wire bytes with the canonical form of the parsed record and reject any difference as `wire.non_canonical`; it MUST NOT silently normalize the request and report an invalid-signature error instead.
 
 **ES-002** — Numbers MUST NOT be represented as IEEE-754 floats anywhere in a signed record. Monetary and quantity values MUST be strings with an accompanying unit or currency field. Timestamps MUST be RFC 3339 with explicit offset and at least millisecond precision.
 
@@ -81,6 +81,8 @@ Every record shares an envelope.
 ## 4. Chains and streams
 
 **ES-006** — A stream is an append-only sequence of records sharing a `stream_id`, linked by `prev_digest`. Streams MUST NOT fork: two records with the same `stream_id` and `sequence` and differing `record_id` are a fatal integrity failure and MUST be reported as such rather than resolved.
+
+The ingestion response distinguishes `integrity.stream_fork`, `ingestion.replay`, and `integrity.content_substitution`. A rejected fork is retained as a tenant-visible append-only integrity event rather than being lost with the rejected ledger transaction. Whether that operational event should later acquire its own signed evidence record representation is an open specification question; v0.1 adds no evidence record type for it.
 
 **ES-006a** — `prev_digest` is the digest of the **complete** previous record, including its `signature` member, over the RFC 8785 canonical form of the whole record. This differs deliberately from `signed_digest` (ES-021), which excludes `signature`. Including the signature makes the chain commit to the authentication of each link: replacing a signature, or altering anything carried inside the `signature` member, MUST break the chain at the following record. Implementations MUST NOT use the signature-excluded form for `prev_digest`.
 

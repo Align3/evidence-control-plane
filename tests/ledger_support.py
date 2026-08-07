@@ -138,7 +138,8 @@ class RecordFactory:
                 "signed_digest": "sha256:" + digest.hex(),
             },
         }
-        received_wire_digest = hashlib.sha256(canonicalize(received_wire)).digest()
+        received_wire_bytes = canonicalize(received_wire)
+        received_wire_digest = hashlib.sha256(received_wire_bytes).digest()
         ingest_time = source_time + timedelta(milliseconds=4)
         receipt = IngestionReceipt(
             record_digest="sha256:" + received_wire_digest.hex(),
@@ -168,6 +169,7 @@ class RecordFactory:
             "authoritative_time": None,
             "clock_skew_ms": 4,
             "canonical_bytes": canonical,
+            "received_wire_bytes": received_wire_bytes,
             "receipt_key_id": self.receipt_key_id,
             "receipt_signature": self.receipt_private_key.sign(receipt_bytes),
             "receipt_canonical_bytes": receipt_bytes,

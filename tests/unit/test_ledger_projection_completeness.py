@@ -109,6 +109,7 @@ def test_proofs_authoritative_bytes_and_namespace_guards_are_not_derived() -> No
         "record_key_namespace",
         "signature",
         "canonical_bytes",
+        "received_wire_bytes",
         "receipt_key_id",
         "receipt_key_namespace",
         "receipt_signature",

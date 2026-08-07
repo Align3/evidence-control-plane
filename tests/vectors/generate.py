@@ -944,6 +944,27 @@ def _receipt_vectors() -> list[dict[str, Any]]:
         },
     }
 
+    # DM-023 / ES-002a: a signature that is valid for the canonical model
+    # does not make a differently encoded wire artifact conformant. The
+    # canonical control and the non-canonical subject carry identical values
+    # and proof; only the received encoding differs.
+    canonical_wire = canonicalize(record)
+    noncanonical_wire = json.dumps(
+        _dump(record), ensure_ascii=False, indent=2
+    ).encode("utf-8")
+    assert noncanonical_wire != canonical_wire
+    noncanonical_record_wire = {
+        "id": "reject-non-canonical-customer-record-wire",
+        "operation": "verify_canonical_evidence_record",
+        "canonical_control_utf8_hex": canonical_wire.hex(),
+        "received_wire_utf8_hex": noncanonical_wire.hex(),
+        "verification_keys": _registered_keyring(K1="evidence"),
+        "expected": {
+            "accepted": False,
+            "error_code": "wire.non_canonical",
+        },
+    }
+
     # ES-030 truncation. `clock_skew_ms` truncates the sub-millisecond
     # remainder *toward zero*, which is not what a floor does: floored, a
     # -0.5 ms skew becomes -1. Python's `//` floors and Go's `/` truncates, so
@@ -993,6 +1014,7 @@ def _receipt_vectors() -> list[dict[str, Any]]:
         wrong_signature,
         wrong_namespace,
         issuer_as_evidence,
+        noncanonical_record_wire,
         _hosted_field_refusal("ingest_time", TS),
         _hosted_field_refusal("clock_skew_ms", 0),
         # Ingest before source: the collector clock ran fast.

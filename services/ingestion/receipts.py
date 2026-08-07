@@ -7,6 +7,7 @@ import re
 from collections.abc import Mapping
 from dataclasses import dataclass
 from datetime import UTC, datetime, timedelta
+from hashlib import sha256
 
 from cryptography.exceptions import InvalidSignature
 from cryptography.hazmat.primitives.asymmetric.ed25519 import (
@@ -15,9 +16,18 @@ from cryptography.hazmat.primitives.asymmetric.ed25519 import (
 )
 from pydantic import ValidationError
 
-from sdk_python.evidence.canonical import canonical_digest, canonicalize
-from sdk_python.evidence.schema import IngestionReceipt, RecordEnvelope
-from sdk_python.evidence.signing import verify_record_signature
+from sdk_python.evidence.canonical import canonicalize
+from sdk_python.evidence.schema import (
+    EvidenceRecord,
+    IngestionReceipt,
+    RecordEnvelope,
+    parse_record,
+)
+from sdk_python.evidence.signing import (
+    record_signing_bytes,
+    verify_record_signature,
+    verify_record_signature_bytes,
+)
 
 _LEAP_SECOND = re.compile(r":60(?=\.\d+(?:Z|[+-]\d{2}:\d{2})$)")
 
@@ -32,6 +42,28 @@ class ReceiptSignatureError(ReceiptError):
 
 class KeyNamespaceError(ReceiptError):
     """A cryptographic key was presented for a forbidden signing role."""
+
+
+class NonCanonicalWireError(ReceiptError):
+    """Received record bytes are valid JSON but not their canonical wire form."""
+
+
+def _wire_digest(value: bytes) -> str:
+    return f"sha256:{sha256(value).hexdigest()}"
+
+
+def parse_canonical_record_wire(raw_record: bytes) -> tuple[EvidenceRecord, bytes]:
+    """Parse a record only when the complete received wire form is canonical.
+
+    The returned signing bytes are the signature-excluded customer bytes that
+    DM-023 stores and that the signature verifier consumes.  A non-canonical
+    wire form is rejected before those bytes can be derived or persisted.
+    """
+
+    record = parse_record(raw_record)
+    if canonicalize(record) != raw_record:
+        raise NonCanonicalWireError("received record is not RFC 8785 canonical")
+    return record, record_signing_bytes(record)
 
 
 @dataclass(frozen=True, slots=True)
@@ -52,7 +84,7 @@ class SignedIngestionReceipt:
     signature: bytes
 
 
-def _parse_timestamp(value: str) -> datetime:
+def parse_timestamp(value: str) -> datetime:
     leap_second = _LEAP_SECOND.search(value) is not None
     normalized = _LEAP_SECOND.sub(":59", value).replace("Z", "+00:00")
     try:
@@ -84,7 +116,7 @@ def _whole_milliseconds(delta: timedelta) -> int:
 def measure_clock_skew_ms(*, source_time: str, ingest_time: str) -> int:
     """Return ``ingest_time - source_time`` in whole milliseconds."""
 
-    return _whole_milliseconds(_parse_timestamp(ingest_time) - _parse_timestamp(source_time))
+    return _whole_milliseconds(parse_timestamp(ingest_time) - parse_timestamp(source_time))
 
 
 def create_ingestion_receipt(
@@ -93,17 +125,23 @@ def create_ingestion_receipt(
     ingest_time: datetime,
     issuer_key_id: str,
     issuer_private_key: Ed25519PrivateKey,
+    received_wire_bytes: bytes | None = None,
 ) -> SignedIngestionReceipt:
     """Observe, canonicalize, and sign hosted receipt metadata without changing record."""
 
     if not issuer_key_id:
         raise ReceiptError("issuer_key_id must be a non-empty string")
+    canonical_wire = canonicalize(record)
+    if received_wire_bytes is None:
+        received_wire_bytes = canonical_wire
+    elif received_wire_bytes != canonical_wire:
+        raise NonCanonicalWireError("received record is not RFC 8785 canonical")
     formatted_ingest_time = _format_ingest_time(ingest_time)
     payload = IngestionReceipt(
         # The receipt attests to the artifact that arrived, including its
         # customer signature. DM-023 still governs the customer's signing
         # input; this digest is the hosted service's observation of the wire.
-        record_digest=canonical_digest(record),
+        record_digest=_wire_digest(received_wire_bytes),
         ingest_time=formatted_ingest_time,
         clock_skew_ms=measure_clock_skew_ms(
             source_time=record.clocks.source_time,
@@ -124,6 +162,7 @@ def verify_ingestion_receipt(
     *,
     record: RecordEnvelope,
     verification_keys: Mapping[str, RegisteredPublicKey],
+    received_wire_bytes: bytes | None = None,
 ) -> IngestionReceipt:
     """Verify issuer proof and binding to the unchanged customer record."""
 
@@ -144,7 +183,12 @@ def verify_ingestion_receipt(
         registered_key.public_key.verify(receipt.signature, receipt.canonical_bytes)
     except InvalidSignature as exc:
         raise ReceiptSignatureError("ingestion receipt signature verification failed") from exc
-    if not hmac.compare_digest(payload.record_digest, canonical_digest(record)):
+    canonical_wire = canonicalize(record)
+    if received_wire_bytes is None:
+        received_wire_bytes = canonical_wire
+    elif received_wire_bytes != canonical_wire:
+        raise NonCanonicalWireError("received record is not RFC 8785 canonical")
+    if not hmac.compare_digest(payload.record_digest, _wire_digest(received_wire_bytes)):
         raise ReceiptSignatureError("ingestion receipt names a different customer record")
     measured_skew_ms = measure_clock_skew_ms(
         source_time=record.clocks.source_time,
@@ -161,18 +205,40 @@ def verify_evidence_record_signature(
     record: RecordEnvelope,
     *,
     verification_keys: Mapping[str, RegisteredPublicKey],
+    signing_bytes: bytes | None = None,
 ) -> str:
     """Verify a customer record and enforce the evidence-key namespace."""
 
-    key_id = verify_record_signature(
-        record,
-        public_keys={
-            registered_id: registered_key.public_key
-            for registered_id, registered_key in verification_keys.items()
-        },
-    )
+    public_keys = {
+        registered_id: registered_key.public_key
+        for registered_id, registered_key in verification_keys.items()
+    }
+    if signing_bytes is None:
+        key_id = verify_record_signature(record, public_keys=public_keys)
+    else:
+        key_id = verify_record_signature_bytes(
+            record,
+            signing_bytes=signing_bytes,
+            public_keys=public_keys,
+        )
     if verification_keys[key_id].namespace != "evidence":
         raise KeyNamespaceError(
             "key namespace mismatch: evidence records require an evidence key"
         )
     return key_id
+
+
+def verify_canonical_evidence_record(
+    raw_record: bytes,
+    *,
+    verification_keys: Mapping[str, RegisteredPublicKey],
+) -> RecordEnvelope:
+    """Verify a canonical received record without normalizing its wire form."""
+
+    record, signing_bytes = parse_canonical_record_wire(raw_record)
+    verify_evidence_record_signature(
+        record,
+        verification_keys=verification_keys,
+        signing_bytes=signing_bytes,
+    )
+    return record

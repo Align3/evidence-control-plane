@@ -20,6 +20,7 @@ from sqlalchemy import (
     CheckConstraint,
     Column,
     ForeignKey,
+    ForeignKeyConstraint,
     Index,
     Integer,
     LargeBinary,
@@ -100,6 +101,7 @@ keys = Table(
     # columns enforcing evidence for the customer proof and issuer for the
     # hosted receipt proof.
     Column("namespace", key_namespace, nullable=False),
+    Column("collector_id", Text, nullable=True),
     Column("public_key", LargeBinary, nullable=False),
     Column("custody", key_custody, nullable=False),
     Column("valid_from", TIMESTAMP(timezone=True), nullable=False),
@@ -113,6 +115,13 @@ keys = Table(
     ),
     Column("compromised_from", TIMESTAMP(timezone=True), nullable=True),
     UniqueConstraint("tenant_id", "key_id", name="uq_keys_tenant_key"),
+    ForeignKeyConstraint(
+        ["tenant_id", "collector_id"],
+        ["collectors.tenant_id", "collectors.collector_id"],
+        name="fk_keys_collector",
+        ondelete="RESTRICT",
+        onupdate="RESTRICT",
+    ),
 )
 
 
@@ -192,6 +201,9 @@ def _evidence_columns() -> list[Column[Any]]:
         Column("clock_skew_ms", Integer, nullable=False),
         # Authoritative. Everything else about the record is derived from it.
         Column("canonical_bytes", LargeBinary, nullable=False),
+        # Exact canonical full record received by ingestion, including the
+        # detached customer signature member. Receipts bind this byte string.
+        Column("received_wire_bytes", LargeBinary, nullable=False),
         Column("receipt_key_id", Text, nullable=False),
         Column(
             "receipt_key_namespace",
@@ -205,6 +217,22 @@ def _evidence_columns() -> list[Column[Any]]:
         Column("body", JSONB, nullable=False),
         Column("action_id", UUID(as_uuid=True), nullable=True),
         Column("action_family", Text, nullable=True),
+    ]
+
+
+def _integrity_event_columns() -> list[Column[Any]]:
+    return [
+        Column("event_id", UUID(as_uuid=True), nullable=False),
+        Column("tenant_id", Text, nullable=False),
+        Column("event_type", Text, nullable=False),
+        Column("record_id", UUID(as_uuid=True), nullable=False),
+        Column("conflicting_record_id", UUID(as_uuid=True), nullable=True),
+        Column("stream_id", Text, nullable=False),
+        Column("sequence", BigInteger, nullable=False),
+        Column("submitted_wire_bytes", LargeBinary, nullable=False),
+        Column("existing_wire_bytes", LargeBinary, nullable=True),
+        Column("occurred_at", TIMESTAMP(timezone=True), nullable=False),
+        Column("surfaced_to_tenant_at", TIMESTAMP(timezone=True), nullable=False),
     ]
 
 
@@ -244,6 +272,26 @@ def evidence_partition(tenant_id: str) -> Table:
     return table
 
 
+def integrity_event_partition(tenant_id: str) -> Table:
+    """Return the tenant-scoped append-only integrity-event relation."""
+
+    from .naming import integrity_event_partition_name
+
+    name = integrity_event_partition_name(tenant_id)
+    cached = _partition_cache.get(name)
+    if cached is not None:
+        return cached
+    table = Table(
+        name,
+        MetaData(),
+        *_integrity_event_columns(),
+        UniqueConstraint("tenant_id", "event_id"),
+        Index(None, "tenant_id", "occurred_at"),
+    )
+    _partition_cache[name] = table
+    return table
+
+
 __all__ = [
     "EVIDENCE_PARENT_TABLE",
     "PROJECTION_COLUMNS",
@@ -251,6 +299,7 @@ __all__ = [
     "VERIFIED_HEADER_COLUMNS",
     "collectors",
     "evidence_partition",
+    "integrity_event_partition",
     "keys",
     "metadata",
     "tenants",
