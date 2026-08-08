@@ -3,7 +3,6 @@ package evidence
 import (
 	"crypto/ed25519"
 	"fmt"
-	"strings"
 
 	"github.com/Align3/evidence-control-plane/verifier-go/internal/jcs"
 )
@@ -13,6 +12,7 @@ const (
 	CodeChainFork               = "chain.fork"
 	CodeChainSequenceGap        = "chain.sequence_gap"
 	CodeChainPrevDigestMismatch = "chain.prev_digest_mismatch"
+	CodeChainStreamMismatch     = "chain.stream_id_mismatch"
 
 	CodeContinuityMissing        = "continuity.missing"
 	CodeContinuityUnknownMember  = "continuity.unknown_member"
@@ -30,25 +30,19 @@ const (
 // break terminate the window rather than invalidate it wholesale, so the
 // sequence that still verified is part of the result, not a detail.
 //
-// Codes carries *every* independently determinable failure at the break, in
-// chain-traversal order; Code is the first of them. Emitting one and
-// suppressing the others would collapse distinct integrity failures into a
-// single signal — the same defect as an undifferentiated conflict response, and
-// against the methodology's rule that what is unknown or wrong stays visible
-// rather than being absorbed into a neighbouring finding.
+// One failure is reported, not a set. Reporting every determinable failure at a
+// break is a real improvement and was drafted here, but it is a behavioural
+// change that the specification does not yet require and the corpus does not
+// yet record; it lands in EV-28, where the specification, the vectors, Python
+// and Go move together.
 type StreamError struct {
 	Code          string
-	Codes         []string
 	Msg           string
 	BreakSequence int64
 	ValidThrough  int64
 }
 
 func (e *StreamError) Error() string {
-	if len(e.Codes) > 1 {
-		return fmt.Sprintf("%s at sequence %d: %s (also %s)",
-			e.Code, e.BreakSequence, e.Msg, strings.Join(e.Codes[1:], ", "))
-	}
 	return fmt.Sprintf("%s at sequence %d: %s", e.Code, e.BreakSequence, e.Msg)
 }
 
@@ -58,25 +52,18 @@ type failure struct {
 	msg  string
 }
 
-// breakAt assembles a StreamError from the failures determinable at one record,
-// preserving the order they were detected in, which is chain-traversal order.
+// breakAt reports the first determinable failure in chain-traversal order.
 func breakAt(seq, validThrough int64, failures ...failure) *StreamError {
-	present := failures[:0:0]
 	for _, f := range failures {
 		if f.code != "" {
-			present = append(present, f)
+			return &StreamError{
+				Code: f.code, Msg: f.msg,
+				BreakSequence: seq, ValidThrough: validThrough,
+			}
 		}
 	}
-	codes := make([]string, 0, len(present))
-	msgs := make([]string, 0, len(present))
-	for _, f := range present {
-		codes = append(codes, f.code)
-		msgs = append(msgs, f.msg)
-	}
-	return &StreamError{
-		Code: codes[0], Codes: codes, Msg: strings.Join(msgs, "; "),
-		BreakSequence: seq, ValidThrough: validThrough,
-	}
+	return &StreamError{Code: CodeChainSequenceGap, Msg: "unspecified break",
+		BreakSequence: seq, ValidThrough: validThrough}
 }
 
 // StreamResult describes a fully verified stream.
@@ -104,6 +91,33 @@ func VerifyStream(records []*Record, keys map[string]ed25519.PublicKey) (*Stream
 	if len(records) == 0 {
 		return nil, &StreamError{Code: CodeChainSequenceGap, Msg: "empty stream"}
 	}
+
+	// A stream is the records sharing one stream_id (ES-006). Verifying a
+	// mixture would compute links and rotations across chains that were never
+	// one chain, and report the result as a single verified stream.
+	streamID := records[0].StreamID()
+	for _, r := range records {
+		if r.StreamID() != streamID {
+			return nil, &StreamError{
+				Code: CodeChainStreamMismatch, BreakSequence: r.Sequence(),
+				Msg: fmt.Sprintf("stream contains records from %q and %q; "+
+					"verify one stream at a time", streamID, r.StreamID()),
+			}
+		}
+	}
+
+	// ES-003: sequence is monotonic within stream_id, starting at 1, no gaps.
+	// Without this a stream handed to the verifier starting at 5 verifies
+	// clean, and the four records before it are simply not mentioned -- the
+	// silent-omission failure the methodology exists to prevent.
+	if first := records[0].Sequence(); first != 1 {
+		return nil, &StreamError{
+			Code: CodeChainSequenceGap, BreakSequence: first, ValidThrough: 0,
+			Msg: fmt.Sprintf("stream begins at sequence %d; a stream anchors at 1 "+
+				"and everything before this is unaccounted for", first),
+		}
+	}
+
 	var (
 		start        = records[0].Sequence()
 		validThrough int64
@@ -226,7 +240,7 @@ func VerifyStream(records []*Record, keys map[string]ed25519.PublicKey) (*Stream
 
 func streamErr(err error, seq, validThrough int64) *StreamError {
 	return &StreamError{
-		Code: Code(err), Codes: []string{Code(err)}, Msg: err.Error(),
+		Code: Code(err), Msg: err.Error(),
 		BreakSequence: seq, ValidThrough: validThrough,
 	}
 }

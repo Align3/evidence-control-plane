@@ -307,36 +307,41 @@ This story does not implement the product scenarios owned by EV-05 through EV-21
 **Satisfies:** QA-011
 **Acceptance:** QA-S-010
 
-#### EV-28 — Python refusal-code parity for ES-006b
-The Go verifier reports every determinable integrity failure at a stream position; the Python side reports the first and stops. Bring Python to parity, then record the second code in the affected vector's `expected` so the corpus states the rule it already exercises.
+#### EV-28 — Report every determinable failure at a chain break
+Where several integrity failures are independently determinable at one stream position, report all of them in chain-traversal order rather than letting the first suppress the rest. A re-signed predecessor both breaks the link (ES-006a) and presents an unauthenticated key change (ES-024); reporting one makes the answer depend on a verifier's internal check order rather than on the evidence, so two conformant verifiers describe one attack differently.
 
-`reject-validly-resigned-predecessor` is that vector: a re-signed predecessor breaks the link *and* presents an unauthenticated key change, both determinable at sequence 2. Its `expected.error_code` names only `chain.prev_digest_mismatch`. Recording the second is a normative corpus change and its byte diff is reviewed as one (`tests/vectors/README.md`); the primary code does not move, so no existing expectation is invalidated.
+**This is a behavioural change and everything moves together or not at all.** EV-05 drafted the Go half, wrote it into the specification, and withdrew all of it: the specification said one thing, the corpus recorded a single code per refusal, Python reported one, and Go reported two. The only way to keep the Go behaviour was to loosen the conformance harness to compare just the primary code — a verifier tolerating divergence from a normative result, which is the failure the corpus exists to prevent. Land the requirement, both implementations, the corpus expectation and the scenario in one change, or leave the rule unstated.
 
-EV-05 could not do this half. Its rule was AG-017 — build from the specification, never from the incumbent — which forbids reading the Python implementation, and this work requires modifying it. Splitting it out is the honest consequence of that constraint rather than deferred tidying.
-**Touches:** `sdk_python/evidence/chain.py`, `tests/vectors/`
+`reject-validly-resigned-predecessor` already exercises the case; what is missing is that its `expected` records only `chain.prev_digest_mismatch`. The primary code does not move, so no existing expectation is invalidated — but changing a stored vector is a normative corpus change reviewed by its byte diff (`tests/vectors/README.md`).
+**Touches:** `docs/evidence-spec.md`, `sdk_python/evidence/chain.py`, `verifier-go/`, `tests/vectors/`, `tests/steps/`
 **Depends on:** EV-05
-**Satisfies:** ES-006b
-**Acceptance:** the corpus records both codes for that vector, and both implementations reproduce the full set.
+**Satisfies:** — (introduces the requirement it implements)
+**Acceptance:** a scenario demonstrating that both failures are reported, passing on both implementations, with the corpus recording the full result.
 
 #### EV-29 — Scenario linkage for tests that are not pytest nodes
 The traceability matrix links scenarios to tests only through pytest node ids collected under `testpaths = ["tests"]`. No Go test can discharge a scenario however completely it demonstrates one, so a Go-side demonstration is invisible to the four-link chain QA-010 publishes.
 
 At EV-05 this cost one shim: a pytest step that shells out to the compiled binary so ES-S-007 could be seen. **At EV-19 it is structural.** Attestation bundle validation, coverage recomputation, lattice re-checking and revocation-status reporting are all Go-side, and every scenario demonstrating them faces the same choice — be reported as untested against a landed story, or acquire a Python shim written for no reason except to make the matrix see it. Shims that exist to satisfy a measuring tool are how a traceability matrix stops describing the system and starts describing itself.
 
-Extend the collector to attribute scenario tags from non-pytest suites, or define a machine-readable result format that any suite emits and the matrix consumes. Either way the linkage must be earned by a test that actually ran; a declaration file that asserts coverage without executing anything would be worse than the current gap, because it would look complete.
+Extend the collector to attribute scenario tags from non-pytest suites, or define a machine-readable result format that any suite emits and the matrix consumes. Either way the linkage must be earned by a test that actually ran; a declaration file asserting coverage without executing anything would be worse than the current gap, because it would look complete.
 **Touches:** `tests/traceability/`, CI config
 **Depends on:** EV-22, EV-05
 **Satisfies:** QA-010
 **Acceptance:** a Go test demonstrating a scenario links to it in the generated matrix, and a scenario whose Go test fails is not reported as demonstrated.
 
-#### EV-30 — Acceptance scenario for ES-006b
-Write the refusal-precedence scenario. ES-006b carries a deferral marker naming this story: where several integrity failures are independently determinable at one stream position, all are reported in chain-traversal order rather than the first suppressing the rest.
+#### EV-30 — Close the shared false-acceptance paths in record and stream verification
+EV-05's review found three false-acceptance paths in the Go binary. Two are **not Go-only** — the Python library has the same holes:
 
-It is deferred rather than written during EV-05 because a scenario asserting that both implementations report the full set would have been unsatisfiable on the day it was written — Python reports one code until EV-28 lands. A scenario that cannot pass is not a stricter standard, it is a gate that gets switched off, which is the failure QA-011's staged schedule exists to avoid.
-**Touches:** `docs/evidence-spec.md`, `tests/features/`, `tests/steps/`
-**Depends on:** EV-28
-**Satisfies:** ES-006b
-**Acceptance:** ES-006b carries a passing scenario and its deferral marker is removed.
+* `verify_canonical_evidence_record` accepts an `AttestationWindow` whose issuer counter-signature has been deleted. The record entry point never dispatches on `record_type`, so ES-023's second signature is checked only by callers who remember to ask. Go's CLI had the identical defect and is fixed in EV-05; Python's library is not.
+* Neither implementation enforces SE-003 on streams. `verify_stream` and `verify_streams` take bare public keys with no namespace, so an issuer key can authenticate a customer evidence stream. Go gained a namespace-enforcing entry point in EV-05; Python has none.
+
+Both need vectors, and a vector cannot be added until Python passes it — which is why EV-05 could not close this. Add a namespace-aware stream entry point and make record verification dispatch on `record_type`, then add the two vectors: an issuer key signing an evidence stream, and an attestation window with the issuer signature removed.
+
+This is the shipping evidence path, so it is a story rather than a patch tacked onto a verifier PR.
+**Touches:** `sdk_python/evidence/chain.py`, `services/ingestion/receipts.py`, `tests/vectors/`
+**Depends on:** EV-05
+**Satisfies:** ES-023, SE-003
+**Acceptance:** both vectors pass on both implementations, and each fails against the current implementations.
 
 ---
 

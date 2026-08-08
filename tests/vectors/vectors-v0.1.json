@@ -2154,6 +2154,144 @@
     },
     {
       "expected": {
+        "accepted": false,
+        "error_code": "chain.stream_id_mismatch"
+      },
+      "id": "reject-mixed-stream-ids",
+      "operation": "verify_stream",
+      "public_keys": {
+        "K1": "A6EHv_POEL4dcN0Y50vAmWfk1jCbpQ1fHdyGZBJVMbg"
+      },
+      "records": [
+        {
+          "body": {
+            "agent_id": "agent-1",
+            "credential_ref": "service_identity",
+            "deployment": "prod",
+            "model_versions": [
+              "model-1"
+            ],
+            "runtime": "python-3.12",
+            "service_identity": "collector@example.invalid",
+            "tenant_scope": "tenant-1",
+            "tool_versions": [
+              "tool-1"
+            ]
+          },
+          "boundary_ref": "boundary-1",
+          "clocks": {
+            "source_time": "2026-08-01T12:00:00.000+01:00"
+          },
+          "prev_digest": null,
+          "record_id": "01890f47-2f58-7cc0-98c4-000000000001",
+          "record_type": "AgentIdentity",
+          "schema_version": "1.0.0",
+          "sequence": 1,
+          "signature": {
+            "alg": "ed25519",
+            "key_id": "K1",
+            "sig": "8bm-Yd-tt1G3UtexQnFiucgFBJ4lws8iDLehgs_mipF1PAc5lftcN801LZP42zKil5UZrtRuFbNZ3pNVUQaSDg",
+            "signed_digest": "sha256:271e3cf3dcee3a4a20933e3fc4d09e1f0ee880ccfbeb31fb46f622fdd377d152"
+          },
+          "source": {
+            "collector": "vector-generator",
+            "version": "0.1.0"
+          },
+          "stream_id": "stream-1",
+          "tenant_id": "tenant-1"
+        },
+        {
+          "body": {
+            "agent_id": "agent-1",
+            "credential_ref": "service_identity",
+            "deployment": "prod",
+            "model_versions": [
+              "model-1"
+            ],
+            "runtime": "python-3.12",
+            "service_identity": "collector@example.invalid",
+            "tenant_scope": "tenant-1",
+            "tool_versions": [
+              "tool-1"
+            ]
+          },
+          "boundary_ref": "boundary-1",
+          "clocks": {
+            "source_time": "2026-08-01T12:00:00.000+01:00"
+          },
+          "prev_digest": "sha256:08a97a32cd3ca6ff9a206ec3631cf378c6836bd97dd91094c8b10e08b86fa2e8",
+          "record_id": "01890f47-2f58-7cc0-98c4-000000000070",
+          "record_type": "AgentIdentity",
+          "schema_version": "1.0.0",
+          "sequence": 2,
+          "signature": {
+            "alg": "ed25519",
+            "key_id": "K1",
+            "sig": "tYK0aXeUAvf-yxAGIymHKTYUueKXysCMwma-kvcNMdcHupYFM1YoEUJpKz-3nDEao9c0lO3i6WIHvFe11QWoAw",
+            "signed_digest": "sha256:c043e2f65afdad032124ea147ab61ba7b0a480cb7b45a6301633b1ef648e1fe4"
+          },
+          "source": {
+            "collector": "vector-generator",
+            "version": "0.1.0"
+          },
+          "stream_id": "stream-2",
+          "tenant_id": "tenant-1"
+        }
+      ]
+    },
+    {
+      "expected": {
+        "accepted": false,
+        "break_sequence": 5,
+        "error_code": "chain.sequence_gap"
+      },
+      "id": "reject-stream-not-anchored-at-sequence-one",
+      "operation": "verify_stream",
+      "public_keys": {
+        "K1": "A6EHv_POEL4dcN0Y50vAmWfk1jCbpQ1fHdyGZBJVMbg"
+      },
+      "records": [
+        {
+          "body": {
+            "agent_id": "agent-1",
+            "credential_ref": "service_identity",
+            "deployment": "prod",
+            "model_versions": [
+              "model-1"
+            ],
+            "runtime": "python-3.12",
+            "service_identity": "collector@example.invalid",
+            "tenant_scope": "tenant-1",
+            "tool_versions": [
+              "tool-1"
+            ]
+          },
+          "boundary_ref": "boundary-1",
+          "clocks": {
+            "source_time": "2026-08-01T12:00:00.000+01:00"
+          },
+          "prev_digest": null,
+          "record_id": "01890f47-2f58-7cc0-98c4-000000000071",
+          "record_type": "AgentIdentity",
+          "schema_version": "1.0.0",
+          "sequence": 5,
+          "signature": {
+            "alg": "ed25519",
+            "key_id": "K1",
+            "sig": "lodwLu2ltUy7E850eDu-_w-vbKnmtymMIDQ5QetsRyej00iDxfOKoLPZypD02BgJlg734_07XcF84gnWVPrzAQ",
+            "signed_digest": "sha256:9d831d5c15840b4ffc4600a49a420b37e027f7e314bddf0ca2996a01444c53d2"
+          },
+          "source": {
+            "collector": "vector-generator",
+            "version": "0.1.0"
+          },
+          "stream_id": "stream-1",
+          "tenant_id": "tenant-1"
+        }
+      ]
+    },
+    {
+      "expected": {
         "accepted": true,
         "canonical_json": "{\"clock_skew_ms\":1500,\"ingest_time\":\"2026-08-01T11:00:01.500Z\",\"record_digest\":\"sha256:08a97a32cd3ca6ff9a206ec3631cf378c6836bd97dd91094c8b10e08b86fa2e8\"}",
         "digest": "sha256:1f2d0ef9b4beb3e749d92cb38df00d19671200a021e440b33b15a1c19f14082b",

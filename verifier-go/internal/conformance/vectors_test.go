@@ -91,9 +91,18 @@ func wantString(v map[string]any, key string) string {
 	return s
 }
 
-// checkRefusal asserts the operation failed with exactly the vector's code.
+// checkRefusal asserts the operation failed with exactly the vector's result.
+//
+// Exactly: the corpus states one error_code per refused vector and the
+// implementation must reach that one. Accepting a superset, or treating the
+// vector's code as merely the first of several, would let an implementation
+// drift from the normative result while still reporting a pass — which is the
+// whole failure mode the corpus exists to prevent (ES-029).
 func checkRefusal(t *testing.T, id string, err error, want string) {
 	t.Helper()
+	if want == "" {
+		t.Fatalf("%s: vector is marked refused but states no error_code", id)
+	}
 	if err == nil {
 		t.Fatalf("%s: expected refusal %s, got acceptance", id, want)
 	}
@@ -405,17 +414,23 @@ func runVerifyStream(t *testing.T, id string, v map[string]any) {
 	res, err := evidence.VerifyStream(records, keyring(t, v["public_keys"]))
 	if !accepted(v) {
 		checkRefusal(t, id, err, wantCode(v))
-		var se *evidence.StreamError
-		if e, ok := err.(*evidence.StreamError); ok {
-			se = e
-		}
 		e := expectedOf(v)
-		if bs, ok := e["break_sequence"].(float64); ok && se != nil {
+		_, wantsBreak := e["break_sequence"].(float64)
+		_, wantsValid := e["valid_through_sequence"].(float64)
+		se, ok := err.(*evidence.StreamError)
+		if (wantsBreak || wantsValid) && !ok {
+			// Previously these assertions were skipped when the error was not a
+			// StreamError, so a refusal of the right code but the wrong shape
+			// silently satisfied a vector that pins the break position.
+			t.Fatalf("%s: vector pins the break position but the refusal is %T, "+
+				"which carries none", id, err)
+		}
+		if bs, present := e["break_sequence"].(float64); present {
 			if se.BreakSequence != int64(bs) {
 				t.Fatalf("%s: break_sequence %d != %d", id, se.BreakSequence, int64(bs))
 			}
 		}
-		if vt, ok := e["valid_through_sequence"].(float64); ok && se != nil {
+		if vt, present := e["valid_through_sequence"].(float64); present {
 			if se.ValidThrough != int64(vt) {
 				t.Fatalf("%s: valid_through_sequence %d != %d", id, se.ValidThrough, int64(vt))
 			}

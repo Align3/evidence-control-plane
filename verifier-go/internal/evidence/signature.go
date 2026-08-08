@@ -42,7 +42,23 @@ var issuerSignatureMembers = map[string]bool{
 // so a padded string is a distinct encoding of the same bytes and is refused —
 // otherwise one signature would have two spellings.
 func decodeUnpadded(s string, want int) ([]byte, error) {
-	raw, err := base64.RawURLEncoding.DecodeString(s)
+	// Reject anything outside the base64url alphabet before decoding. Go's
+	// decoder tolerates embedded newlines, so whitespace inside a signature
+	// would otherwise decode to the same bytes under a different spelling.
+	for i := 0; i < len(s); i++ {
+		c := s[i]
+		switch {
+		case c >= 'A' && c <= 'Z', c >= 'a' && c <= 'z', c >= '0' && c <= '9',
+			c == '-', c == '_':
+		default:
+			return nil, errf(CodeEncodingInvalid,
+				"value contains %q, which is not base64url", string(c))
+		}
+	}
+	// Strict() additionally requires the trailing bits of the final quantum to
+	// be zero. Without it several distinct strings decode to one byte sequence,
+	// so a signature would have more than one valid spelling.
+	raw, err := base64.RawURLEncoding.Strict().DecodeString(s)
 	if err != nil {
 		return nil, errf(CodeEncodingInvalid, "value is not unpadded base64url: %v", err)
 	}
