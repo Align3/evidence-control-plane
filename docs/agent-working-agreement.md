@@ -43,6 +43,14 @@ python tools/extract_features.py --docs docs --out tests/features
 
 **AG-006 — Acceptance tests assert through the verifier**, not internal state (QA-003). A test reaching into the coverage engine's intermediates is a unit test and does not count toward acceptance.
 
+**AG-017 — On a second implementation of anything, build from the specification and the vectors, never from the existing implementation.** Do not open the incumbent's source to see how it does it. This binds every cross-implementation story — `EV-05`, `EV-19`, `EV-10`'s parity with Python, and any future port — and it is a rule about *method*, not merely about AC-011's ban on shared code: a verifier transliterated from the writer is one implementation written twice, and the agreement it then demonstrates is agreement with itself.
+
+The rule is a **detector**, and that is the part worth protecting. Building EV-05 this way found three places where the specification was ambiguous enough that two conformant readings existed — including ES-021, which never said what `sig` covered, where the reading the prose best supports is the wrong one. None of them was discoverable by reading the Python, because reading the Python answers the question instead of exposing that the document fails to.
+
+**The detector fires once per component.** An answer cannot be un-known: once you have seen how the incumbent resolves an ambiguity, that component can never again be used to test whether the specification resolves it. Spending that one reading to save an afternoon is a bad trade, because the specification is the artifact we publish and third parties implement against, and an ambiguity that survives to publication becomes a breaking change rather than a clarification.
+
+If the specification turns out to be insufficient, that is the finding — record it, and amend the document from the **vectors** (ES-029 makes them authoritative), not from what the other implementation happens to do. Where the two disagree, the specification and the vectors decide; the incumbent is not evidence of anything except itself.
+
 ---
 
 ## 3. Negative-first

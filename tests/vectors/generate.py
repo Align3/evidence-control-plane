@@ -1047,11 +1047,54 @@ def _receipt_vectors() -> list[dict[str, Any]]:
     ]
 
 
+def _stream_shape_vectors() -> list[dict[str, Any]]:
+    """Vectors for stream shape, added after EV-05 review.
+
+    These exist because the corpus exercised library functions while the Go
+    binary routed around them: a verifier could pass every published vector and
+    still accept a stream assembled from two different chains, or one that
+    simply begins partway through. A third party reading "51/51" would inherit
+    exactly those holes, so the shape rules get vectors of their own.
+    """
+    k1 = _key("K1")
+    first = sign_record(_agent_record(1), key_id="K1", private_key=k1)
+
+    # ES-006: a stream is the records sharing one stream_id. Verifying a mixture
+    # computes links across chains that were never one chain.
+    foreign = sign_record(
+        _agent_record(2, record_index=0x70, stream_id="stream-2",
+                      prev_digest=canonical_digest(first)),
+        key_id="K1",
+        private_key=k1,
+    )
+    mixed = _chain_vector(
+        "reject-mixed-stream-ids",
+        [first, foreign],
+        ("K1",),
+        {"accepted": False, "error_code": "chain.stream_id_mismatch"},
+    )
+
+    # ES-003: sequence starts at 1. A stream handed to a verifier beginning at 5
+    # leaves four records unaccounted for, and reporting it as verified is the
+    # silent omission the methodology exists to prevent.
+    unanchored = sign_record(
+        _agent_record(5, record_index=0x71), key_id="K1", private_key=k1
+    )
+    not_anchored = _chain_vector(
+        "reject-stream-not-anchored-at-sequence-one",
+        [unanchored],
+        ("K1",),
+        {"accepted": False, "error_code": "chain.sequence_gap", "break_sequence": 5},
+    )
+    return [mixed, not_anchored]
+
+
 def vector_document() -> dict[str, Any]:
     vectors = [
         *_canonicalization_vectors(),
         *_signature_vectors(),
         *_chain_vectors(),
+        *_stream_shape_vectors(),
         *_receipt_vectors(),
     ]
     return {

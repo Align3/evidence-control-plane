@@ -307,6 +307,44 @@ This story does not implement the product scenarios owned by EV-05 through EV-21
 **Satisfies:** QA-011
 **Acceptance:** QA-S-010
 
+#### EV-28 — Report every determinable failure at a chain break
+Where several integrity failures are independently determinable at one stream position, report all of them in chain-traversal order rather than letting the first suppress the rest. A re-signed predecessor both breaks the link (ES-006a) and presents an unauthenticated key change (ES-024); reporting one makes the answer depend on a verifier's internal check order rather than on the evidence, so two conformant verifiers describe one attack differently.
+
+**This is a behavioural change and everything moves together or not at all.** EV-05 drafted the Go half, wrote it into the specification, and withdrew all of it: the specification said one thing, the corpus recorded a single code per refusal, Python reported one, and Go reported two. The only way to keep the Go behaviour was to loosen the conformance harness to compare just the primary code — a verifier tolerating divergence from a normative result, which is the failure the corpus exists to prevent. Land the requirement, both implementations, the corpus expectation and the scenario in one change, or leave the rule unstated.
+
+`reject-validly-resigned-predecessor` already exercises the case; what is missing is that its `expected` records only `chain.prev_digest_mismatch`. The primary code does not move, so no existing expectation is invalidated — but changing a stored vector is a normative corpus change reviewed by its byte diff (`tests/vectors/README.md`).
+**Touches:** `docs/evidence-spec.md`, `sdk_python/evidence/chain.py`, `verifier-go/`, `tests/vectors/`, `tests/steps/`
+**Depends on:** EV-05
+**Satisfies:** — (introduces the requirement it implements)
+**Acceptance:** a scenario demonstrating that both failures are reported, passing on both implementations, with the corpus recording the full result.
+
+#### EV-29 — Scenario linkage for tests that are not pytest nodes
+The traceability matrix links scenarios to tests only through pytest node ids collected under `testpaths = ["tests"]`. No Go test can discharge a scenario however completely it demonstrates one, so a Go-side demonstration is invisible to the four-link chain QA-010 publishes.
+
+At EV-05 this cost one shim: a pytest step that shells out to the compiled binary so ES-S-007 could be seen. **At EV-19 it is structural.** Attestation bundle validation, coverage recomputation, lattice re-checking and revocation-status reporting are all Go-side, and every scenario demonstrating them faces the same choice — be reported as untested against a landed story, or acquire a Python shim written for no reason except to make the matrix see it. Shims that exist to satisfy a measuring tool are how a traceability matrix stops describing the system and starts describing itself.
+
+Extend the collector to attribute scenario tags from non-pytest suites, or define a machine-readable result format that any suite emits and the matrix consumes. Either way the linkage must be earned by a test that actually ran; a declaration file asserting coverage without executing anything would be worse than the current gap, because it would look complete.
+**Touches:** `tests/traceability/`, CI config
+**Depends on:** EV-22, EV-05
+**Satisfies:** QA-010
+**Acceptance:** a Go test demonstrating a scenario links to it in the generated matrix, and a scenario whose Go test fails is not reported as demonstrated.
+
+#### EV-30 — Close the shared false-acceptance paths in record and stream verification
+EV-05's review found three false-acceptance paths in the Go binary. Two are **not Go-only** — the Python library has the same holes:
+
+* `verify_canonical_evidence_record` accepts an `AttestationWindow` whose issuer counter-signature has been deleted. The record entry point never dispatches on `record_type`, so ES-023's second signature is checked only by callers who remember to ask. Go's CLI had the identical defect and is fixed in EV-05; Python's library is not.
+* Neither implementation enforces SE-003 on streams. `verify_stream` and `verify_streams` take bare public keys with no namespace, so an issuer key can authenticate a customer evidence stream. Go gained a namespace-enforcing entry point in EV-05; Python has none.
+
+Both need vectors, and a vector cannot be added until Python passes it — which is why EV-05 could not close this. Add a namespace-aware stream entry point and make record verification dispatch on `record_type`, then add the two vectors: an issuer key signing an evidence stream, and an attestation window with the issuer signature removed.
+
+This is the shipping evidence path, so it is a story rather than a patch tacked onto a verifier PR.
+
+**Two decisions EV-05 made that Python must match, or the vectors cannot be written.** First, the Go stream entry point refuses a rotation onto a key the keyring does not list, even though the ES-024a continuity assertion authenticates it: the assertion establishes *which* key succeeds the old one, and cannot establish the successor's namespace, which is a custody fact only the keyring states. Second, Go's record path now refuses a `record_type` outside §5 and a body missing the members §5 defines for its type, which is what stops an `AttestationWindow` body from being presented as some other type with the ES-023 counter-signature dropped. Python already enforces the type dispatch through its typed models; it does not yet enforce the rotation rule. Go checks only that the mandatory body members are present — member *values* remain validated by Python's models alone, so a record Python's writer would refuse can still pass the Go verifier, and neither implementation should be described as validating §5 bodies without that qualification.
+**Touches:** `sdk_python/evidence/chain.py`, `services/ingestion/receipts.py`, `tests/vectors/`
+**Depends on:** EV-05
+**Satisfies:** ES-023, SE-003
+**Acceptance:** both vectors pass on both implementations, and each fails against the current implementations.
+
 ---
 
 ## 4. Build order

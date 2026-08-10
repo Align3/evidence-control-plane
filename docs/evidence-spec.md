@@ -53,6 +53,15 @@ Not a telemetry or tracing format — no spans, no sampling, no performance inst
 
 > **Implementer note.** Canonicalization is the most common source of cross-implementation divergence. Two implementations that agree on semantics but disagree on byte-level serialization will fail verification for reasons that are extremely hard to debug. The conformance vectors in `verifier-conformance.md` exist primarily to catch this.
 
+> **Implementer note — parse at the token level, not through your standard library.** Conformance to §2 generally cannot be reached by handing input to a general-purpose JSON parser and inspecting the result, because the rules here constrain the *source token* and most standard libraries have already discarded it by the time you see a value.
+>
+> Two concrete losses, both silent:
+>
+> * **The fraction and exponent ban is a property of the token.** ES-002a refuses any number carrying a fraction or an exponent, which is why `1e0` is refused even though its value is the integer 1. Once a token has become a double there is nothing left to distinguish `1e0` from `1`, and an implementation that checks the parsed value instead of the token accepts input this specification refuses.
+> * **Surrogate handling is usually normalized away.** ES requires an unpaired surrogate to be **rejected**. Go's `encoding/json` substitutes U+FFFD; JavaScript's `JSON.parse` admits lone surrogates into strings that later encode as U+FFFD; Python's `json` accepts them and what follows depends on the serialization options in force — under the default `ensure_ascii=True`, `json.dumps` re-emits the lone surrogate as the ASCII escape `"\ud800"`, which encodes to UTF-8 without complaint, so the value survives the round trip and nothing raises anywhere; under `ensure_ascii=False` the surrogate is emitted literally and encoding *that* to UTF-8 raises `UnicodeEncodeError`. What none of them do is refuse, which is what ES requires. Whether the outcome is a substituted character, a successfully produced string that no longer means what the producer intended, or an error raised somewhere further downstream, an implementation that leaves the decision to its runtime is not making it. **Explicit rejection is mandatory regardless of the runtime's default**, because a refusal that depends on serialization options is not a refusal.
+>
+> The practical consequence is that an implementer who reaches for the obvious library will usually produce something that passes casual testing, fails the vectors on a handful of inputs, and — if the vectors are skipped — interoperates until the first record containing one of these constructions. Run the vectors. They are normative under ES-029 precisely because this class of defect is invisible without them.
+
 ---
 
 ## 3. Record envelope
@@ -192,13 +201,17 @@ Body: `attestation_ref`, `reason`, `issuer`, `effective_at`, `superseding_ref`, 
 
 ## 7. Signatures
 
-**ES-021** — Ed25519. The `signature` object carries `alg`, `key_id`, `sig` (base64url, unpadded), and `signed_digest` (digest of the JCS-canonical record excluding the `signature` field).
+**ES-021** — Ed25519. The `signature` object carries `alg`, `key_id`, `sig` (base64url, unpadded), and `signed_digest` (digest of the JCS-canonical record excluding the `signature` field). `sig` is the Ed25519 signature over the **bare 32-byte SHA-256 digest** of that canonical signature-excluded form — the same bytes `signed_digest` renders as `sha256:<hex>`, not the ASCII of `signed_digest` and not the canonical bytes themselves.
+
+> **Recorded from the vectors rather than concluded here.** This sentence states what `sign-customer-record` already establishes; ES-029 makes that vector authoritative and it has been normative since EV-04. Until EV-05 nothing had implemented ES-021 from the prose alone, and the prose named `signed_digest` without ever saying what `sig` covered. An independent implementer had at least two readings — sign the canonical bytes, or sign their digest — with nothing in the specification to choose between them, and the vector is the only reason the second is discoverable. The vector decides; this records the decision so the next implementer does not need to reverse-engineer it.
 
 **ES-021a** — The `signature` member is closed. Its customer-signature members are exactly `alg`, `key_id`, `sig`, and `signed_digest`, plus `key_continuity` only when a rotation is asserted under ES-024a. An `AttestationWindow` MAY additionally carry the `issuer` counter-signature required by ES-023; that nested object contains exactly `alg`, `key_id`, `sig`, and `signed_digest`. No other member is permitted at either level. A verifier MUST reject an unknown or missing member rather than ignore it.
 
 **ES-022** — Algorithm agility: `alg` is present so that a future migration is possible, but v0.1 verifiers MUST reject any value other than `ed25519` rather than attempting negotiation.
 
-**ES-023** — Two-signature model. Record signatures are produced by the customer's key. The `AttestationWindow` carries an additional counter-signature from the issuer. This is what permits the claim that we cannot modify customer evidence.
+**ES-023** — Two-signature model. Record signatures are produced by the customer's key. The `AttestationWindow` carries an additional counter-signature from the issuer. This is what permits the claim that we cannot modify customer evidence. The issuer's `signed_digest` and `sig` are computed over the record carrying the customer signature but with `signature.issuer` itself excluded, under the ES-021 rule: `signed_digest` is the digest of that canonical form and `sig` is the Ed25519 signature over its bare 32-byte SHA-256 digest. The counter-signature cannot commit to its own bytes, so what it covers is everything else, customer signature included.
+
+> **Also recorded from the vectors.** `verify-customer-and-issuer-signatures` establishes this. As with ES-021 the prose named the counter-signature without stating its signing input, which left the excluded member ambiguous — an implementer could equally have read it as covering the whole record, which is unsatisfiable, or as covering the signature-excluded form, which would leave the customer signature uncountersigned.
 
 **ES-024** — Key rotation MUST be accompanied by a `KeyContinuity` assertion: the new key signed by the old, recorded in-stream. Rotation without continuity is a chain break under ES-008 and CM-017.
 

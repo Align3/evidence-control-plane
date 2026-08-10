@@ -153,6 +153,8 @@ def _error_code(error: Exception) -> str:
         if "without a key rotation" in message:
             return "continuity.no_key_change"
     if isinstance(error, ChainVerificationError):
+        if "accepts exactly one stream_id" in message:
+            return "chain.stream_id_mismatch"
         if "continuity tenant_id does not match" in message:
             return "continuity.tenant_mismatch"
         if "continuity stream_id does not match" in message:
