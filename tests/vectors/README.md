@@ -35,8 +35,15 @@ Operations:
 - `verify_attestation_signatures`: validate the structurally distinct customer
   and issuer signatures and both closed member sets.
 - `verify_stream`: validate chain links, authenticated forks, sequence gaps,
-  per-stream trust anchors, context-bound key rotation, and—when
-  `verification_keys` is present—the evidence namespace of every active key.
+  per-stream trust anchors, context-bound key rotation, and the evidence
+  namespace of every active key. Every stream vector carries
+  `verification_keys`; a harness must not infer namespaces from `public_keys`.
+
+Each adversarial vector carries structured `pre_fix.implementations` results.
+Every result states the shipping entry point, whether it accepted, and the
+observed result at `pre_fix.revision`. At least one shipping entry point must
+have accepted the subject. Harness-only observations are recorded separately
+and do not satisfy that provenance requirement.
 
 Rejected vectors return stable dotted `error_code` values, not Python exception
 names or English messages. The first component identifies the rule family

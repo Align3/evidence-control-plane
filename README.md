@@ -8,6 +8,7 @@ oversight was real, and whether trust claims still hold after deployment.
 1. `docs/agent-working-agreement.md` — read before touching anything
 2. `docs/prd.md` — stories, dependencies, and Touches sets
 3. `docs/coverage-methodology.md` — the intellectual core
+4. `docs/release-notes.md` — breaking SDK and verifier changes
 
 ## Development
 

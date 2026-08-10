@@ -110,22 +110,27 @@ def _registered_public_keys(
 
 
 def _stream_keyring(vector: dict[str, Any]) -> dict[str, RegisteredPublicKey]:
-    """Build the registered keyring a stream vector is verified against.
+    """Read every stream trust fact from the vector, without defaults."""
 
-    Vectors that state namespaces carry `verification_keys`. The rest predate
-    the namespace-aware corpus and carry only `public_keys`; those are all
-    customer streams, so every key is registered in the evidence namespace.
-    This mirrors `evidenceKeyring` in the Go harness, so both implementations
-    present identical custody facts to the verifier rather than one of them
-    silently exercising a weaker path.
-    """
+    return _registered_public_keys(vector["verification_keys"])
 
-    if "verification_keys" in vector:
-        return _registered_public_keys(vector["verification_keys"])
-    return {
-        key_id: RegisteredPublicKey(namespace="evidence", public_key=public_key)
-        for key_id, public_key in _public_keys(vector["public_keys"]).items()
-    }
+
+def _assert_adversarial_provenance(vector: dict[str, Any]) -> None:
+    """Require measured, implementation-neutral evidence of a prior acceptance."""
+
+    pre_fix = vector["pre_fix"]
+    assert isinstance(pre_fix["revision"], str) and pre_fix["revision"]
+    implementations = pre_fix["implementations"]
+    assert {"python", "go"} <= implementations.keys()
+    assert all(
+        isinstance(result["accepted"], bool)
+        and isinstance(result["entry_point"], str)
+        and bool(result["entry_point"])
+        and isinstance(result["result"], str)
+        and bool(result["result"])
+        for result in implementations.values()
+    )
+    assert any(result["accepted"] for result in implementations.values())
 
 
 def _record(value: dict[str, Any]) -> RecordEnvelope:
@@ -453,10 +458,15 @@ def test_es_029_vector_manifest_is_closed_and_attack_complete() -> None:
     assert len(ids) == len(set(ids))
     assert {vector["operation"] for vector in VECTORS} == set(RUNNERS)
     assert REQUIRED_ATTACK_VECTORS <= set(ids)
-    assert {vector["id"] for vector in ADVERSARIAL_VECTORS} == (
-        REQUIRED_ADVERSARIAL_VECTORS
-    )
+    assert REQUIRED_ADVERSARIAL_VECTORS <= {
+        vector["id"] for vector in ADVERSARIAL_VECTORS
+    }
     assert all(not vector["expected"]["accepted"] for vector in ADVERSARIAL_VECTORS)
+    stream_vectors = [vector for vector in VECTORS if vector["operation"] == "verify_stream"]
+    assert all(
+        "verification_keys" in vector and "public_keys" not in vector
+        for vector in stream_vectors
+    )
     # Every adversarial vector must record that some shipping entry point
     # accepted its subject before the fix, so a refusal vector cannot be added
     # for behavior that was already correct. The revision must be the branch
@@ -465,10 +475,12 @@ def test_es_029_vector_manifest_is_closed_and_attack_complete() -> None:
     # acceptance: one verifier refusing while another accepts is the normal
     # case, and requiring both to have accepted would pressure the record
     # toward a tidier claim than the measurement supports.
+    for vector in ADVERSARIAL_VECTORS:
+        _assert_adversarial_provenance(vector)
     assert all(
         vector["pre_fix"]["revision"] == "9e5904b"
-        and "accepted" in vector["pre_fix"]["python_result"].lower()
         for vector in ADVERSARIAL_VECTORS
+        if vector["id"] in REQUIRED_ADVERSARIAL_VECTORS
     )
     assert {vector["operation"] for vector in ADVERSARIAL_VECTORS} <= {
         "verify_stream",
@@ -477,6 +489,21 @@ def test_es_029_vector_manifest_is_closed_and_attack_complete() -> None:
     assert sum(not vector["expected"]["accepted"] for vector in VECTORS) > sum(
         vector["expected"]["accepted"] for vector in VECTORS
     )
+
+
+def test_adversarial_provenance_acceptance_is_implementation_neutral() -> None:
+    probe = deepcopy(ADVERSARIAL_VECTORS[0])
+    probe["pre_fix"]["implementations"]["python"]["accepted"] = False
+    probe["pre_fix"]["implementations"]["python"]["result"] = "refused"
+    probe["pre_fix"]["implementations"]["go"]["accepted"] = True
+    probe["pre_fix"]["implementations"]["go"]["result"] = "accepted"
+
+    _assert_adversarial_provenance(probe)
+
+
+def test_stream_vector_keyring_refuses_to_invent_a_namespace() -> None:
+    with pytest.raises(KeyError, match="verification_keys"):
+        _stream_keyring({"public_keys": {}})
 
 
 def test_es_029_stored_vectors_match_deterministic_generation() -> None:

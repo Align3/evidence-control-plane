@@ -329,13 +329,24 @@ Extend the collector to attribute scenario tags from non-pytest suites, or defin
 **Satisfies:** QA-010
 **Acceptance:** a Go test demonstrating a scenario links to it in the generated matrix, and a scenario whose Go test fails is not reported as demonstrated.
 
-#### EV-30 — Close the shared false-acceptance paths in record and stream verification
-EV-05's review found three false-acceptance paths in the Go binary. Two are **not Go-only** — the Python library has the same holes:
+#### EV-30 — Close Python composition-path false acceptances and publish adversarial vectors
+EV-05's review identified two invalid subjects that the shipping Python entry
+points accepted at branch base `9e5904b`. Go already refused both when given a
+truthful registered keyring:
 
-* `verify_canonical_evidence_record` accepts an `AttestationWindow` whose issuer counter-signature has been deleted. The record entry point never dispatches on `record_type`, so ES-023's second signature is checked only by callers who remember to ask. Go's CLI had the identical defect and is fixed in EV-05; Python's library is not.
-* Neither implementation enforces SE-003 on streams. `verify_stream` and `verify_streams` take bare public keys with no namespace, so an issuer key can authenticate a customer evidence stream. Go gained a namespace-enforcing entry point in EV-05; Python has none.
+* `verify_canonical_evidence_record` accepted an `AttestationWindow` whose
+  issuer counter-signature had been deleted. The Python record entry point did
+  not dispatch on `record_type`, so ES-023's second signature was checked only
+  by callers that separately invoked the stricter primitive.
+* Python's `verify_stream` and `verify_streams` took bare public keys with no
+  namespace, so an issuer key could authenticate a customer evidence stream.
+  Go's `VerifyEvidenceStream` already required registered namespaces.
 
-Both need vectors, and a vector cannot be added until Python passes it — which is why EV-05 could not close this. Add a namespace-aware stream entry point and make record verification dispatch on `record_type`, then add the two vectors: an issuer key signing an evidence stream, and an attestation window with the issuer signature removed.
+The earlier cross-implementation harness did not expose the divergence because
+it synthesized the evidence namespace for every namespace-free stream key. Add
+a namespace-aware Python stream entry point, make record verification dispatch
+on `record_type`, and publish the two refusal vectors with every trust input and
+the measured per-implementation pre-fix result stated in the corpus.
 
 This is the shipping evidence path, so it is a story rather than a patch tacked onto a verifier PR.
 
@@ -343,7 +354,10 @@ This is the shipping evidence path, so it is a story rather than a patch tacked 
 **Touches:** `sdk_python/evidence/chain.py`, `services/ingestion/receipts.py`, `tests/vectors/`
 **Depends on:** EV-05
 **Satisfies:** ES-023, SE-003
-**Acceptance:** both vectors pass on both implementations, and each fails against the current implementations.
+**Acceptance:** both vectors require refusal and pass on both implementations;
+each records results measured against `9e5904b`, at least one shipping entry
+point accepted the subject before the fix, and no harness supplies an unstated
+namespace or other trust-decision input.
 
 ---
 

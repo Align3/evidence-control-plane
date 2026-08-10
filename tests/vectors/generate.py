@@ -386,7 +386,9 @@ def _chain_vector(
         "id": vector_id,
         "operation": "verify_stream",
         "records": [_dump(record) for record in records],
-        "public_keys": _keyring(*key_ids),
+        "verification_keys": _registered_keyring(
+            **{key_id: "evidence" for key_id in key_ids}
+        ),
         "expected": expected,
     }
 
@@ -1107,19 +1109,34 @@ def _adversarial_vectors() -> list[dict[str, Any]]:
         "verification_keys": _registered_keyring(ISSUER1="issuer"),
         "pre_fix": {
             "revision": "9e5904b",
-            "python_entry_point": "sdk_python.evidence.chain.verify_stream",
-            "python_result": "accepted sequences 1..1, key ISSUER1",
-            "go_entry_point": "evidence.VerifyEvidenceStream",
-            "go_result": (
-                "refused: key \"ISSUER1\" is in the \"issuer\" namespace; "
-                "evidence streams require evidence keys (SE-003)"
-            ),
-            "go_harness_result": (
-                "VALID stream sequences 1..1, last key ISSUER1 -- the harness "
-                "built its keyring with evidenceKeyring(), which stamped the "
-                "evidence namespace onto every key and so never presented the "
-                "issuer namespace the verifier checks"
-            ),
+            "implementations": {
+                "python": {
+                    "entry_point": "sdk_python.evidence.chain.verify_stream",
+                    "accepted": True,
+                    "result": "accepted sequences 1..1, key ISSUER1",
+                },
+                "go": {
+                    "entry_point": "evidence.VerifyEvidenceStream",
+                    "accepted": False,
+                    "result": (
+                        "refused: key \"ISSUER1\" is in the \"issuer\" "
+                        "namespace; evidence streams require evidence keys "
+                        "(SE-003)"
+                    ),
+                },
+            },
+            "harness_observations": {
+                "go": {
+                    "accepted": True,
+                    "result": (
+                        "VALID stream sequences 1..1, last key ISSUER1"
+                    ),
+                    "unstated_input": (
+                        "evidenceKeyring() stamped the evidence namespace onto "
+                        "every namespace-free key"
+                    ),
+                }
+            },
         },
         "expected": {
             "accepted": False,
@@ -1151,17 +1168,26 @@ def _adversarial_vectors() -> list[dict[str, Any]]:
         ),
         "pre_fix": {
             "revision": "9e5904b",
-            "python_entry_point": (
-                "services.ingestion.receipts.verify_canonical_evidence_record"
-            ),
-            "python_result": (
-                "accepted AttestationWindow with signature.issuer absent"
-            ),
-            "go_entry_point": "evidence.VerifyCanonicalEvidenceRecord",
-            "go_result": (
-                "refused: attestation is missing the issuer counter-signature "
-                "(ES-023)"
-            ),
+            "implementations": {
+                "python": {
+                    "entry_point": (
+                        "services.ingestion.receipts."
+                        "verify_canonical_evidence_record"
+                    ),
+                    "accepted": True,
+                    "result": (
+                        "accepted AttestationWindow with signature.issuer absent"
+                    ),
+                },
+                "go": {
+                    "entry_point": "evidence.VerifyCanonicalEvidenceRecord",
+                    "accepted": False,
+                    "result": (
+                        "refused: attestation is missing the issuer "
+                        "counter-signature (ES-023)"
+                    ),
+                },
+            },
         },
         "expected": {
             "accepted": False,
