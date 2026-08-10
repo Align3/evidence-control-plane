@@ -2,7 +2,6 @@ package evidence
 
 import (
 	"crypto/ed25519"
-	"fmt"
 
 	"github.com/Align3/evidence-control-plane/verifier-go/internal/jcs"
 )
@@ -15,81 +14,73 @@ import (
 // signature — is explicitly forbidden, and for good reason: it converts a
 // producer conformance bug into a misleading cryptographic complaint, and it
 // means the bytes retained are ours rather than the ones that arrived.
-func VerifyCanonicalEvidenceRecord(wire []byte, keys map[string]RegisteredKey) (string, error) {
+func VerifyCanonicalEvidenceRecord(wire []byte, keys map[string]RegisteredKey) (*RecordVerification, error) {
 	v, err := jcs.Parse(wire)
 	if err != nil {
-		return "", err
+		return nil, err
 	}
 	canonical, err := jcs.Serialize(v)
 	if err != nil {
-		return "", err
+		return nil, err
 	}
 	if string(canonical) != string(wire) {
-		return "", errf(CodeWireNonCanonical,
+		return nil, errf(CodeWireNonCanonical,
 			"received record is not RFC 8785 canonical (ES-001)")
 	}
 	obj, ok := v.(*jcs.Object)
 	if !ok {
-		return "", errf(jcs.CodeMalformed, "record envelope must be a JSON object")
+		return nil, errf(jcs.CodeMalformed, "record envelope must be a JSON object")
 	}
 	r := &Record{Obj: obj}
 	if err := r.Validate(); err != nil {
-		return "", err
+		return nil, err
 	}
-	return VerifyEvidenceRecordSignature(r, keys)
+	return VerifyEvidenceRecord(r, keys)
 }
 
-// VerifyEvidenceStream verifies a stream and enforces SE-003 on every record
-// in it: each signing key, including one reached by an authenticated rotation,
-// must be in the evidence namespace.
+// RecordVerification is what a fully verified record yields: which key signed
+// it, and, for a type that requires one, which issuer key counter-signed it.
+type RecordVerification struct {
+	RecordType  string
+	KeyID       string
+	IssuerKeyID string
+}
+
+// VerifyEvidenceRecord verifies a complete record: the customer signature under
+// SE-003, and every further signature the record's type requires.
 //
-// This exists because the namespace-free VerifyStream is a primitive, and a
-// caller that reaches for it is silently opting out of SE-003. An issuer key
-// authenticating a customer stream is the exact confusion the two namespaces
-// exist to make impossible, and it is not made impossible by being unlikely.
-func VerifyEvidenceStream(records []*Record, keys map[string]RegisteredKey) (*StreamResult, error) {
-	for _, r := range records {
-		sig, err := r.Signature()
-		if err != nil {
-			return nil, err
-		}
-		keyID, _ := objString(sig, "key_id")
-		registered, ok := keys[keyID]
-		if !ok {
-			// An unknown key is left to VerifyStream, which reports it with the
-			// stream position attached.
-			continue
-		}
-		if registered.Namespace != NamespaceEvidence {
-			return nil, &StreamError{
-				Code: CodeKeyNamespaceMismatch, BreakSequence: r.Sequence(),
-				Msg: fmt.Sprintf("record is signed by %q, which is in the %q namespace; "+
-					"evidence streams require evidence keys (SE-003)", keyID, registered.Namespace),
-			}
-		}
-	}
-	result, err := VerifyStream(records, publicKeyMap(keys))
+// The dispatch belongs here rather than in a caller. ES-023 gives the
+// AttestationWindow a second signature, and a verifier that checks only the
+// customer's reports an attestation with its counter-signature stripped as a
+// valid record — a true statement about one signature presented as a conclusion
+// about the record. Leaving that to "whoever remembers to ask for the issuer
+// check" means the answer depends on which entry point a relying party happened
+// to call.
+func VerifyEvidenceRecord(r *Record, keys map[string]RegisteredKey) (*RecordVerification, error) {
+	keyID, err := VerifyEvidenceRecordSignature(r, keys)
 	if err != nil {
 		return nil, err
 	}
-	// A rotation can introduce a key the keyring never listed; the continuity
-	// assertion authenticates it but says nothing about its namespace.
-	if registered, ok := keys[result.LastKeyID]; ok && registered.Namespace != NamespaceEvidence {
-		return nil, &StreamError{
-			Code: CodeKeyNamespaceMismatch, BreakSequence: result.EndSequence,
-			Msg: "stream rotated onto a key outside the evidence namespace (SE-003)",
+	out := &RecordVerification{RecordType: r.RecordType(), KeyID: keyID}
+	if r.RecordType() != "AttestationWindow" {
+		return out, nil
+	}
+	// Split by namespace so the issuer proof cannot be satisfied by an evidence
+	// key: two signatures from one namespace are one signature (SE-003).
+	evidenceKeys := map[string]ed25519.PublicKey{}
+	issuerKeys := map[string]ed25519.PublicKey{}
+	for id, k := range keys {
+		switch k.Namespace {
+		case NamespaceEvidence:
+			evidenceKeys[id] = k.PublicKey
+		case NamespaceIssuer:
+			issuerKeys[id] = k.PublicKey
 		}
 	}
-	return result, nil
-}
-
-// publicKeyMap narrows a registered keyring to raw keys. Deliberately
-// unexported: exporting it invites a caller to drop the namespaces on the way
-// into a primitive, which is how SE-003 came to be unenforced on streams.
-func publicKeyMap(keys map[string]RegisteredKey) map[string]ed25519.PublicKey {
-	out := make(map[string]ed25519.PublicKey, len(keys))
-	for id, k := range keys {
-		out[id] = k.PublicKey
+	_, issuerKeyID, err := VerifyAttestationSignatures(r, evidenceKeys, issuerKeys)
+	if err != nil {
+		return nil, err
 	}
-	return out
+	out.IssuerKeyID = issuerKeyID
+	return out, nil
 }

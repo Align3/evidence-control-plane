@@ -171,10 +171,16 @@ func verifyOneSignature(r *Record, sig *jcs.Object,
 	return keyID, nil
 }
 
-// VerifyEvidenceRecordSignature verifies a customer record and enforces SE-003:
-// the signing key must be in the evidence namespace. An issuer key that
-// produced a valid signature is still refused — the proof is real, the role is
-// not.
+// VerifyEvidenceRecordSignature verifies a record's customer signature and
+// enforces SE-003: the signing key must be in the evidence namespace. An issuer
+// key that produced a valid signature is still refused — the proof is real, the
+// role is not.
+//
+// This answers a question about one signature, not a verdict on the record, and
+// the two differ for any type ES-023 gives a second signature to. It exists
+// because the corpus defines verify_evidence_record_signature as exactly this
+// operation. Verify a record with VerifyEvidenceRecord, which dispatches on
+// record_type and checks every signature the type requires.
 func VerifyEvidenceRecordSignature(r *Record, keys map[string]RegisteredKey) (string, error) {
 	plain := make(map[string]ed25519.PublicKey, len(keys))
 	for id, k := range keys {

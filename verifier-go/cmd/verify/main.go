@@ -131,7 +131,9 @@ func runCanonicalize(data []byte) {
 // authenticating, so a non-canonical wire form is reported as such rather than
 // as a signature failure.
 func runRecord(data []byte, keys map[string]evidence.RegisteredKey) {
-	keyID, err := evidence.VerifyCanonicalEvidenceRecord(data, keys)
+	// ES-023 dispatch on record_type lives in the library, so this command and
+	// every other caller of the record path check the same things.
+	verified, err := evidence.VerifyCanonicalEvidenceRecord(data, keys)
 	if err != nil {
 		fmt.Fprintf(os.Stderr, "INVALID %s\n", err)
 		os.Exit(exitInvalid)
@@ -141,34 +143,20 @@ func runRecord(data []byte, keys map[string]evidence.RegisteredKey) {
 		fmt.Fprintf(os.Stderr, "INVALID %s\n", err)
 		os.Exit(exitInvalid)
 	}
-	// ES-023: an AttestationWindow carries two signatures, and checking only
-	// the customer's would report one with its counter-signature stripped as
-	// valid. The record path dispatches on record_type rather than leaving the
-	// second signature to whoever remembers to ask for it.
-	if rec.RecordType() == "AttestationWindow" {
-		issuerKeyID, err := verifyAttestation(rec, keys)
-		if err != nil {
-			fmt.Fprintf(os.Stderr, "INVALID %s\n", err)
-			os.Exit(exitInvalid)
-		}
-		digest, derr := rec.CompleteDigest()
-		if derr != nil {
-			fmt.Fprintf(os.Stderr, "INVALID %s\n", derr)
-			os.Exit(exitInvalid)
-		}
-		fmt.Printf("VALID attestation window %s\n  customer key   %s\n"+
-			"  issuer key     %s\n  record digest  %s\n"+
-			"  NOT CHECKED    bundle contents, coverage, lattice, revocation (EV-19)\n",
-			rec.RecordID(), keyID, issuerKeyID, digest)
-		return
-	}
 	digest, err := rec.CompleteDigest()
 	if err != nil {
 		fmt.Fprintf(os.Stderr, "INVALID %s\n", err)
 		os.Exit(exitInvalid)
 	}
-	fmt.Printf("VALID record %s\n  signed by      %s (evidence namespace)\n  record digest  %s\n",
-		rec.RecordID(), keyID, digest)
+	if verified.IssuerKeyID != "" {
+		fmt.Printf("VALID %s %s\n  customer key   %s\n"+
+			"  issuer key     %s\n  record digest  %s\n"+
+			"  NOT CHECKED    bundle contents, coverage, lattice, revocation (EV-19)\n",
+			verified.RecordType, rec.RecordID(), verified.KeyID, verified.IssuerKeyID, digest)
+		return
+	}
+	fmt.Printf("VALID %s %s\n  signed by      %s (evidence namespace)\n  record digest  %s\n",
+		verified.RecordType, rec.RecordID(), verified.KeyID, digest)
 }
 
 func runStream(data []byte, keys map[string]evidence.RegisteredKey) {
@@ -186,8 +174,6 @@ func runStream(data []byte, keys map[string]evidence.RegisteredKey) {
 		}
 		records = append(records, rec)
 	}
-	// The namespace-enforcing entry point, not the bare primitive: an issuer
-	// key must not authenticate a customer stream (SE-003).
 	res, err := evidence.VerifyEvidenceStream(records, keys)
 	if err != nil {
 		// CM-017: a break terminates the window at the break rather than
@@ -203,24 +189,6 @@ func runStream(data []byte, keys map[string]evidence.RegisteredKey) {
 	}
 	fmt.Printf("VALID stream sequences %d..%d\n  last key      %s\n  last digest   %s\n",
 		res.StartSequence, res.EndSequence, res.LastKeyID, res.LastDigest)
-}
-
-// verifyAttestation checks both ES-023 signatures, splitting the keyring by
-// namespace so the issuer proof cannot be satisfied by an evidence key.
-func verifyAttestation(rec *evidence.Record,
-	keys map[string]evidence.RegisteredKey) (string, error) {
-	evidenceKeys := map[string]ed25519.PublicKey{}
-	issuerKeys := map[string]ed25519.PublicKey{}
-	for id, k := range keys {
-		switch k.Namespace {
-		case evidence.NamespaceEvidence:
-			evidenceKeys[id] = k.PublicKey
-		case evidence.NamespaceIssuer:
-			issuerKeys[id] = k.PublicKey
-		}
-	}
-	_, issuerKeyID, err := evidence.VerifyAttestationSignatures(rec, evidenceKeys, issuerKeys)
-	return issuerKeyID, err
 }
 
 // receiptInput pairs a customer record with its detached issuer receipt.

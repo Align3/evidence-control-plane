@@ -14,6 +14,7 @@ import (
 	"encoding/base64"
 	"encoding/hex"
 	"encoding/json"
+	"fmt"
 	"os"
 	"path/filepath"
 	"testing"
@@ -111,6 +112,58 @@ func checkRefusal(t *testing.T, id string, err error, want string) {
 	}
 }
 
+// streamRefusalMismatch reports why a stream refusal fails to match the
+// vector's stated result, or "" when it matches.
+//
+// It is a plain function rather than a t.Fatalf-calling helper so that
+// TestStreamRefusalShapeIsChecked can assert on what it accepts. A harness that
+// only ever runs against a corpus it passes cannot show that it would catch a
+// verifier that stopped matching.
+func streamRefusalMismatch(id string, err error, v map[string]any) string {
+	want := wantCode(v)
+	if want == "" {
+		return fmt.Sprintf("%s: vector is marked refused but states no error_code", id)
+	}
+	if err == nil {
+		return fmt.Sprintf("%s: expected refusal %s, got acceptance", id, want)
+	}
+	if got := evidence.Code(err); got != want {
+		return fmt.Sprintf("%s: expected %s, got %s (%v)", id, want, got, err)
+	}
+	e := expectedOf(v)
+	wantBreak, wantsBreak := e["break_sequence"].(float64)
+	wantValid, wantsValid := e["valid_through_sequence"].(float64)
+	if !wantsBreak && !wantsValid {
+		return ""
+	}
+	// A vector that pins the break position is answered only by a refusal that
+	// carries one. Treating a positionless error as satisfying it accepts the
+	// right code with the wrong shape — and CM-017 makes the position the part
+	// that says how much of the window survived, which is what a relying party
+	// acts on.
+	se, ok := err.(*evidence.StreamError)
+	if !ok {
+		return fmt.Sprintf("%s: vector pins the break position but the refusal is %T, "+
+			"which carries none", id, err)
+	}
+	if wantsBreak && se.BreakSequence != int64(wantBreak) {
+		return fmt.Sprintf("%s: break_sequence %d != %d", id, se.BreakSequence, int64(wantBreak))
+	}
+	if wantsValid && se.ValidThrough != int64(wantValid) {
+		return fmt.Sprintf("%s: valid_through_sequence %d != %d", id, se.ValidThrough, int64(wantValid))
+	}
+	return ""
+}
+
+// checkStreamRefusal applies streamRefusalMismatch on every path by which a
+// stream vector can be refused, including refusal during record parsing.
+func checkStreamRefusal(t *testing.T, id string, err error, v map[string]any) {
+	t.Helper()
+	if mismatch := streamRefusalMismatch(id, err, v); mismatch != "" {
+		t.Fatal(mismatch)
+	}
+}
+
 func keyring(t *testing.T, raw any) map[string]ed25519.PublicKey {
 	t.Helper()
 	out := map[string]ed25519.PublicKey{}
@@ -118,6 +171,20 @@ func keyring(t *testing.T, raw any) map[string]ed25519.PublicKey {
 	for id, val := range m {
 		s, _ := val.(string)
 		out[id] = ed25519.PublicKey(b64(t, s))
+	}
+	return out
+}
+
+// evidenceKeyring reads a vector's namespace-free public_keys as an evidence
+// keyring. The stream vectors describe customer evidence streams, and the Go
+// verifier has no stream entry point that ignores namespaces, so the namespace
+// is supplied here rather than by a weaker code path existing for the corpus to
+// call.
+func evidenceKeyring(t *testing.T, raw any) map[string]evidence.RegisteredKey {
+	t.Helper()
+	out := map[string]evidence.RegisteredKey{}
+	for id, pub := range keyring(t, raw) {
+		out[id] = evidence.RegisteredKey{Namespace: evidence.NamespaceEvidence, PublicKey: pub}
 	}
 	return out
 }
@@ -404,37 +471,19 @@ func runVerifyStream(t *testing.T, id string, v map[string]any) {
 		rec, err := evidence.ParseRecord(remarshal(t, raw))
 		if err != nil {
 			if !accepted(v) {
-				checkRefusal(t, id, err, wantCode(v))
+				// Previously this branch checked the code alone and returned,
+				// so a vector pinning the break position was satisfied by any
+				// parse-time error carrying the right code.
+				checkStreamRefusal(t, id, err, v)
 				return
 			}
 			t.Fatalf("%s: parse record %d: %v", id, i, err)
 		}
 		records = append(records, rec)
 	}
-	res, err := evidence.VerifyStream(records, keyring(t, v["public_keys"]))
+	res, err := evidence.VerifyEvidenceStream(records, evidenceKeyring(t, v["public_keys"]))
 	if !accepted(v) {
-		checkRefusal(t, id, err, wantCode(v))
-		e := expectedOf(v)
-		_, wantsBreak := e["break_sequence"].(float64)
-		_, wantsValid := e["valid_through_sequence"].(float64)
-		se, ok := err.(*evidence.StreamError)
-		if (wantsBreak || wantsValid) && !ok {
-			// Previously these assertions were skipped when the error was not a
-			// StreamError, so a refusal of the right code but the wrong shape
-			// silently satisfied a vector that pins the break position.
-			t.Fatalf("%s: vector pins the break position but the refusal is %T, "+
-				"which carries none", id, err)
-		}
-		if bs, present := e["break_sequence"].(float64); present {
-			if se.BreakSequence != int64(bs) {
-				t.Fatalf("%s: break_sequence %d != %d", id, se.BreakSequence, int64(bs))
-			}
-		}
-		if vt, present := e["valid_through_sequence"].(float64); present {
-			if se.ValidThrough != int64(vt) {
-				t.Fatalf("%s: valid_through_sequence %d != %d", id, se.ValidThrough, int64(vt))
-			}
-		}
+		checkStreamRefusal(t, id, err, v)
 		return
 	}
 	if err != nil {

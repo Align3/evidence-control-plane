@@ -8,8 +8,9 @@ import (
 	"github.com/Align3/evidence-control-plane/verifier-go/internal/jcs"
 )
 
-// baseRecord is a minimal conformant envelope. Tests mutate one thing at a
-// time so a refusal can only be attributed to that change.
+// baseRecord is a minimal conformant record: the closed §3 envelope, and the
+// body §5.4 defines for the type it declares. Tests mutate one thing at a time
+// so a refusal can only be attributed to that change.
 func baseRecord() map[string]any {
 	return map[string]any{
 		"record_id":      "01890f47-2f58-7cc0-98c4-000000000001",
@@ -22,8 +23,17 @@ func baseRecord() map[string]any {
 		"prev_digest":    nil,
 		"source":         map[string]any{"collector_id": "collector-1", "version": "1.0.0"},
 		"clocks":         map[string]any{"source_time": "2026-08-01T12:00:00.000Z"},
-		"body":           map[string]any{"agent_id": "agent-1"},
-		"signature":      map[string]any{},
+		"body": map[string]any{
+			"agent_id":         "agent-1",
+			"deployment":       "prod",
+			"runtime":          "go-1.23",
+			"tenant_scope":     "tenant-1",
+			"service_identity": "collector@example.invalid",
+			"model_versions":   []any{"model-1"},
+			"tool_versions":    []any{"tool-1"},
+			"credential_ref":   "service_identity",
+		},
+		"signature": map[string]any{},
 	}
 }
 

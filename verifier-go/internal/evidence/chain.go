@@ -23,6 +23,7 @@ const (
 	CodeContinuityFirstRecord    = "continuity.first_record_forbidden"
 	CodeContinuityNoKeyChange    = "continuity.no_key_change"
 	CodeContinuityKeyMismatch    = "continuity.key_id_mismatch"
+	CodeContinuityKeyConflict    = "continuity.registered_key_mismatch"
 	CodeContinuityAlgUnsupported = "continuity.algorithm_unsupported"
 )
 
@@ -80,14 +81,69 @@ var continuityMembers = map[string]bool{
 	"new_public_key": true, "tenant_id": true, "stream_id": true, "sig": true,
 }
 
-// VerifyStream validates links, sequence continuity, forks, and key rotation
-// across one stream, in arrival order.
+// trustedEvidenceKey admits one key to a stream, or says why it cannot.
+//
+// Every key that ever becomes the active signing key passes through here, which
+// is the only reason SE-003 holds for a stream rather than for the records
+// someone remembered to check. The previous shape — a loop over the declared
+// key ids before verification, plus a look at the final key afterwards — left
+// two gaps: a key the keyring does not list was skipped by the first check and
+// invisible to the second.
+//
+// asserted is the public key an ES-024a continuity assertion introduced, or nil
+// at the sequence-1 trust anchor.
+//
+// A rotation onto an unlisted key is refused, and that is the substantive
+// decision here. The primitive reading of ES-024a is that the predecessor's
+// signature is sufficient to trust the successor — and for the *chain* it is:
+// the assertion authenticates the new key. It cannot establish the new key's
+// namespace, because a namespace is a custody fact about how a key is held,
+// stated by the keyring, and no signature made with one key can confer it on
+// another. A verifier that accepted the delegation would be reporting SE-003 as
+// enforced while the successor's namespace was simply unknown to it. The corpus
+// agrees: every rotation vector lists the rotated key in its keyring.
+func trustedEvidenceKey(keys map[string]RegisteredKey, keyID string,
+	asserted ed25519.PublicKey) (ed25519.PublicKey, error) {
+	registered, ok := keys[keyID]
+	if !ok {
+		if asserted == nil {
+			return nil, errf(CodeUnknownSigningKey, "no trusted key for %q", keyID)
+		}
+		return nil, errf(CodeUnknownSigningKey,
+			"the rotation to %q is authenticated, but the keyring does not list that "+
+				"key and so states no namespace for it; SE-003 is a property of how a "+
+				"key is held and cannot be conferred by the key it replaces", keyID)
+	}
+	if registered.Namespace != NamespaceEvidence {
+		return nil, errf(CodeKeyNamespaceMismatch,
+			"key %q is in the %q namespace; evidence streams require evidence keys (SE-003)",
+			keyID, registered.Namespace)
+	}
+	if asserted != nil && !registered.PublicKey.Equal(asserted) {
+		return nil, errf(CodeContinuityKeyConflict,
+			"the continuity assertion introduces different key material for %q than the "+
+				"keyring holds; one key id naming two keys is unresolvable, not a rotation",
+			keyID)
+	}
+	return registered.PublicKey, nil
+}
+
+// VerifyEvidenceStream validates links, sequence continuity, forks, and key
+// rotation across one stream, in arrival order, and enforces SE-003 on every
+// key that authenticates any record in it.
 //
 // The trust model is per-stream (ES-024a): sequence 1 anchors to the caller's
 // trusted keyring, and every later key must be reached by an authenticated
 // rotation. Starting a new stream after a tenant rotation proves nothing about
 // the old one, so no continuity is inferred across streams.
-func VerifyStream(records []*Record, keys map[string]ed25519.PublicKey) (*StreamResult, error) {
+//
+// There is deliberately no namespace-free variant of this function. One existed
+// and was exported; the wrapper that added SE-003 around it could be bypassed
+// by any caller in the module that reached for the primitive instead, and an
+// issuer key authenticating a customer stream is exactly the confusion the two
+// namespaces exist to make impossible. A weakening path that is merely
+// unattractive is still a path.
+func VerifyEvidenceStream(records []*Record, keys map[string]RegisteredKey) (*StreamResult, error) {
 	if len(records) == 0 {
 		return nil, &StreamError{Code: CodeChainSequenceGap, Msg: "empty stream"}
 	}
@@ -188,10 +244,9 @@ func VerifyStream(records []*Record, keys map[string]ed25519.PublicKey) (*Stream
 				return nil, breakAt(seq, validThrough, linkFail, failure{CodeContinuityFirstRecord,
 					"sequence 1 anchors to the trusted keyring and must not carry key_continuity"})
 			}
-			pub, ok := keys[declaredKeyID]
-			if !ok {
-				return nil, breakAt(seq, validThrough, linkFail, failure{CodeUnknownSigningKey,
-					fmt.Sprintf("no trusted key for %q", declaredKeyID)})
+			pub, err := trustedEvidenceKey(keys, declaredKeyID, nil)
+			if err != nil {
+				return nil, breakAt(seq, validThrough, linkFail, failure{Code(err), err.Error()})
 			}
 			activeKeyID, activePub = declaredKeyID, pub
 		} else if declaredKeyID != activeKeyID {
@@ -204,7 +259,13 @@ func VerifyStream(records []*Record, keys map[string]ed25519.PublicKey) (*Stream
 			if err != nil {
 				return nil, breakAt(seq, validThrough, linkFail, failure{Code(err), err.Error()})
 			}
-			activeKeyID, activePub = declaredKeyID, newPub
+			// The assertion authenticates the successor; the keyring is what
+			// says it may play the evidence role at all (SE-003).
+			pub, err := trustedEvidenceKey(keys, declaredKeyID, newPub)
+			if err != nil {
+				return nil, breakAt(seq, validThrough, linkFail, failure{Code(err), err.Error()})
+			}
+			activeKeyID, activePub = declaredKeyID, pub
 		} else if hasContinuity {
 			// ES-024a: an assertion on a record that is not the first after a
 			// real key change is rejected, so a replayed proof cannot be parked

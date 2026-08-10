@@ -338,6 +338,8 @@ EV-05's review found three false-acceptance paths in the Go binary. Two are **no
 Both need vectors, and a vector cannot be added until Python passes it — which is why EV-05 could not close this. Add a namespace-aware stream entry point and make record verification dispatch on `record_type`, then add the two vectors: an issuer key signing an evidence stream, and an attestation window with the issuer signature removed.
 
 This is the shipping evidence path, so it is a story rather than a patch tacked onto a verifier PR.
+
+**Two decisions EV-05 made that Python must match, or the vectors cannot be written.** First, the Go stream entry point refuses a rotation onto a key the keyring does not list, even though the ES-024a continuity assertion authenticates it: the assertion establishes *which* key succeeds the old one, and cannot establish the successor's namespace, which is a custody fact only the keyring states. Second, Go's record path now refuses a `record_type` outside §5 and a body missing the members §5 defines for its type, which is what stops an `AttestationWindow` body from being presented as some other type with the ES-023 counter-signature dropped. Python already enforces the type dispatch through its typed models; it does not yet enforce the rotation rule. Go checks only that the mandatory body members are present — member *values* remain validated by Python's models alone, so a record Python's writer would refuse can still pass the Go verifier, and neither implementation should be described as validating §5 bodies without that qualification.
 **Touches:** `sdk_python/evidence/chain.py`, `services/ingestion/receipts.py`, `tests/vectors/`
 **Depends on:** EV-05
 **Satisfies:** ES-023, SE-003
