@@ -24,10 +24,11 @@ import (
 )
 
 type vectorFile struct {
-	Format        string           `json:"format"`
-	FormatVersion string           `json:"format_version"`
-	SpecVersion   string           `json:"spec_version"`
-	Vectors       []map[string]any `json:"vectors"`
+	Format             string           `json:"format"`
+	FormatVersion      string           `json:"format_version"`
+	SpecVersion        string           `json:"spec_version"`
+	Vectors            []map[string]any `json:"vectors"`
+	AdversarialVectors []map[string]any `json:"adversarial_vectors"`
 }
 
 func loadVectors(t *testing.T) vectorFile {
@@ -42,7 +43,10 @@ func loadVectors(t *testing.T) vectorFile {
 		t.Fatalf("parse vectors: %v", err)
 	}
 	if len(vf.Vectors) == 0 {
-		t.Fatal("vector corpus is empty; refusing to report a vacuous pass")
+		t.Fatal("agreement vector corpus is empty; refusing to report a vacuous pass")
+	}
+	if len(vf.AdversarialVectors) == 0 {
+		t.Fatal("adversarial vector corpus is empty; refusing to certify only agreement")
 	}
 	return vf
 }
@@ -210,8 +214,14 @@ func TestVectors(t *testing.T) {
 	if vf.Format != "evidence-control-plane-conformance-vectors" {
 		t.Fatalf("unexpected corpus format %q", vf.Format)
 	}
+	if vf.FormatVersion != "1.1.0" {
+		t.Fatalf("unexpected corpus format version %q", vf.FormatVersion)
+	}
 	seen := map[string]bool{}
-	for _, v := range vf.Vectors {
+	all := make([]map[string]any, 0, len(vf.Vectors)+len(vf.AdversarialVectors))
+	all = append(all, vf.Vectors...)
+	all = append(all, vf.AdversarialVectors...)
+	for _, v := range all {
 		id, _ := v["id"].(string)
 		op, _ := v["operation"].(string)
 		if seen[id] {
@@ -220,7 +230,8 @@ func TestVectors(t *testing.T) {
 		seen[id] = true
 		t.Run(id, func(t *testing.T) { runVector(t, id, op, v) })
 	}
-	t.Logf("executed %d vectors", len(vf.Vectors))
+	t.Logf("executed %d agreement and %d adversarial vectors",
+		len(vf.Vectors), len(vf.AdversarialVectors))
 }
 
 func runVector(t *testing.T, id, op string, v map[string]any) {
@@ -481,7 +492,13 @@ func runVerifyStream(t *testing.T, id string, v map[string]any) {
 		}
 		records = append(records, rec)
 	}
-	res, err := evidence.VerifyEvidenceStream(records, evidenceKeyring(t, v["public_keys"]))
+	var keys map[string]evidence.RegisteredKey
+	if registered, ok := v["verification_keys"]; ok {
+		keys = registeredKeyring(t, registered)
+	} else {
+		keys = evidenceKeyring(t, v["public_keys"])
+	}
+	res, err := evidence.VerifyEvidenceStream(records, keys)
 	if !accepted(v) {
 		checkStreamRefusal(t, id, err, v)
 		return

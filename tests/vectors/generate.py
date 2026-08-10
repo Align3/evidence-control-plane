@@ -1089,6 +1089,88 @@ def _stream_shape_vectors() -> list[dict[str, Any]]:
     return [mixed, not_anchored]
 
 
+def _adversarial_vectors() -> list[dict[str, Any]]:
+    """Refusal probes for composition paths that primitives alone do not cover."""
+
+    # SE-003: the signature is valid and the key is registered; only its
+    # issuer custody role makes it ineligible to authenticate evidence. No
+    # namespace-free public_keys control is published, because there is no
+    # longer a namespace-free stream entry point in either implementation to
+    # run it against.
+    issuer_signed = sign_record(
+        _agent_record(1), key_id="ISSUER1", private_key=_key("ISSUER1")
+    )
+    issuer_stream = {
+        "id": "adversarial-reject-issuer-key-on-evidence-stream",
+        "operation": "verify_stream",
+        "records": [_dump(issuer_signed)],
+        "verification_keys": _registered_keyring(ISSUER1="issuer"),
+        "pre_fix": {
+            "revision": "9e5904b",
+            "python_entry_point": "sdk_python.evidence.chain.verify_stream",
+            "python_result": "accepted sequences 1..1, key ISSUER1",
+            "go_entry_point": "evidence.VerifyEvidenceStream",
+            "go_result": (
+                "refused: key \"ISSUER1\" is in the \"issuer\" namespace; "
+                "evidence streams require evidence keys (SE-003)"
+            ),
+            "go_harness_result": (
+                "VALID stream sequences 1..1, last key ISSUER1 -- the harness "
+                "built its keyring with evidenceKeyring(), which stamped the "
+                "evidence namespace onto every key and so never presented the "
+                "issuer namespace the verifier checks"
+            ),
+        },
+        "expected": {
+            "accepted": False,
+            "error_code": "key.namespace_mismatch",
+        },
+    }
+
+    # ES-023: the customer proof remains valid when signature.issuer is
+    # deleted because it signs the signature-excluded record. This therefore
+    # probes the complete record entry point's record_type dispatch, not the
+    # already-correct issuer-signature primitive.
+    customer_signed = sign_record(
+        _attestation_record(), key_id="K1", private_key=_key("K1")
+    )
+    complete = counter_sign_attestation(
+        customer_signed,
+        issuer_key_id="ISSUER1",
+        issuer_private_key=_key("ISSUER1"),
+    )
+    stripped = _dump(complete)
+    stripped["signature"].pop("issuer")
+    missing_counter_signature = {
+        "id": "adversarial-reject-attestation-without-issuer-signature",
+        "operation": "verify_canonical_evidence_record",
+        "canonical_control_utf8_hex": canonicalize(complete).hex(),
+        "received_wire_utf8_hex": canonicalize(stripped).hex(),
+        "verification_keys": _registered_keyring(
+            K1="evidence", ISSUER1="issuer"
+        ),
+        "pre_fix": {
+            "revision": "9e5904b",
+            "python_entry_point": (
+                "services.ingestion.receipts.verify_canonical_evidence_record"
+            ),
+            "python_result": (
+                "accepted AttestationWindow with signature.issuer absent"
+            ),
+            "go_entry_point": "evidence.VerifyCanonicalEvidenceRecord",
+            "go_result": (
+                "refused: attestation is missing the issuer counter-signature "
+                "(ES-023)"
+            ),
+        },
+        "expected": {
+            "accepted": False,
+            "error_code": "signature.missing_issuer_member",
+        },
+    }
+    return [issuer_stream, missing_counter_signature]
+
+
 def vector_document() -> dict[str, Any]:
     vectors = [
         *_canonicalization_vectors(),
@@ -1099,7 +1181,7 @@ def vector_document() -> dict[str, Any]:
     ]
     return {
         "format": "evidence-control-plane-conformance-vectors",
-        "format_version": "1.0.0",
+        "format_version": "1.1.0",
         "spec_version": "0.1",
         "encoding": {
             "json": "UTF-8",
@@ -1107,6 +1189,7 @@ def vector_document() -> dict[str, Any]:
             "digest": "sha256:<lowercase-hex>",
         },
         "vectors": vectors,
+        "adversarial_vectors": _adversarial_vectors(),
     }
 
 

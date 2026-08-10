@@ -1,9 +1,24 @@
 # Evidence conformance vectors v0.1
 
 `vectors-v0.1.json` is normative under ES-029. A conforming implementation
-consumes every entry according to its `operation` and reaches the exact
-`expected` result. The file is UTF-8 JSON; binary values use unpadded base64url
-and canonical byte strings are also published as lowercase hexadecimal.
+consumes every entry in both `vectors` and `adversarial_vectors` according to
+its `operation` and reaches the exact `expected` result. The file is UTF-8
+JSON; binary values use unpadded base64url and canonical byte strings are also
+published as lowercase hexadecimal.
+
+The two collections answer different questions:
+
+- `vectors` are agreement vectors. They pin exact behavior independently
+  across implementations, but agreement is not proof of correctness: two
+  implementations built from the same incomplete specification can accept the
+  same attack.
+- `adversarial_vectors` are refusal probes, held separately so their purpose
+  cannot be mistaken for divergence detection. They are created by attempting
+  to make a complete public entry point accept an invalid artifact, especially
+  where a correct primitive can be bypassed by a weaker composition path. Every
+  entry must expect refusal and must record, per implementation and against a
+  named revision, what each did with the same subject before the fix. At least
+  one must have accepted it.
 
 The corpus deliberately contains private Ed25519 seeds. They are deterministic
 test material only, never deployment keys. Including them lets an independent
@@ -20,7 +35,8 @@ Operations:
 - `verify_attestation_signatures`: validate the structurally distinct customer
   and issuer signatures and both closed member sets.
 - `verify_stream`: validate chain links, authenticated forks, sequence gaps,
-  per-stream trust anchors, and context-bound key rotation.
+  per-stream trust anchors, context-bound key rotation, and—when
+  `verification_keys` is present—the evidence namespace of every active key.
 
 Rejected vectors return stable dotted `error_code` values, not Python exception
 names or English messages. The first component identifies the rule family

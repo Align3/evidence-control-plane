@@ -18,6 +18,7 @@ from pydantic import ValidationError
 
 from sdk_python.evidence.canonical import canonicalize
 from sdk_python.evidence.schema import (
+    AttestationWindowRecord,
     EvidenceRecord,
     IngestionReceipt,
     RecordEnvelope,
@@ -25,6 +26,7 @@ from sdk_python.evidence.schema import (
 )
 from sdk_python.evidence.signing import (
     record_signing_bytes,
+    verify_attestation_counter_signature,
     verify_record_signature,
     verify_record_signature_bytes,
 )
@@ -241,4 +243,17 @@ def verify_canonical_evidence_record(
         verification_keys=verification_keys,
         signing_bytes=signing_bytes,
     )
+    if isinstance(record, AttestationWindowRecord):
+        public_keys = {
+            registered_id: registered_key.public_key
+            for registered_id, registered_key in verification_keys.items()
+        }
+        issuer_key_id = verify_attestation_counter_signature(
+            record, issuer_public_keys=public_keys
+        )
+        if verification_keys[issuer_key_id].namespace != "issuer":
+            raise KeyNamespaceError(
+                "key namespace mismatch: attestation counter-signatures require "
+                "an issuer key"
+            )
     return record

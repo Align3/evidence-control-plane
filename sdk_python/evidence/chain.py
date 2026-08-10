@@ -7,6 +7,7 @@ import binascii
 import re
 from collections.abc import Iterable, Mapping
 from dataclasses import dataclass
+from typing import Protocol
 
 from cryptography.exceptions import InvalidSignature
 from cryptography.hazmat.primitives import serialization
@@ -61,6 +62,17 @@ class DigestLinkError(ChainVerificationError):
 
 class KeyContinuityError(ChainVerificationError):
     """A signing-key change lacks a valid proof from the predecessor key."""
+
+
+class KeyNamespaceError(ChainVerificationError):
+    """A cryptographically valid signer belongs to a forbidden key namespace."""
+
+
+class RegisteredPublicKey(Protocol):
+    """The key-registry facts required by namespace-aware verification."""
+
+    namespace: str
+    public_key: Ed25519PublicKey
 
 
 @dataclass(frozen=True, slots=True)
@@ -218,20 +230,33 @@ def _gap_body(
 
 
 def _signature_key_id(
-    record: RecordEnvelope, public_keys: Mapping[str, Ed25519PublicKey]
+    record: RecordEnvelope,
+    public_keys: Mapping[str, Ed25519PublicKey],
+    *,
+    verification_keys: Mapping[str, RegisteredPublicKey],
 ) -> str:
     try:
-        return verify_record_signature(record, public_keys=public_keys)
+        key_id = verify_record_signature(record, public_keys=public_keys)
     except SignatureError as exc:
         raise ChainVerificationError(
             f"signature verification failed at sequence {record.sequence}: {exc}",
             stream_id=record.stream_id,
             break_sequence=record.sequence,
         ) from exc
+    if verification_keys[key_id].namespace != "evidence":
+        raise KeyNamespaceError(
+            "key namespace mismatch: evidence streams require an evidence key",
+            stream_id=record.stream_id,
+            break_sequence=record.sequence,
+        )
+    return key_id
 
 
 def _fork_checked_records(
-    records: Iterable[RecordEnvelope], public_keys: Mapping[str, Ed25519PublicKey]
+    records: Iterable[RecordEnvelope],
+    public_keys: Mapping[str, Ed25519PublicKey],
+    *,
+    verification_keys: Mapping[str, RegisteredPublicKey],
 ) -> list[RecordEnvelope]:
     positions: dict[tuple[str, int], RecordEnvelope] = {}
     for record in records:
@@ -247,8 +272,10 @@ def _fork_checked_records(
             # A fatal fork is an authenticated equivocation.  Unsigned garbage
             # at an occupied position is only a bad submission; allowing it to
             # poison the stream would turn fork detection into a DoS primitive.
-            _signature_key_id(previous, public_keys)
-            _signature_key_id(record, public_keys)
+            _signature_key_id(
+                previous, public_keys, verification_keys=verification_keys
+            )
+            _signature_key_id(record, public_keys, verification_keys=verification_keys)
             raise StreamForkError(
                 f"stream fork at {record.stream_id} sequence {record.sequence}",
                 stream_id=record.stream_id,
@@ -258,24 +285,22 @@ def _fork_checked_records(
     return list(positions.values())
 
 
-def verify_stream(
+def _verify_stream(
     records: Iterable[RecordEnvelope],
     *,
     public_keys: Mapping[str, Ed25519PublicKey],
+    verification_keys: Mapping[str, RegisteredPublicKey],
 ) -> ChainVerificationResult:
-    """Reconstruct and verify one stream without using arrival order.
-
-    A fork is fatal for the complete stream.  Other breaks expose the last
-    valid sequence so an attestation window can terminate there rather than
-    incorporating unverifiable evidence.
-    """
-
-    materialized = _fork_checked_records(records, public_keys)
+    materialized = _fork_checked_records(
+        records, public_keys, verification_keys=verification_keys
+    )
     if not materialized:
         raise ChainVerificationError("cannot verify an empty stream")
     stream_ids = {record.stream_id for record in materialized}
     if len(stream_ids) != 1:
-        raise ChainVerificationError("verify_stream accepts exactly one stream_id")
+        raise ChainVerificationError(
+            "verify_evidence_stream accepts exactly one stream_id"
+        )
     ordered = sorted(materialized, key=lambda record: record.sequence)
     stream_id = ordered[0].stream_id
 
@@ -301,7 +326,9 @@ def verify_stream(
             stream_id=stream_id,
             break_sequence=1,
         )
-    last_key_id = _signature_key_id(first, public_keys)
+    last_key_id = _signature_key_id(
+        first, public_keys, verification_keys=verification_keys
+    )
     if "key_continuity" in first.signature:
         raise KeyContinuityError(
             "key continuity is forbidden on the first stream record",
@@ -329,7 +356,9 @@ def verify_stream(
                 coverage_gap_body=_gap_body(previous, current, cause="sequence_break"),
             )
 
-        current_key_id = _signature_key_id(current, public_keys)
+        current_key_id = _signature_key_id(
+            current, public_keys, verification_keys=verification_keys
+        )
         continuity = current.signature.get("key_continuity")
         if current_key_id != last_key_id:
             if not isinstance(continuity, dict):
@@ -391,12 +420,48 @@ def verify_stream(
     )
 
 
-def verify_streams(
+def verify_evidence_stream(
     records: Iterable[RecordEnvelope],
     *,
-    public_keys: Mapping[str, Ed25519PublicKey],
+    verification_keys: Mapping[str, RegisteredPublicKey],
+) -> ChainVerificationResult:
+    """Verify one evidence stream and enforce SE-003 on every active signer.
+
+    A fork is fatal for the complete stream.  Other breaks expose the last
+    valid sequence so an attestation window can terminate there rather than
+    incorporating unverifiable evidence.
+
+    There is deliberately no namespace-free variant of this function.  One
+    existed and was exported as ``verify_stream``: it took bare Ed25519 keys,
+    which carry no custody namespace, so it could not establish SE-003.  Any
+    caller that reached for the primitive instead of the wrapper bypassed the
+    check, and an issuer key authenticating a customer stream is exactly the
+    confusion the two namespaces exist to make impossible.  A weakening path
+    that is merely unattractive is still a path.  This mirrors the same rule
+    in ``verifier-go/internal/evidence/chain.go``.
+    """
+
+    public_keys = {
+        key_id: registered.public_key
+        for key_id, registered in verification_keys.items()
+    }
+    return _verify_stream(
+        records,
+        public_keys=public_keys,
+        verification_keys=verification_keys,
+    )
+
+
+def verify_evidence_streams(
+    records: Iterable[RecordEnvelope],
+    *,
+    verification_keys: Mapping[str, RegisteredPublicKey],
 ) -> dict[str, ChainVerificationResult]:
-    """Verify each stream independently without inventing cross-stream sequence order."""
+    """Verify each stream independently, without inventing cross-stream order.
+
+    The namespace-free ``verify_streams`` was removed for the reason given on
+    :func:`verify_evidence_stream`.
+    """
 
     grouped: dict[str, list[RecordEnvelope]] = {}
     for record in records:
@@ -404,6 +469,8 @@ def verify_streams(
     if not grouped:
         raise ChainVerificationError("cannot verify an empty stream collection")
     return {
-        stream_id: verify_stream(stream_records, public_keys=public_keys)
+        stream_id: verify_evidence_stream(
+            stream_records, verification_keys=verification_keys
+        )
         for stream_id, stream_records in grouped.items()
     }

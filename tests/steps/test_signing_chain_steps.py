@@ -4,7 +4,10 @@ from __future__ import annotations
 
 from typing import Any
 
-from cryptography.hazmat.primitives.asymmetric.ed25519 import Ed25519PrivateKey
+from cryptography.hazmat.primitives.asymmetric.ed25519 import (
+    Ed25519PrivateKey,
+    Ed25519PublicKey,
+)
 from pytest_bdd import given, scenario, then, when
 
 from sdk_python.evidence.canonical import canonical_digest
@@ -14,10 +17,20 @@ from sdk_python.evidence.chain import (
     KeyContinuityError,
     StreamForkError,
     create_key_continuity,
-    verify_stream,
+    verify_evidence_stream,
 )
 from sdk_python.evidence.schema import validate_record
 from sdk_python.evidence.signing import SignatureError, sign_record, verify_record_signature
+from services.ingestion.receipts import RegisteredPublicKey
+
+
+def _evidence_keyring(**public_keys: Ed25519PublicKey) -> dict[str, RegisteredPublicKey]:
+    """Register every key in the evidence namespace: these are customer streams."""
+
+    return {
+        key_id: RegisteredPublicKey(namespace="evidence", public_key=public_key)
+        for key_id, public_key in public_keys.items()
+    }
 
 
 @scenario("evidence.feature", "ES-S-001 Fork detection")
@@ -103,9 +116,9 @@ def submit_fork(context: dict[str, Any]) -> None:
         private_key=context["key"],
     )
     try:
-        verify_stream(
+        verify_evidence_stream(
             [*context["records"], second],
-            public_keys={"K1": context["key"].public_key()},
+            verification_keys=_evidence_keyring(K1=context["key"].public_key()),
         )
     except StreamForkError as exc:
         context["error"] = exc
@@ -146,9 +159,11 @@ def rotate_without_continuity(context: dict[str, Any]) -> None:
         private_key=k2,
     )
     try:
-        verify_stream(
+        verify_evidence_stream(
             [previous, second],
-            public_keys={"K1": context["k1"].public_key(), "K2": k2.public_key()},
+            verification_keys=_evidence_keyring(
+                K1=context["k1"].public_key(), K2=k2.public_key()
+            ),
         )
     except KeyContinuityError as exc:
         context["error"] = exc
@@ -191,12 +206,12 @@ def replace_predecessor_signature(context: dict[str, Any]) -> None:
     unsigned = context["records"][0].model_copy(update={"signature": {}}, deep=True)
     replacement = sign_record(unsigned, key_id="KX", private_key=replacement_key)
     try:
-        verify_stream(
+        verify_evidence_stream(
             [replacement, context["records"][1]],
-            public_keys={
-                "K1": context["key"].public_key(),
-                "KX": replacement_key.public_key(),
-            },
+            verification_keys=_evidence_keyring(
+                K1=context["key"].public_key(),
+                KX=replacement_key.public_key(),
+            ),
         )
     except DigestLinkError as exc:
         context["error"] = exc
@@ -282,12 +297,12 @@ def replay_continuity_into_another_tenant(context: dict[str, Any]) -> None:
     signature["key_continuity"] = context["continuity"]
     replayed = second.model_copy(update={"signature": signature}, deep=True)
     try:
-        verify_stream(
+        verify_evidence_stream(
             [first, replayed],
-            public_keys={
-                "K1": context["k1"].public_key(),
-                "K2": context["k2"].public_key(),
-            },
+            verification_keys=_evidence_keyring(
+                K1=context["k1"].public_key(),
+                K2=context["k2"].public_key(),
+            ),
         )
     except ChainVerificationError as exc:
         context["error"] = exc

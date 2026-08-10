@@ -17,7 +17,7 @@ from pytest_bdd import given, scenario, then, when
 from sqlalchemy import select
 
 from sdk_python.evidence.canonical import canonical_digest
-from sdk_python.evidence.chain import ChainVerificationResult, verify_stream
+from sdk_python.evidence.chain import ChainVerificationResult, verify_evidence_stream
 from sdk_python.evidence.schema import (
     IngestionReceipt,
     parse_record,
@@ -283,9 +283,14 @@ def _verify_stored_stream(
     *,
     stream_id: str,
 ) -> ChainVerificationResult:
-    return verify_stream(
+    return verify_evidence_stream(
         _stored_records(engines, factory, stream_id=stream_id),
-        public_keys={factory.key_id: factory.private_key.public_key()},
+        verification_keys={
+            factory.key_id: RegisteredPublicKey(
+                namespace="evidence",
+                public_key=factory.private_key.public_key(),
+            )
+        },
     )
 
 
