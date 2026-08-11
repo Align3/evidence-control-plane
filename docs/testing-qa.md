@@ -324,6 +324,16 @@ composition behavior, so its bundle, coverage, lattice, and revocation entry
 points are reviewed with acceptance-seeking mutations in this category rather
 than relying on primitive tests plus cross-implementation agreement.
 
+EV-40 supplies the complementary shared-defect example. At base `4fbba6c`,
+both shipping complete-record verifiers accepted an evidence-namespace key on
+a `PopulationRecord` and an `ExternalConfirmation`. The implementations agreed
+because the specification had no record-origin category from which either
+could derive a different answer. The two refusal vectors record those measured
+pre-fix results per implementation. This is why agreement remains necessary
+but cannot establish correctness: adversarial vectors must also ask whether a
+composition entry point accepts a claim by the wrong principal, especially
+when the missing rule is common input to both implementations.
+
 ---
 
 ## 11. Input needed

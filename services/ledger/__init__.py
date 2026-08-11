@@ -40,11 +40,13 @@ from .naming import (
     APP_GRANTS,
     EVIDENCE_PARENT_TABLE,
     INTEGRITY_EVENT_PARENT_TABLE,
+    POPULATION_PARENT_TABLE,
     REGISTRY_READER_ROLE,
     TENANT_ID_SQL_PATTERN,
     application_role,
     integrity_event_partition_name,
     partition_name,
+    population_partition_name,
     validate_tenant_id,
 )
 from .projection import (
@@ -71,6 +73,7 @@ from .schema import (
     integrity_event_partition,
     keys,
     metadata,
+    population_partition,
     tenants,
 )
 from .tenancy import FORBIDDEN_GRANTS, deprovision_tenant, provision_tenant
@@ -83,6 +86,7 @@ __all__ = [
     "DIGEST_PREFIX",
     "EVIDENCE_PARENT_TABLE",
     "INTEGRITY_EVENT_PARENT_TABLE",
+    "POPULATION_PARENT_TABLE",
     "FORBIDDEN_GRANTS",
     "CANONICAL_DERIVED_COLUMNS",
     "PROJECTION_COLUMNS",
@@ -108,6 +112,8 @@ __all__ = [
     "evidence_partition",
     "integrity_event_partition",
     "integrity_event_partition_name",
+    "population_partition",
+    "population_partition_name",
     "keys",
     "metadata",
     "migrator_engine",

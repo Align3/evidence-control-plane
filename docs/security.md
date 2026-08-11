@@ -15,13 +15,17 @@ Requirements carry IDs `SE-nnn`. Each maps to a threat in `threat-model.md`.
 
 ---
 
-## 1. The two-signature model
+## 1. Record origin and signatures
 
-**SE-001** — Evidence records are signed by the **customer's** key. We do not hold it in the default configuration. This is what permits the claim: *we cannot modify your evidence.*
+**SE-001** — A record is authenticated by the party whose observation or conclusion it states. Customer observations and declarations are signed by the customer's `evidence` key. Hosted observations are signed by the service's `issuer` key. We do not hold the customer key in the default configuration; that is what permits the claim *we cannot modify your evidence*. The inverse matters just as much: a customer key cannot authenticate a denominator or confirmation that the hosted service claims to have retrieved independently.
 
-**SE-002** — Attestation windows carry an additional **issuer counter-signature**. This is what permits a relying party to know the attestation came from us and was computed under the stated methodology version.
+**SE-002** — Issuer conclusions are issuer-authenticated. An `AttestationWindow` retains the two-signature form: the customer proof authenticates the evidence-shaped record and the issuer counter-signature authenticates the conclusion and methodology. A `RevocationRecord`, which has no customer-authored conclusion to preserve, carries an issuer primary signature.
 
-**SE-003** — The two signatures are structurally distinct: different key namespaces, different custody, different rotation lifecycles. A design in which one key could produce both is non-conformant.
+**SE-003** — The roles are structurally distinct: different key namespaces, different custody, and different rotation lifecycles. Namespace is dispatched from the record type under ES-033, never selected by the caller. A design in which one key can satisfy both roles, or in which a caller can choose the role after seeing the signature, is non-conformant.
+
+An ingestion receipt, a `PopulationRecord`, and an `ExternalConfirmation` are all instances of the same security category: an observation made by hosted infrastructure. A receipt proves that the service received a particular customer artifact. A population or confirmation signature proves that the service performed the corresponding connector observation. Substituting the first for the second would prove only that the customer supplied its chosen denominator — the customer marking its own homework.
+
+Deployment location does not change record origin. Under P2 and P3 a connector may execute in customer-controlled infrastructure, but a `PopulationRecord` or `ExternalConfirmation` remains an issuer claim. Those profiles therefore require a narrowly usable issuer signing capability reachable by the connector-side observation producer. If that capability is unavailable, the observation is unavailable; it MUST NOT be relabelled as customer evidence or signed with an `evidence` key.
 
 ### 1.1 The honest limit
 
@@ -179,6 +183,15 @@ Then all attestations covering windows after T are revoked
 And any superseding attestation covers only the period before T
 ```
 
+### SE-S-008 — Deployment location cannot change observation origin *(SE-001, SE-003)*
+
+```gherkin
+Given a P2 connector that can reach a customer evidence key but not an issuer key
+When it attempts to produce a PopulationRecord or ExternalConfirmation
+Then no issuer observation is emitted
+And the evidence key is not accepted as a fallback signer
+```
+
 ---
 
 ## 9. Input needed
@@ -192,9 +205,11 @@ And any superseding attestation covers only the period before T
 
 ## Verification classifications
 
-> **Verification for SE-001 — scenario-bearing; deferred EV-37.** This is externally observable runtime behaviour; EV-37 owns its missing Gherkin scenario and executable acceptance proof.
+> **Verification for SE-001 — scenario-bearing; ES-S-019, SE-S-008.** The complete-record verifiers dispatch issuer observations by origin, and deployment without issuer custody is proved to have no evidence-key fallback.
 
-> **Verification for SE-002 — scenario-bearing; deferred EV-35.** This is externally observable runtime behaviour; EV-35 owns its missing Gherkin scenario and executable acceptance proof.
+> **Verification for SE-002 — scenario-bearing; ES-S-019.** The same complete-record entry points accept the two-proof `AttestationWindow` and refuse it when the issuer proof is removed.
+
+> **Verification for SE-003 — scenario-bearing; SE-S-001, ES-S-019, SE-S-008.** Namespace substitution is refused for customer evidence, issuer observations, and deployment-profile fallback.
 
 > **Verification for SE-004 — scenario-bearing; deferred EV-37.** This is externally observable runtime behaviour; EV-37 owns its missing Gherkin scenario and executable acceptance proof.
 

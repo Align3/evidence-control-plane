@@ -17,6 +17,7 @@ from cryptography.hazmat.primitives.asymmetric.ed25519 import (
 from pydantic import ValidationError
 
 from sdk_python.evidence.canonical import canonicalize
+from sdk_python.evidence.origin import primary_signer_namespace
 from sdk_python.evidence.schema import (
     AttestationWindowRecord,
     EvidenceRecord,
@@ -209,7 +210,28 @@ def verify_evidence_record_signature(
     verification_keys: Mapping[str, RegisteredPublicKey],
     signing_bytes: bytes | None = None,
 ) -> str:
-    """Verify a customer record and enforce the evidence-key namespace."""
+    """Compatibility name for ES-033 primary-signature verification.
+
+    The pre-ES-033 API name remains importable, but it cannot retain the old
+    evidence-only semantics: that would be a public bypass for issuer-origin
+    records. Callers that specifically ingest customer observations must first
+    reject non-customer record types, as ``IngestionService`` does.
+    """
+
+    return verify_record_origin_signature(
+        record,
+        verification_keys=verification_keys,
+        signing_bytes=signing_bytes,
+    )
+
+
+def verify_record_origin_signature(
+    record: RecordEnvelope,
+    *,
+    verification_keys: Mapping[str, RegisteredPublicKey],
+    signing_bytes: bytes | None = None,
+) -> str:
+    """Verify the primary signature under the record type's ES-033 role."""
 
     public_keys = {
         registered_id: registered_key.public_key
@@ -223,9 +245,11 @@ def verify_evidence_record_signature(
             signing_bytes=signing_bytes,
             public_keys=public_keys,
         )
-    if verification_keys[key_id].namespace != "evidence":
+    expected = primary_signer_namespace(record.record_type)
+    if verification_keys[key_id].namespace != expected:
         raise KeyNamespaceError(
-            "key namespace mismatch: evidence records require an evidence key"
+            "key namespace mismatch: "
+            f"{record.record_type} requires an {expected} primary signer"
         )
     return key_id
 
@@ -238,7 +262,7 @@ def verify_canonical_evidence_record(
     """Verify a canonical received record without normalizing its wire form."""
 
     record, signing_bytes = parse_canonical_record_wire(raw_record)
-    verify_evidence_record_signature(
+    verify_record_origin_signature(
         record,
         verification_keys=verification_keys,
         signing_bytes=signing_bytes,

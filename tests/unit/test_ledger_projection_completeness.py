@@ -59,7 +59,14 @@ from services.ledger.projection import (
 #: signed bytes.
 _TAMPER: dict[str, str] = {
     "record_id": "record_id = gen_random_uuid()",
-    "record_type": "record_type = record_type || 'X'",
+    # ES-033's closed database dispatch now prevents changing the stored type
+    # to an unknown value. Change the authoritative bytes instead so this
+    # still exercises projection mismatch detection beyond that guard.
+    "record_type": (
+        "canonical_bytes = convert_to("
+        "  replace(convert_from(canonical_bytes, 'UTF8'),"
+        "          '\"record_type\":\"', '\"record_type\":\"X'), 'UTF8')"
+    ),
     "schema_version": "schema_version = schema_version || 'X'",
     "stream_id": "stream_id = stream_id || 'X'",
     "sequence": "sequence = sequence + 1000",

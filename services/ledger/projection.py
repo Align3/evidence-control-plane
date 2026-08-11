@@ -1,10 +1,11 @@
 """Dropping and rebuilding the parsed projection (AC-015, DM-005, DM-013).
 
-`canonical_bytes` is authoritative for customer observations and
-`receipt_canonical_bytes` is authoritative for hosted observations. Every
-other column either signed byte string determines is a cache over its actual
-attestor's bytes, and DM-005 requires *every* such column to be reproducible
--- not merely the three that happen to be droppable. The claim AC-S-006 makes
+`canonical_bytes` is authoritative for every primary record.
+`receipt_canonical_bytes` is independently authoritative for the ingestion
+receipt attached to a customer-origin record. Every other column either signed
+byte string determines is a cache over its actual attestor's bytes, and DM-005
+requires *every* such column to be reproducible -- not merely the three that
+happen to be droppable. The claim AC-S-006 makes
 is falsifiable only if the rebuild path actually exists and is exercised, so
 it is built here and now rather than assumed to be possible later.
 
@@ -53,11 +54,11 @@ from .schema import (
     VERIFIED_HEADER_COLUMNS,
 )
 
-#: The customer record as JSON, decoded from its authoritative bytes. Every
-#: customer-derived expression below starts here and nowhere else.
+#: The primary record as JSON, decoded from its authoritative bytes. Every
+#: record-derived expression below starts here and nowhere else.
 _PARSED = f'convert_from({EVIDENCE_PARENT_TABLE}.canonical_bytes, \'UTF8\')::jsonb'
-#: The hosted receipt as JSON, decoded independently from the issuer's
-#: authoritative bytes.
+#: The ingestion receipt as JSON, decoded independently from the issuer's
+#: authoritative bytes. It is NULL for primary issuer observations.
 _RECEIPT_PARSED = (
     f'convert_from({EVIDENCE_PARENT_TABLE}.receipt_canonical_bytes, \'UTF8\')::jsonb'
 )
@@ -75,7 +76,7 @@ _PROJECTION_SQL: dict[str, str] = {
 #: `record_digest` is derived from the bytes themselves rather than from
 #: their contents, which makes it the check that notices `canonical_bytes`
 #: and the stored digest disagreeing at all. It does not establish that the
-#: bytes are the ones the customer signed -- only the signature does that,
+#: bytes are the ones their declared origin signed -- only the signature does that,
 #: and verifying it is EV-03's job, not the ledger's.
 _REPAIRABLE_SQL: dict[str, str] = {
     "prev_digest": (
@@ -84,7 +85,13 @@ _REPAIRABLE_SQL: dict[str, str] = {
         f" END"
     ),
     "record_digest": f"sha256({EVIDENCE_PARENT_TABLE}.canonical_bytes)",
-    "collector_id": f"({_PARSED}) -> 'source' ->> 'collector_id'",
+    # An issuer observation may name the connector that obtained the data in
+    # its signed source object. That is provenance, not a customer collector
+    # credential, so the ingestion-only column remains NULL for issuer rows.
+    "collector_id": (
+        "CASE WHEN record_key_namespace = 'issuer'::key_namespace THEN NULL"
+        f" ELSE ({_PARSED}) -> 'source' ->> 'collector_id' END"
+    ),
     "source_time": f"(({_PARSED}) -> 'clocks' ->> 'source_time')::timestamptz",
     "authoritative_time": (
         f"(({_PARSED}) -> 'clocks' ->> 'authoritative_time')::timestamptz"
@@ -92,8 +99,14 @@ _REPAIRABLE_SQL: dict[str, str] = {
 }
 
 _RECEIPT_SQL: dict[str, str] = {
-    "ingest_time": f"(({_RECEIPT_PARSED}) ->> 'ingest_time')::timestamptz",
-    "clock_skew_ms": f"(({_RECEIPT_PARSED}) ->> 'clock_skew_ms')::integer",
+    "ingest_time": (
+        "CASE WHEN record_key_namespace = 'issuer'::key_namespace THEN NULL"
+        f" ELSE (({_RECEIPT_PARSED}) ->> 'ingest_time')::timestamptz END"
+    ),
+    "clock_skew_ms": (
+        "CASE WHEN record_key_namespace = 'issuer'::key_namespace THEN NULL"
+        f" ELSE (({_RECEIPT_PARSED}) ->> 'clock_skew_ms')::integer END"
+    ),
 }
 
 #: Header columns are not dropped and not rewritten -- the partition key,

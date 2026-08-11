@@ -151,6 +151,175 @@ def _attestation_record() -> AttestationWindowRecord:
     return record
 
 
+def _issuer_observation(record_type: str, *, sequence: int = 1) -> RecordEnvelope:
+    bodies: dict[str, dict[str, Any]] = {
+        "PopulationRecord": {
+            "action_family": "ticket.resolve",
+            "destination_system": "destination-1",
+            "window_start": "2026-08-01T10:00:00.000Z",
+            "window_end": "2026-08-01T11:00:00.000Z",
+            "enumeration_query": {"scope": {"actor": "agent-1"}},
+            "record_identifiers": ["ticket-1"],
+            "count": 1,
+            "pagination_complete": True,
+            "result_cap_hit": False,
+            "retrieved_at": "2026-08-01T11:00:01.000Z",
+            "authoritative_timestamps": {
+                "min": "2026-08-01T10:30:00.000Z",
+                "max": "2026-08-01T10:30:00.000Z",
+            },
+        },
+        "ExternalConfirmation": {
+            "action_id": "action-1",
+            "destination_system": "destination-1",
+            "destination_record_id": "ticket-1",
+            "destination_record_digest": "sha256:" + "11" * 32,
+            "authoritative_timestamp": "2026-08-01T10:30:00.000Z",
+            "reconciliation_status": "matched",
+            "retrieved_at": "2026-08-01T11:00:01.000Z",
+        },
+    }
+    return validate_record(
+        {
+            "record_id": _record_id(0x200 + sequence + len(record_type)),
+            "record_type": record_type,
+            "schema_version": "1.0.0",
+            "tenant_id": "tenant-1",
+            "boundary_ref": "boundary-1",
+            "stream_id": f"issuer:{record_type}",
+            "sequence": sequence,
+            "prev_digest": None,
+            "source": {"service": "hosted-connector", "version": "0.1.0"},
+            "clocks": {"source_time": "2026-08-01T11:00:01.000Z"},
+            "body": bodies[record_type],
+            "signature": {},
+        }
+    )
+
+
+def _record_origin_vectors() -> list[dict[str, Any]]:
+    vectors: list[dict[str, Any]] = []
+    for record_type in ("PopulationRecord", "ExternalConfirmation"):
+        unsigned = _issuer_observation(record_type)
+        for key_id, namespace, accepted in (("ISSUER1", "issuer", True),):
+            signed = sign_record(unsigned, key_id=key_id, private_key=_key(key_id))
+            vectors.append(
+                {
+                    "id": (
+                        f"accept-{record_type.lower()}-signed-by-issuer-key"
+                        if accepted
+                        else f"reject-{record_type.lower()}-signed-by-evidence-key"
+                    ),
+                    "operation": "verify_record_origin_signature",
+                    "record": _dump(signed),
+                    "verification_keys": _registered_keyring(
+                        **{key_id: namespace}
+                    ),
+                    "expected": {
+                        "accepted": accepted,
+                        **(
+                            {"key_id": key_id, "namespace": namespace}
+                            if accepted
+                            else {"error_code": "key.namespace_mismatch"}
+                        ),
+                    },
+                }
+            )
+    population = sign_record(
+        _issuer_observation("PopulationRecord"),
+        key_id="ISSUER1",
+        private_key=_key("ISSUER1"),
+    )
+    vectors.append(
+        {
+            "id": "issuer-observation-stream-uses-issuer-namespace",
+            "operation": "verify_stream",
+            "records": [_dump(population)],
+            "verification_keys": _registered_keyring(ISSUER1="issuer"),
+            "expected": {
+                "accepted": True,
+                "start_sequence": 1,
+                "end_sequence": 1,
+                "last_key_id": "ISSUER1",
+                "last_digest": canonical_digest(population),
+            },
+        }
+    )
+    successor = _issuer_observation("PopulationRecord", sequence=2).model_copy(
+        update={"prev_digest": canonical_digest(population)}, deep=True
+    )
+    continuity = create_key_continuity(
+        predecessor_key_id="ISSUER1",
+        predecessor_private_key=_key("ISSUER1"),
+        new_key_id="K2",
+        new_public_key=_key("K2").public_key(),
+        tenant_id=successor.tenant_id,
+        stream_id=successor.stream_id,
+    )
+    evidence_successor = sign_record(
+        successor,
+        key_id="K2",
+        private_key=_key("K2"),
+        key_continuity=continuity,
+    )
+    vectors.append(
+        {
+            "id": "reject-issuer-stream-rotation-to-evidence-key",
+            "operation": "verify_stream",
+            "records": [_dump(population), _dump(evidence_successor)],
+            "verification_keys": _registered_keyring(
+                ISSUER1="issuer", K2="evidence"
+            ),
+            "expected": {
+                "accepted": False,
+                "error_code": "key.namespace_mismatch",
+                "break_sequence": 2,
+                "valid_through_sequence": 1,
+            },
+        }
+    )
+    return vectors
+
+
+def _record_origin_adversarial_vectors() -> list[dict[str, Any]]:
+    vectors: list[dict[str, Any]] = []
+    for record_type in ("PopulationRecord", "ExternalConfirmation"):
+        signed = sign_record(
+            _issuer_observation(record_type), key_id="K1", private_key=_key("K1")
+        )
+        vectors.append(
+            {
+                "id": f"reject-{record_type.lower()}-signed-by-evidence-key",
+                "operation": "verify_canonical_evidence_record",
+                "record": _dump(signed),
+                "verification_keys": _registered_keyring(K1="evidence"),
+                "pre_fix": {
+                    "revision": "4fbba6c",
+                    "implementations": {
+                        "python": {
+                            "entry_point": (
+                                "services.ingestion.receipts."
+                                "verify_canonical_evidence_record"
+                            ),
+                            "accepted": True,
+                            "result": f"accepted {record_type} signed by evidence key K1",
+                        },
+                        "go": {
+                            "entry_point": "evidence.VerifyCanonicalEvidenceRecord",
+                            "accepted": True,
+                            "result": f"accepted {record_type} signed by evidence key K1",
+                        },
+                    },
+                },
+                "expected": {
+                    "accepted": False,
+                    "error_code": "key.namespace_mismatch",
+                },
+            }
+        )
+    return vectors
+
+
 def _canonicalization_vectors() -> list[dict[str, Any]]:
     valid_inputs = {
         "canonical-object-order": '{"z":0,"a":[3,2,1],"nested":{"b":true,"a":null}}',
@@ -327,6 +496,7 @@ def _signature_vectors() -> list[dict[str, Any]]:
         "record": _dump(counter_signed),
         "evidence_public_keys": _keyring("K1"),
         "issuer_public_keys": _keyring("ISSUER1"),
+        "verification_keys": _registered_keyring(K1="evidence", ISSUER1="issuer"),
         "private_key_seeds": {
             "K1": _b64(SEEDS["K1"]),
             "ISSUER1": _b64(SEEDS["ISSUER1"]),
@@ -1205,10 +1375,11 @@ def vector_document() -> dict[str, Any]:
         *_chain_vectors(),
         *_stream_shape_vectors(),
         *_receipt_vectors(),
+        *_record_origin_vectors(),
     ]
     return {
         "format": "evidence-control-plane-conformance-vectors",
-        "format_version": "1.1.0",
+        "format_version": "1.2.0",
         "spec_version": "0.1",
         "encoding": {
             "json": "UTF-8",
@@ -1216,7 +1387,10 @@ def vector_document() -> dict[str, Any]:
             "digest": "sha256:<lowercase-hex>",
         },
         "vectors": vectors,
-        "adversarial_vectors": _adversarial_vectors(),
+        "adversarial_vectors": [
+            *_adversarial_vectors(),
+            *_record_origin_adversarial_vectors(),
+        ],
     }
 
 

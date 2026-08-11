@@ -109,6 +109,141 @@
           "public_key": "A6EHv_POEL4dcN0Y50vAmWfk1jCbpQ1fHdyGZBJVMbg"
         }
       }
+    },
+    {
+      "expected": {
+        "accepted": false,
+        "error_code": "key.namespace_mismatch"
+      },
+      "id": "reject-populationrecord-signed-by-evidence-key",
+      "operation": "verify_canonical_evidence_record",
+      "pre_fix": {
+        "implementations": {
+          "go": {
+            "accepted": true,
+            "entry_point": "evidence.VerifyCanonicalEvidenceRecord",
+            "result": "accepted PopulationRecord signed by evidence key K1"
+          },
+          "python": {
+            "accepted": true,
+            "entry_point": "services.ingestion.receipts.verify_canonical_evidence_record",
+            "result": "accepted PopulationRecord signed by evidence key K1"
+          }
+        },
+        "revision": "4fbba6c"
+      },
+      "record": {
+        "body": {
+          "action_family": "ticket.resolve",
+          "authoritative_timestamps": {
+            "max": "2026-08-01T10:30:00.000Z",
+            "min": "2026-08-01T10:30:00.000Z"
+          },
+          "count": 1,
+          "destination_system": "destination-1",
+          "enumeration_query": {
+            "scope": {
+              "actor": "agent-1"
+            }
+          },
+          "pagination_complete": true,
+          "record_identifiers": [
+            "ticket-1"
+          ],
+          "result_cap_hit": false,
+          "retrieved_at": "2026-08-01T11:00:01.000Z",
+          "window_end": "2026-08-01T11:00:00.000Z",
+          "window_start": "2026-08-01T10:00:00.000Z"
+        },
+        "boundary_ref": "boundary-1",
+        "clocks": {
+          "source_time": "2026-08-01T11:00:01.000Z"
+        },
+        "prev_digest": null,
+        "record_id": "01890f47-2f58-7cc0-98c4-000000000211",
+        "record_type": "PopulationRecord",
+        "schema_version": "1.0.0",
+        "sequence": 1,
+        "signature": {
+          "alg": "ed25519",
+          "key_id": "K1",
+          "sig": "y1X7j25XEL1nrDnXz7bmqDcF9_r1pIkPIYpGLC33Im9xcqTYVM6h7J1bICXgmu-mwPT-2H1gd2c_nhMmqIvgCg",
+          "signed_digest": "sha256:a215959b14417c36d2e63baf142e0045aa95efe8de3093cc46d8df5033594f38"
+        },
+        "source": {
+          "service": "hosted-connector",
+          "version": "0.1.0"
+        },
+        "stream_id": "issuer:PopulationRecord",
+        "tenant_id": "tenant-1"
+      },
+      "verification_keys": {
+        "K1": {
+          "namespace": "evidence",
+          "public_key": "A6EHv_POEL4dcN0Y50vAmWfk1jCbpQ1fHdyGZBJVMbg"
+        }
+      }
+    },
+    {
+      "expected": {
+        "accepted": false,
+        "error_code": "key.namespace_mismatch"
+      },
+      "id": "reject-externalconfirmation-signed-by-evidence-key",
+      "operation": "verify_canonical_evidence_record",
+      "pre_fix": {
+        "implementations": {
+          "go": {
+            "accepted": true,
+            "entry_point": "evidence.VerifyCanonicalEvidenceRecord",
+            "result": "accepted ExternalConfirmation signed by evidence key K1"
+          },
+          "python": {
+            "accepted": true,
+            "entry_point": "services.ingestion.receipts.verify_canonical_evidence_record",
+            "result": "accepted ExternalConfirmation signed by evidence key K1"
+          }
+        },
+        "revision": "4fbba6c"
+      },
+      "record": {
+        "body": {
+          "action_id": "action-1",
+          "authoritative_timestamp": "2026-08-01T10:30:00.000Z",
+          "destination_record_digest": "sha256:1111111111111111111111111111111111111111111111111111111111111111",
+          "destination_record_id": "ticket-1",
+          "destination_system": "destination-1",
+          "reconciliation_status": "matched",
+          "retrieved_at": "2026-08-01T11:00:01.000Z"
+        },
+        "boundary_ref": "boundary-1",
+        "clocks": {
+          "source_time": "2026-08-01T11:00:01.000Z"
+        },
+        "prev_digest": null,
+        "record_id": "01890f47-2f58-7cc0-98c4-000000000215",
+        "record_type": "ExternalConfirmation",
+        "schema_version": "1.0.0",
+        "sequence": 1,
+        "signature": {
+          "alg": "ed25519",
+          "key_id": "K1",
+          "sig": "vc2KRjMpqgxQsRbP8boSUTe_t8vf3ZgrPnS7OdLZA3Xm-abGlsRXo_v8dgx4p3CnvR4rMwTzaHH97WIw5K23BQ",
+          "signed_digest": "sha256:e5496fe206d458e572abeb5e4455e277824dd101e73517c46f11e935e9972346"
+        },
+        "source": {
+          "service": "hosted-connector",
+          "version": "0.1.0"
+        },
+        "stream_id": "issuer:ExternalConfirmation",
+        "tenant_id": "tenant-1"
+      },
+      "verification_keys": {
+        "K1": {
+          "namespace": "evidence",
+          "public_key": "A6EHv_POEL4dcN0Y50vAmWfk1jCbpQ1fHdyGZBJVMbg"
+        }
+      }
     }
   ],
   "encoding": {
@@ -117,7 +252,7 @@
     "json": "UTF-8"
   },
   "format": "evidence-control-plane-conformance-vectors",
-  "format_version": "1.1.0",
+  "format_version": "1.2.0",
   "spec_version": "0.1",
   "vectors": [
     {
@@ -701,6 +836,16 @@
         },
         "stream_id": "attestation-1",
         "tenant_id": "tenant-1"
+      },
+      "verification_keys": {
+        "ISSUER1": {
+          "namespace": "issuer",
+          "public_key": "F0VTtFbd38aQjsqxwQH-arIeK6oGF3lbfUOmNIKZP9U"
+        },
+        "K1": {
+          "namespace": "evidence",
+          "public_key": "A6EHv_POEL4dcN0Y50vAmWfk1jCbpQ1fHdyGZBJVMbg"
+        }
       }
     },
     {
@@ -3191,6 +3336,298 @@
         "ISSUER1": {
           "namespace": "issuer",
           "public_key": "F0VTtFbd38aQjsqxwQH-arIeK6oGF3lbfUOmNIKZP9U"
+        }
+      }
+    },
+    {
+      "expected": {
+        "accepted": true,
+        "key_id": "ISSUER1",
+        "namespace": "issuer"
+      },
+      "id": "accept-populationrecord-signed-by-issuer-key",
+      "operation": "verify_record_origin_signature",
+      "record": {
+        "body": {
+          "action_family": "ticket.resolve",
+          "authoritative_timestamps": {
+            "max": "2026-08-01T10:30:00.000Z",
+            "min": "2026-08-01T10:30:00.000Z"
+          },
+          "count": 1,
+          "destination_system": "destination-1",
+          "enumeration_query": {
+            "scope": {
+              "actor": "agent-1"
+            }
+          },
+          "pagination_complete": true,
+          "record_identifiers": [
+            "ticket-1"
+          ],
+          "result_cap_hit": false,
+          "retrieved_at": "2026-08-01T11:00:01.000Z",
+          "window_end": "2026-08-01T11:00:00.000Z",
+          "window_start": "2026-08-01T10:00:00.000Z"
+        },
+        "boundary_ref": "boundary-1",
+        "clocks": {
+          "source_time": "2026-08-01T11:00:01.000Z"
+        },
+        "prev_digest": null,
+        "record_id": "01890f47-2f58-7cc0-98c4-000000000211",
+        "record_type": "PopulationRecord",
+        "schema_version": "1.0.0",
+        "sequence": 1,
+        "signature": {
+          "alg": "ed25519",
+          "key_id": "ISSUER1",
+          "sig": "cgZ92QKCtA93Z3XrB49w0ET3gLX-sl2PRCqOkcjKI0pstOMM43ROAlPvWA-byX5M1gt3XlBgRofWodmwy0TzAA",
+          "signed_digest": "sha256:a215959b14417c36d2e63baf142e0045aa95efe8de3093cc46d8df5033594f38"
+        },
+        "source": {
+          "service": "hosted-connector",
+          "version": "0.1.0"
+        },
+        "stream_id": "issuer:PopulationRecord",
+        "tenant_id": "tenant-1"
+      },
+      "verification_keys": {
+        "ISSUER1": {
+          "namespace": "issuer",
+          "public_key": "F0VTtFbd38aQjsqxwQH-arIeK6oGF3lbfUOmNIKZP9U"
+        }
+      }
+    },
+    {
+      "expected": {
+        "accepted": true,
+        "key_id": "ISSUER1",
+        "namespace": "issuer"
+      },
+      "id": "accept-externalconfirmation-signed-by-issuer-key",
+      "operation": "verify_record_origin_signature",
+      "record": {
+        "body": {
+          "action_id": "action-1",
+          "authoritative_timestamp": "2026-08-01T10:30:00.000Z",
+          "destination_record_digest": "sha256:1111111111111111111111111111111111111111111111111111111111111111",
+          "destination_record_id": "ticket-1",
+          "destination_system": "destination-1",
+          "reconciliation_status": "matched",
+          "retrieved_at": "2026-08-01T11:00:01.000Z"
+        },
+        "boundary_ref": "boundary-1",
+        "clocks": {
+          "source_time": "2026-08-01T11:00:01.000Z"
+        },
+        "prev_digest": null,
+        "record_id": "01890f47-2f58-7cc0-98c4-000000000215",
+        "record_type": "ExternalConfirmation",
+        "schema_version": "1.0.0",
+        "sequence": 1,
+        "signature": {
+          "alg": "ed25519",
+          "key_id": "ISSUER1",
+          "sig": "LBpqS-PVq0tewvzqXium6UQNnPGegvhMaq4IRrRVBPx7s7ZgV-ZfAAS2uF99BmpE2kwHbd63gp9MA6kDQA6yAw",
+          "signed_digest": "sha256:e5496fe206d458e572abeb5e4455e277824dd101e73517c46f11e935e9972346"
+        },
+        "source": {
+          "service": "hosted-connector",
+          "version": "0.1.0"
+        },
+        "stream_id": "issuer:ExternalConfirmation",
+        "tenant_id": "tenant-1"
+      },
+      "verification_keys": {
+        "ISSUER1": {
+          "namespace": "issuer",
+          "public_key": "F0VTtFbd38aQjsqxwQH-arIeK6oGF3lbfUOmNIKZP9U"
+        }
+      }
+    },
+    {
+      "expected": {
+        "accepted": true,
+        "end_sequence": 1,
+        "last_digest": "sha256:f83bf6c71c14d6187544f885201ce2350dcb9c8e552e70a8213ce1ffa0d579c7",
+        "last_key_id": "ISSUER1",
+        "start_sequence": 1
+      },
+      "id": "issuer-observation-stream-uses-issuer-namespace",
+      "operation": "verify_stream",
+      "records": [
+        {
+          "body": {
+            "action_family": "ticket.resolve",
+            "authoritative_timestamps": {
+              "max": "2026-08-01T10:30:00.000Z",
+              "min": "2026-08-01T10:30:00.000Z"
+            },
+            "count": 1,
+            "destination_system": "destination-1",
+            "enumeration_query": {
+              "scope": {
+                "actor": "agent-1"
+              }
+            },
+            "pagination_complete": true,
+            "record_identifiers": [
+              "ticket-1"
+            ],
+            "result_cap_hit": false,
+            "retrieved_at": "2026-08-01T11:00:01.000Z",
+            "window_end": "2026-08-01T11:00:00.000Z",
+            "window_start": "2026-08-01T10:00:00.000Z"
+          },
+          "boundary_ref": "boundary-1",
+          "clocks": {
+            "source_time": "2026-08-01T11:00:01.000Z"
+          },
+          "prev_digest": null,
+          "record_id": "01890f47-2f58-7cc0-98c4-000000000211",
+          "record_type": "PopulationRecord",
+          "schema_version": "1.0.0",
+          "sequence": 1,
+          "signature": {
+            "alg": "ed25519",
+            "key_id": "ISSUER1",
+            "sig": "cgZ92QKCtA93Z3XrB49w0ET3gLX-sl2PRCqOkcjKI0pstOMM43ROAlPvWA-byX5M1gt3XlBgRofWodmwy0TzAA",
+            "signed_digest": "sha256:a215959b14417c36d2e63baf142e0045aa95efe8de3093cc46d8df5033594f38"
+          },
+          "source": {
+            "service": "hosted-connector",
+            "version": "0.1.0"
+          },
+          "stream_id": "issuer:PopulationRecord",
+          "tenant_id": "tenant-1"
+        }
+      ],
+      "verification_keys": {
+        "ISSUER1": {
+          "namespace": "issuer",
+          "public_key": "F0VTtFbd38aQjsqxwQH-arIeK6oGF3lbfUOmNIKZP9U"
+        }
+      }
+    },
+    {
+      "expected": {
+        "accepted": false,
+        "break_sequence": 2,
+        "error_code": "key.namespace_mismatch",
+        "valid_through_sequence": 1
+      },
+      "id": "reject-issuer-stream-rotation-to-evidence-key",
+      "operation": "verify_stream",
+      "records": [
+        {
+          "body": {
+            "action_family": "ticket.resolve",
+            "authoritative_timestamps": {
+              "max": "2026-08-01T10:30:00.000Z",
+              "min": "2026-08-01T10:30:00.000Z"
+            },
+            "count": 1,
+            "destination_system": "destination-1",
+            "enumeration_query": {
+              "scope": {
+                "actor": "agent-1"
+              }
+            },
+            "pagination_complete": true,
+            "record_identifiers": [
+              "ticket-1"
+            ],
+            "result_cap_hit": false,
+            "retrieved_at": "2026-08-01T11:00:01.000Z",
+            "window_end": "2026-08-01T11:00:00.000Z",
+            "window_start": "2026-08-01T10:00:00.000Z"
+          },
+          "boundary_ref": "boundary-1",
+          "clocks": {
+            "source_time": "2026-08-01T11:00:01.000Z"
+          },
+          "prev_digest": null,
+          "record_id": "01890f47-2f58-7cc0-98c4-000000000211",
+          "record_type": "PopulationRecord",
+          "schema_version": "1.0.0",
+          "sequence": 1,
+          "signature": {
+            "alg": "ed25519",
+            "key_id": "ISSUER1",
+            "sig": "cgZ92QKCtA93Z3XrB49w0ET3gLX-sl2PRCqOkcjKI0pstOMM43ROAlPvWA-byX5M1gt3XlBgRofWodmwy0TzAA",
+            "signed_digest": "sha256:a215959b14417c36d2e63baf142e0045aa95efe8de3093cc46d8df5033594f38"
+          },
+          "source": {
+            "service": "hosted-connector",
+            "version": "0.1.0"
+          },
+          "stream_id": "issuer:PopulationRecord",
+          "tenant_id": "tenant-1"
+        },
+        {
+          "body": {
+            "action_family": "ticket.resolve",
+            "authoritative_timestamps": {
+              "max": "2026-08-01T10:30:00.000Z",
+              "min": "2026-08-01T10:30:00.000Z"
+            },
+            "count": 1,
+            "destination_system": "destination-1",
+            "enumeration_query": {
+              "scope": {
+                "actor": "agent-1"
+              }
+            },
+            "pagination_complete": true,
+            "record_identifiers": [
+              "ticket-1"
+            ],
+            "result_cap_hit": false,
+            "retrieved_at": "2026-08-01T11:00:01.000Z",
+            "window_end": "2026-08-01T11:00:00.000Z",
+            "window_start": "2026-08-01T10:00:00.000Z"
+          },
+          "boundary_ref": "boundary-1",
+          "clocks": {
+            "source_time": "2026-08-01T11:00:01.000Z"
+          },
+          "prev_digest": "sha256:f83bf6c71c14d6187544f885201ce2350dcb9c8e552e70a8213ce1ffa0d579c7",
+          "record_id": "01890f47-2f58-7cc0-98c4-000000000212",
+          "record_type": "PopulationRecord",
+          "schema_version": "1.0.0",
+          "sequence": 2,
+          "signature": {
+            "alg": "ed25519",
+            "key_continuity": {
+              "alg": "ed25519",
+              "new_key_id": "K2",
+              "new_public_key": "Kay64UG8yvCyLhqU000LxzYeUm0L_hLIl5S8kyKWbdc",
+              "predecessor_key_id": "ISSUER1",
+              "sig": "SBo3a3kshe4pcW6SSzodCB5FS-i5CIY9JSlS-2eVLNjL0zVeRpSsQurEo4catsKGpPZYrraHJeHwmSxjdim6Bw",
+              "stream_id": "issuer:PopulationRecord",
+              "tenant_id": "tenant-1"
+            },
+            "key_id": "K2",
+            "sig": "NOwcBx-hcrsRZWw4hE9funOMjbuP9zEEkbY6Ea7nGR6-Sg7ADC2anRQa3K-bOyJp-RWr2lGNvdjywOClmQcADA",
+            "signed_digest": "sha256:e85611338fdac129f054f0485f91bd2d6736108c7768d4b36d25f944b75f1632"
+          },
+          "source": {
+            "service": "hosted-connector",
+            "version": "0.1.0"
+          },
+          "stream_id": "issuer:PopulationRecord",
+          "tenant_id": "tenant-1"
+        }
+      ],
+      "verification_keys": {
+        "ISSUER1": {
+          "namespace": "issuer",
+          "public_key": "F0VTtFbd38aQjsqxwQH-arIeK6oGF3lbfUOmNIKZP9U"
+        },
+        "K2": {
+          "namespace": "evidence",
+          "public_key": "Kay64UG8yvCyLhqU000LxzYeUm0L_hLIl5S8kyKWbdc"
         }
       }
     }

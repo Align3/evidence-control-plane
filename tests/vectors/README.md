@@ -38,13 +38,18 @@ Operations:
   digest, or reject the prohibited input.
 - `sign_record`: sign `unsigned_record` with the supplied seed and reproduce
   the complete `signed_record` byte-for-byte.
-- `verify_signature`: validate a customer signature and its closed member set.
+- `verify_signature`: validate a primary signature cryptographically and its closed member set.
 - `verify_attestation_signatures`: validate the structurally distinct customer
   and issuer signatures and both closed member sets.
 - `verify_stream`: validate chain links, authenticated forks, sequence gaps,
-  per-stream trust anchors, context-bound key rotation, and the evidence
-  namespace of every active key. Every stream vector carries
+  per-stream trust anchors, context-bound key rotation, and the ES-033
+  record-origin namespace of every active key. Every stream vector carries
   `verification_keys`; a harness must not infer namespaces from `public_keys`.
+- `verify_record_origin_signature`: validate a complete primary proof and
+  dispatch its required namespace from the closed record-type map.
+- `verify_canonical_evidence_record`: run the complete canonical-wire,
+  record-origin, and type-specific signature path. Adversarial namespace
+  substitutions use this operation rather than stopping at a primitive.
 
 Each adversarial vector carries structured `pre_fix.implementations` results.
 Every result states the shipping entry point, whether it accepted, and the
@@ -61,8 +66,8 @@ wording while agreeing on that semantic result.
 `generate.py` is deterministic. Regeneration is not an approval mechanism: a
 changed vector is a normative format change and its byte diff must be reviewed.
 `test_vectors.py` refuses drift and executes every stored vector through the
-Python implementation. EV-05 must implement the same operations independently
-in Go; until that happens, AG-011 remains explicitly unsatisfied.
+Python implementation. The Go conformance package independently executes the
+same corpus and refuses an operation for which it has no runner.
 
 ## Implementer note: sub-millisecond `source_time`
 

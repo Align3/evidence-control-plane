@@ -231,7 +231,7 @@ def signing_digest(record: RecordEnvelope) -> str:
 
 
 def record_signing_bytes(record: RecordEnvelope) -> bytes:
-    """Return the exact customer-authored bytes covered by ``signed_digest``."""
+    """Return the exact primary-signer bytes covered by ``signed_digest``."""
 
     return canonicalize(_unsigned_mapping(record))
 
@@ -255,7 +255,12 @@ def sign_record[RecordT: RecordEnvelope](
     private_key: Ed25519PrivateKey,
     key_continuity: Mapping[str, object] | None = None,
 ) -> RecordT:
-    """Return a copy signed by the customer's evidence key.
+    """Return a copy carrying its primary Ed25519 signature.
+
+    This primitive proves bytes, not custody role. ES-033 namespace dispatch is
+    enforced by the complete record verifiers; callers producing issuer
+    observations pass an issuer key and callers producing customer records pass
+    an evidence key.
 
     ``key_continuity`` is attached only on the first record using a new key.
     It is a separately authenticated assertion created by ``chain`` and is
@@ -299,7 +304,7 @@ def verify_record_signature_bytes(
     signing_bytes: bytes,
     public_keys: Mapping[str, Ed25519PublicKey],
 ) -> str:
-    """Verify against the exact customer bytes retained by ingestion.
+    """Verify against the exact primary-signing bytes retained by storage.
 
     Callers that possess the received canonical representation pass those
     bytes here.  The ordinary model-only verifier remains available for

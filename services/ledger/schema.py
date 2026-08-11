@@ -17,6 +17,7 @@ from typing import Any
 
 from sqlalchemy import (
     BigInteger,
+    Boolean,
     CheckConstraint,
     Column,
     ForeignKey,
@@ -33,8 +34,10 @@ from sqlalchemy.dialects.postgresql import ENUM, JSONB, TIMESTAMP, UUID
 
 from .naming import (
     EVIDENCE_PARENT_TABLE,
+    POPULATION_PARENT_TABLE,
     TENANT_ID_SQL_PATTERN,
     partition_name,
+    population_partition_name,
     validate_tenant_id,
 )
 
@@ -140,8 +143,8 @@ REPAIRABLE_DERIVED_COLUMNS: tuple[str, ...] = (
     "authoritative_time",
 )
 
-#: Hosted observations derived from the separately issuer-signed receipt
-#: rather than from the customer record (ES-019, ES-030, DM-024).
+#: Ingestion observations derived from the separately issuer-signed receipt
+#: attached to a customer-origin record (ES-019, ES-030, DM-024).
 RECEIPT_DERIVED_COLUMNS: tuple[str, ...] = ("ingest_time", "clock_skew_ms")
 
 #: Columns parsed from `canonical_bytes` that carry constraints the ledger's
@@ -186,7 +189,7 @@ def _evidence_columns() -> list[Column[Any]]:
         Column("sequence", BigInteger, nullable=False),
         Column("prev_digest", LargeBinary, nullable=True),
         Column("record_digest", LargeBinary, nullable=False),
-        Column("collector_id", Text, nullable=False),
+        Column("collector_id", Text, nullable=True),
         Column("key_id", Text, nullable=False),
         Column(
             "record_key_namespace",
@@ -196,23 +199,22 @@ def _evidence_columns() -> list[Column[Any]]:
         ),
         Column("signature", LargeBinary, nullable=False),
         Column("source_time", TIMESTAMP(timezone=True), nullable=False),
-        Column("ingest_time", TIMESTAMP(timezone=True), nullable=False),
+        Column("ingest_time", TIMESTAMP(timezone=True), nullable=True),
         Column("authoritative_time", TIMESTAMP(timezone=True), nullable=True),
-        Column("clock_skew_ms", Integer, nullable=False),
+        Column("clock_skew_ms", Integer, nullable=True),
         # Authoritative. Everything else about the record is derived from it.
         Column("canonical_bytes", LargeBinary, nullable=False),
-        # Exact canonical full record received by ingestion, including the
-        # detached customer signature member. Receipts bind this byte string.
+        # Exact canonical full record, including its primary signature member.
+        # Customer-ingestion receipts bind this byte string.
         Column("received_wire_bytes", LargeBinary, nullable=False),
-        Column("receipt_key_id", Text, nullable=False),
+        Column("receipt_key_id", Text, nullable=True),
         Column(
             "receipt_key_namespace",
             key_namespace,
-            nullable=False,
-            server_default="issuer",
+            nullable=True,
         ),
-        Column("receipt_signature", LargeBinary, nullable=False),
-        Column("receipt_canonical_bytes", LargeBinary, nullable=False),
+        Column("receipt_signature", LargeBinary, nullable=True),
+        Column("receipt_canonical_bytes", LargeBinary, nullable=True),
         # Projection (PROJECTION_COLUMNS) -- rebuildable, never trusted.
         Column("body", JSONB, nullable=False),
         Column("action_id", UUID(as_uuid=True), nullable=True),
@@ -233,6 +235,37 @@ def _integrity_event_columns() -> list[Column[Any]]:
         Column("existing_wire_bytes", LargeBinary, nullable=True),
         Column("occurred_at", TIMESTAMP(timezone=True), nullable=False),
         Column("surfaced_to_tenant_at", TIMESTAMP(timezone=True), nullable=False),
+    ]
+
+
+def _population_columns() -> list[Column[Any]]:
+    return [
+        Column("population_ref", Text, nullable=False),
+        Column("tenant_id", Text, nullable=False),
+        Column("boundary_ref", Text, nullable=False),
+        Column("stream_id", Text, nullable=False),
+        Column("sequence", BigInteger, nullable=False),
+        Column("prev_digest", LargeBinary, nullable=True),
+        Column("record_digest", LargeBinary, nullable=False),
+        Column("action_family", Text, nullable=False),
+        Column("destination_system", Text, nullable=False),
+        Column("window_start", TIMESTAMP(timezone=True), nullable=False),
+        Column("window_end", TIMESTAMP(timezone=True), nullable=False),
+        Column("enumeration_query", JSONB, nullable=False),
+        Column("identifier_digest", LargeBinary, nullable=True),
+        Column("identifiers", JSONB, nullable=True),
+        Column("count", BigInteger, nullable=False),
+        Column("pagination_complete", Boolean, nullable=False),
+        Column("result_cap_hit", Boolean, nullable=False),
+        Column("retrieved_at", TIMESTAMP(timezone=True), nullable=False),
+        Column("authoritative_timestamps", JSONB, nullable=False),
+        Column("source_time", TIMESTAMP(timezone=True), nullable=False),
+        Column("authoritative_time", TIMESTAMP(timezone=True), nullable=True),
+        Column("key_id", Text, nullable=False),
+        Column("key_namespace", key_namespace, nullable=False, server_default="issuer"),
+        Column("signature", LargeBinary, nullable=False),
+        Column("canonical_bytes", LargeBinary, nullable=False),
+        Column("received_wire_bytes", LargeBinary, nullable=False),
     ]
 
 
@@ -292,14 +325,42 @@ def integrity_event_partition(tenant_id: str) -> Table:
     return table
 
 
+def population_partition(tenant_id: str) -> Table:
+    """Return the tenant-scoped issuer-observation denominator relation."""
+
+    name = population_partition_name(tenant_id)
+    cached = _partition_cache.get(name)
+    if cached is not None:
+        return cached
+    table = Table(
+        name,
+        MetaData(),
+        *_population_columns(),
+        UniqueConstraint("tenant_id", "population_ref"),
+        UniqueConstraint("tenant_id", "stream_id", "sequence"),
+        Index(
+            None,
+            "tenant_id",
+            "action_family",
+            "destination_system",
+            "window_start",
+            "window_end",
+        ),
+    )
+    _partition_cache[name] = table
+    return table
+
+
 __all__ = [
     "EVIDENCE_PARENT_TABLE",
+    "POPULATION_PARENT_TABLE",
     "PROJECTION_COLUMNS",
     "RECEIPT_DERIVED_COLUMNS",
     "VERIFIED_HEADER_COLUMNS",
     "collectors",
     "evidence_partition",
     "integrity_event_partition",
+    "population_partition",
     "keys",
     "metadata",
     "tenants",

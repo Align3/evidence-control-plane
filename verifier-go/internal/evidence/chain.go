@@ -81,7 +81,7 @@ var continuityMembers = map[string]bool{
 	"new_public_key": true, "tenant_id": true, "stream_id": true, "sig": true,
 }
 
-// trustedEvidenceKey admits one key to a stream, or says why it cannot.
+// trustedStreamKey admits one key to a stream, or says why it cannot.
 //
 // Every key that ever becomes the active signing key passes through here, which
 // is the only reason SE-003 holds for a stream rather than for the records
@@ -102,7 +102,7 @@ var continuityMembers = map[string]bool{
 // another. A verifier that accepted the delegation would be reporting SE-003 as
 // enforced while the successor's namespace was simply unknown to it. The corpus
 // agrees: every rotation vector lists the rotated key in its keyring.
-func trustedEvidenceKey(keys map[string]RegisteredKey, keyID string,
+func trustedStreamKey(keys map[string]RegisteredKey, keyID, namespace string,
 	asserted ed25519.PublicKey) (ed25519.PublicKey, error) {
 	registered, ok := keys[keyID]
 	if !ok {
@@ -114,10 +114,10 @@ func trustedEvidenceKey(keys map[string]RegisteredKey, keyID string,
 				"key and so states no namespace for it; SE-003 is a property of how a "+
 				"key is held and cannot be conferred by the key it replaces", keyID)
 	}
-	if registered.Namespace != NamespaceEvidence {
+	if registered.Namespace != namespace {
 		return nil, errf(CodeKeyNamespaceMismatch,
-			"key %q is in the %q namespace; evidence streams require evidence keys (SE-003)",
-			keyID, registered.Namespace)
+			"key %q is in the %q namespace; this stream requires %q keys (ES-033/SE-003)",
+			keyID, registered.Namespace, namespace)
 	}
 	if asserted != nil && !registered.PublicKey.Equal(asserted) {
 		return nil, errf(CodeContinuityKeyConflict,
@@ -152,12 +152,28 @@ func VerifyEvidenceStream(records []*Record, keys map[string]RegisteredKey) (*St
 	// mixture would compute links and rotations across chains that were never
 	// one chain, and report the result as a single verified stream.
 	streamID := records[0].StreamID()
+	streamNamespace, err := records[0].PrimarySignerNamespace()
+	if err != nil {
+		return nil, streamErr(err, records[0].Sequence(), 0)
+	}
 	for _, r := range records {
 		if r.StreamID() != streamID {
 			return nil, &StreamError{
 				Code: CodeChainStreamMismatch, BreakSequence: r.Sequence(),
 				Msg: fmt.Sprintf("stream contains records from %q and %q; "+
 					"verify one stream at a time", streamID, r.StreamID()),
+			}
+		}
+		recordNamespace, err := r.PrimarySignerNamespace()
+		if err != nil {
+			return nil, streamErr(err, r.Sequence(), 0)
+		}
+		if recordNamespace != streamNamespace {
+			return nil, &StreamError{
+				Code: CodeKeyNamespaceMismatch, BreakSequence: r.Sequence(),
+				Msg: fmt.Sprintf("stream changes primary signer namespace from %q to %q; "+
+					"ES-033 requires a new stream rather than cross-role continuity",
+					streamNamespace, recordNamespace),
 			}
 		}
 	}
@@ -244,7 +260,7 @@ func VerifyEvidenceStream(records []*Record, keys map[string]RegisteredKey) (*St
 				return nil, breakAt(seq, validThrough, linkFail, failure{CodeContinuityFirstRecord,
 					"sequence 1 anchors to the trusted keyring and must not carry key_continuity"})
 			}
-			pub, err := trustedEvidenceKey(keys, declaredKeyID, nil)
+			pub, err := trustedStreamKey(keys, declaredKeyID, streamNamespace, nil)
 			if err != nil {
 				return nil, breakAt(seq, validThrough, linkFail, failure{Code(err), err.Error()})
 			}
@@ -261,7 +277,7 @@ func VerifyEvidenceStream(records []*Record, keys map[string]RegisteredKey) (*St
 			}
 			// The assertion authenticates the successor; the keyring is what
 			// says it may play the evidence role at all (SE-003).
-			pub, err := trustedEvidenceKey(keys, declaredKeyID, newPub)
+			pub, err := trustedStreamKey(keys, declaredKeyID, streamNamespace, newPub)
 			if err != nil {
 				return nil, breakAt(seq, validThrough, linkFail, failure{Code(err), err.Error()})
 			}

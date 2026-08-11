@@ -164,7 +164,7 @@ class JsonModel(BaseModel):
 
 
 class ClocksModel(JsonModel):
-    """Customer-observed ES-019 clocks; hosted observations live in a receipt."""
+    """ES-019 clocks observed by the record's origin principal."""
 
     model_config = ConfigDict(strict=True, extra="forbid")
 

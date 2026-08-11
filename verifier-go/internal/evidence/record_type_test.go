@@ -4,6 +4,7 @@ import (
 	"crypto/ed25519"
 	"encoding/base64"
 	"encoding/json"
+	"strings"
 	"testing"
 
 	"github.com/Align3/evidence-control-plane/verifier-go/internal/jcs"
@@ -140,6 +141,43 @@ func TestUnknownRecordTypeRefused(t *testing.T) {
 	_, err := parse(t, rec)
 	if err == nil || Code(err) != CodeUnknownRecordType {
 		t.Fatalf("expected %s, got %v", CodeUnknownRecordType, err)
+	}
+}
+
+func TestEveryPublishedRecordTypeHasAnOriginClassification(t *testing.T) {
+	if len(primarySignerNamespaces) != len(requiredBodyMembers) {
+		t.Fatalf("origin table has %d types, schema table has %d",
+			len(primarySignerNamespaces), len(requiredBodyMembers))
+	}
+	for recordType := range requiredBodyMembers {
+		namespace, ok := primarySignerNamespaces[recordType]
+		if !ok {
+			t.Fatalf("%s has no ES-033 origin classification", recordType)
+		}
+		if namespace != NamespaceEvidence && namespace != NamespaceIssuer {
+			t.Fatalf("%s has invalid namespace %q", recordType, namespace)
+		}
+	}
+}
+
+func TestLegacySignatureEntryPointDispatchesIssuerObservation(t *testing.T) {
+	issuerPub, issuerPriv := newKey(t, 21)
+	rec := baseRecord()
+	rec["record_type"] = "ExternalConfirmation"
+	rec["body"] = map[string]any{
+		"action_id": "action-1", "destination_system": "destination-1",
+		"destination_record_id":     "ticket-1",
+		"destination_record_digest": "sha256:" + strings.Repeat("11", 32),
+		"authoritative_timestamp":   "2026-08-01T12:00:00.000Z",
+		"reconciliation_status":     "matched",
+		"retrieved_at":              "2026-08-01T12:00:01.000Z",
+	}
+	signed := signAs(t, rec, "I1", issuerPriv, nil)
+	keyID, err := VerifyEvidenceRecordSignature(signed, map[string]RegisteredKey{
+		"I1": {Namespace: NamespaceIssuer, PublicKey: issuerPub},
+	})
+	if err != nil || keyID != "I1" {
+		t.Fatalf("legacy entry point did not apply issuer dispatch: key=%q err=%v", keyID, err)
 	}
 }
 

@@ -155,8 +155,9 @@ func runRecord(data []byte, keys map[string]evidence.RegisteredKey) {
 			verified.RecordType, rec.RecordID(), verified.KeyID, verified.IssuerKeyID, digest)
 		return
 	}
-	fmt.Printf("VALID %s %s\n  signed by      %s (evidence namespace)\n  record digest  %s\n",
-		verified.RecordType, rec.RecordID(), verified.KeyID, digest)
+	fmt.Printf("VALID %s %s\n  signed by      %s (%s namespace)\n  record digest  %s\n",
+		verified.RecordType, rec.RecordID(), verified.KeyID,
+		keys[verified.KeyID].Namespace, digest)
 }
 
 func runStream(data []byte, keys map[string]evidence.RegisteredKey) {

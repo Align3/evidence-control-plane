@@ -79,9 +79,9 @@ Every record shares an envelope.
 | `sequence` | integer | yes | Monotonic within `stream_id`, starting at 1, no gaps |
 | `prev_digest` | digest \| null | yes | Digest of the previous record in the stream; `null` at sequence 1 |
 | `source` | object | yes | Collector identity, implementation, version, deployment |
-| `clocks` | object | yes | Customer-observed clocks: `source_time` and optional `authoritative_time`; hosted receipt clocks are in §6 |
+| `clocks` | object | yes | Record-origin clocks: `source_time` and optional relayed `authoritative_time`; hosted ingestion-receipt clocks are in §6 |
 | `body` | object | yes | Type-specific payload |
-| `signature` | object | yes | §7 |
+| `signature` | object | yes | Primary proof for the record origin established by ES-033; §7 |
 
 **ES-005** — Unknown envelope fields MUST cause verification failure. Unknown fields inside `body` MUST be preserved for digest computation and MUST NOT cause failure, permitting forward-compatible extension of payloads but not of the envelope.
 
@@ -215,7 +215,7 @@ Body: `attestation_ref`, `reason`, `issuer`, `effective_at`, `superseding_ref`, 
 
 ## 6. Clocks
 
-**ES-019** — Every customer-signed record carries `source_time` (the emitting component) and, where applicable, `authoritative_time` (the destination's timestamp relayed by the collector). `ingest_time` is observed by the hosted ingestion service and `clock_skew_ms` is derived from that observation and `source_time`; neither may appear in the customer-signed record. On accepted ingestion both MUST instead be recorded in the issuer-signed ingestion receipt defined by ES-030. A verifier MUST reject a customer record that supplies either hosted field.
+**ES-019** — Every customer-signed record carries `source_time` (the emitting component) and, where applicable, `authoritative_time` (the destination's timestamp relayed by the collector). `ingest_time` is observed by the hosted ingestion service and `clock_skew_ms` is derived from that observation and `source_time`; neither may appear in a customer-origin record. On accepted ingestion both MUST instead be recorded in the issuer-signed ingestion receipt defined by ES-030. A verifier MUST reject a customer-origin record that supplies either hosted field. Issuer-origin observations authenticate their own `retrieved_at` fields under ES-033 and do not acquire a redundant receipt merely to prove that the issuer observed its own signed observation.
 
 **ES-020** — Where `authoritative_time` is present it governs reconciliation ordering. Where it is absent, and the issuer-signed receipt's measured skew exceeds the boundary's declared threshold, affected records are excluded from the numerator and counted as unknown per CM-018. A collector-provided skew value has no standing.
 
@@ -223,15 +223,29 @@ Body: `attestation_ref`, `reason`, `issuer`, `effective_at`, `superseding_ref`, 
 
 ## 7. Signatures
 
-**ES-021** — Ed25519. The `signature` object carries `alg`, `key_id`, `sig` (base64url, unpadded), and `signed_digest` (digest of the JCS-canonical record excluding the `signature` field). `sig` is the Ed25519 signature over the **bare 32-byte SHA-256 digest** of that canonical signature-excluded form — the same bytes `signed_digest` renders as `sha256:<hex>`, not the ASCII of `signed_digest` and not the canonical bytes themselves.
+**ES-021** — Ed25519. The primary `signature` object carries `alg`, `key_id`, `sig` (base64url, unpadded), and `signed_digest` (digest of the JCS-canonical record excluding the `signature` field). `sig` is the Ed25519 signature over the **bare 32-byte SHA-256 digest** of that canonical signature-excluded form — the same bytes `signed_digest` renders as `sha256:<hex>`, not the ASCII of `signed_digest` and not the canonical bytes themselves. ES-033 determines whether that primary proof must come from the `evidence` or `issuer` namespace.
 
 > **Recorded from the vectors rather than concluded here.** This sentence states what `sign-customer-record` already establishes; ES-029 makes that vector authoritative and it has been normative since EV-04. Until EV-05 nothing had implemented ES-021 from the prose alone, and the prose named `signed_digest` without ever saying what `sig` covered. An independent implementer had at least two readings — sign the canonical bytes, or sign their digest — with nothing in the specification to choose between them, and the vector is the only reason the second is discoverable. The vector decides; this records the decision so the next implementer does not need to reverse-engineer it.
 
-**ES-021a** — The `signature` member is closed. Its customer-signature members are exactly `alg`, `key_id`, `sig`, and `signed_digest`, plus `key_continuity` only when a rotation is asserted under ES-024a. An `AttestationWindow` MAY additionally carry the `issuer` counter-signature required by ES-023; that nested object contains exactly `alg`, `key_id`, `sig`, and `signed_digest`. No other member is permitted at either level. A verifier MUST reject an unknown or missing member rather than ignore it.
+**ES-021a** — The `signature` member is closed. Its primary-signature members are exactly `alg`, `key_id`, `sig`, and `signed_digest`, plus `key_continuity` only when a rotation is asserted under ES-024a. An `AttestationWindow` MUST additionally carry the `issuer` counter-signature required by ES-023; that nested object contains exactly `alg`, `key_id`, `sig`, and `signed_digest`. No other member is permitted at either level. A verifier MUST reject an unknown or missing member rather than ignore it.
 
 **ES-022** — Algorithm agility: `alg` is present so that a future migration is possible, but v0.1 verifiers MUST reject any value other than `ed25519` rather than attempting negotiation.
 
-**ES-023** — Two-signature model. Record signatures are produced by the customer's key. The `AttestationWindow` carries an additional counter-signature from the issuer. This is what permits the claim that we cannot modify customer evidence. The issuer's `signed_digest` and `sig` are computed over the record carrying the customer signature but with `signature.issuer` itself excluded, under the ES-021 rule: `signed_digest` is the digest of that canonical form and `sig` is the Ed25519 signature over its bare 32-byte SHA-256 digest. The counter-signature cannot commit to its own bytes, so what it covers is everything else, customer signature included.
+**ES-023** — Two-signature conclusion model. The `AttestationWindow` primary proof is produced by the customer's `evidence` key and it carries an additional counter-signature from the issuer. The issuer proof is what authenticates the conclusion and methodology; the customer proof preserves the claim that the issuer cannot rewrite the evidence-shaped artifact underneath it. The issuer's `signed_digest` and `sig` are computed over the record carrying the customer signature but with `signature.issuer` itself excluded, under the ES-021 rule: `signed_digest` is the digest of that canonical form and `sig` is the Ed25519 signature over its bare 32-byte SHA-256 digest. The counter-signature cannot commit to its own bytes, so what it covers is everything else, customer signature included.
+
+**ES-033 — Record-origin signing categories.** Primary-signer namespace is a closed dispatch on `record_type`; it is not a parameter supplied by a caller or inferred from whichever key verifies.
+
+| Origin category | Record types | Required authentication |
+|---|---|---|
+| Customer observations and declarations | `AssuranceBoundary`, `QualificationRecord`, `AgentIdentity`, `ActionProposal`, `AuthorityDecision`, `HumanReview`, `ExecutionReceipt`, `FinalityRecord`, `OutcomeRecord`, `CoverageGap` | Primary `evidence`-namespace signature |
+| Issuer observations | `PopulationRecord`, `ExternalConfirmation` | Primary `issuer`-namespace signature |
+| Issuer conclusions | `AttestationWindow`, `RevocationRecord` | `AttestationWindow`: primary `evidence` proof plus mandatory nested `issuer` counter-signature under ES-023. `RevocationRecord`: primary `issuer`-namespace signature. |
+
+`IngestionReceipt` is not a §5 record envelope but is an issuer observation in the same category: its detached signature requires the `issuer` namespace under ES-030. No §5 type falls through to a default category. Adding a record type therefore requires amending this table, both verifiers, and the normative vectors.
+
+A stream contains one primary-signer namespace. Key continuity may rotate custody within that namespace but MUST NOT bridge `evidence` and `issuer`; a namespace change is a different stream, not a rotation. Connector interfaces return unsigned destination observations. The hosted producer constructs the governed envelope and applies the issuer signature; accepting a customer-signed connector result would authenticate that the customer supplied a denominator or confirmation, not that the issuer retrieved it.
+
+P2/P3 execution location does not alter origin. Issuer observation production in those profiles requires access to an issuer signing capability constrained to the tenant and observation role. If it is unreachable, observation production fails closed. An implementation MUST NOT substitute a customer key, downgrade the namespace, or accept an unsigned observation merely because connector code ran in customer infrastructure.
 
 > **Also recorded from the vectors.** `verify-customer-and-issuer-signatures` establishes this. As with ES-021 the prose named the counter-signature without stating its signing input, which left the excluded member ambiguous — an implementer could equally have read it as covering the whole record, which is unsatisfiable, or as covering the signature-excluded form, which would leave the customer signature uncountersigned.
 
@@ -453,6 +467,36 @@ Then both records are accepted
 And neither record is rewritten into the other version's canonical form
 ```
 
+### ES-S-019 — Record origin fixes the signer namespace *(ES-033, SE-003, DM-008)*
+
+```gherkin
+Given a PopulationRecord and ExternalConfirmation signed by an evidence-namespace key
+And equivalent records signed by an issuer-namespace key
+And an AttestationWindow with both required proofs and one with its issuer proof removed
+When Python and Go verify each complete record under the same registered keyring
+Then both evidence-signed issuer observations fail with "key namespace mismatch"
+And both issuer-signed issuer observations verify
+And only the complete two-proof AttestationWindow verifies
+```
+
+### ES-S-020 — Truncation is durably recorded without becoming a denominator *(ES-011, ES-012)*
+
+```gherkin
+Given a connector observation with result_cap_hit true and pagination_complete false
+When the population service records the enumeration
+Then the signed PopulationRecord preserves both truncation values
+And the record is durably appended before the task acknowledges it
+```
+
+### ES-S-021 — Coverage computation maps truncation to null, not zero *(ES-011, ES-012)*
+
+```gherkin
+Given a stored PopulationRecord with result_cap_hit true or pagination_complete false
+When coverage is computed for its window
+Then coverage_ratio is null
+And coverage_ratio is not zero
+```
+
 ## Verification classifications
 
 > **Verification for ES-002 — scenario-bearing; deferred EV-33.** This is externally observable runtime behaviour; EV-33 owns its missing Gherkin scenario and executable acceptance proof.
@@ -464,6 +508,8 @@ And neither record is rewritten into the other version's canonical form
 > **Verification for ES-003 — scenario-bearing; deferred EV-33.** This is externally observable runtime behaviour; EV-33 owns its missing Gherkin scenario and executable acceptance proof.
 
 > **Verification for ES-004 — scenario-bearing; deferred EV-33.** This is externally observable runtime behaviour; EV-33 owns its missing Gherkin scenario and executable acceptance proof.
+
+> **Verification for ES-033 — scenario-bearing; ES-S-019.** Python and Go verify the same normative origin-dispatch vectors, including both directions of the namespace substitution.
 
 > **Verification for ES-007 — scenario-bearing; deferred EV-33.** This is externally observable runtime behaviour; EV-33 owns its missing Gherkin scenario and executable acceptance proof.
 

@@ -12,10 +12,8 @@ import (
 // is refused rather than attempted.
 const algorithm = "ed25519"
 
-// Namespaces are structurally distinct per SE-003: an evidence key may never
-// sign a receipt and an issuer key may never sign a record. A design in which
-// one key could produce both is non-conformant, so the namespace travels with
-// the key rather than being inferred from context.
+// Namespaces are structurally distinct per SE-003. ES-033 dispatches which
+// namespace may authenticate a record from its type; the caller never chooses.
 const (
 	NamespaceEvidence = "evidence"
 	NamespaceIssuer   = "issuer"
@@ -171,10 +169,10 @@ func verifyOneSignature(r *Record, sig *jcs.Object,
 	return keyID, nil
 }
 
-// VerifyEvidenceRecordSignature verifies a record's customer signature and
-// enforces SE-003: the signing key must be in the evidence namespace. An issuer
-// key that produced a valid signature is still refused — the proof is real, the
-// role is not.
+// VerifyEvidenceRecordSignature retains the pre-ES-033 API name while applying
+// the closed primary-signer dispatch. Keeping its former evidence-only
+// semantics would make this exported function a namespace bypass for issuer
+// observations.
 //
 // This answers a question about one signature, not a verdict on the record, and
 // the two differ for any type ES-023 gives a second signature to. It exists
@@ -182,6 +180,12 @@ func verifyOneSignature(r *Record, sig *jcs.Object,
 // operation. Verify a record with VerifyEvidenceRecord, which dispatches on
 // record_type and checks every signature the type requires.
 func VerifyEvidenceRecordSignature(r *Record, keys map[string]RegisteredKey) (string, error) {
+	return VerifyRecordOriginSignature(r, keys)
+}
+
+// VerifyRecordOriginSignature verifies the primary proof and enforces the
+// closed record-type namespace dispatch in ES-033.
+func VerifyRecordOriginSignature(r *Record, keys map[string]RegisteredKey) (string, error) {
 	plain := make(map[string]ed25519.PublicKey, len(keys))
 	for id, k := range keys {
 		plain[id] = k.PublicKey
@@ -190,10 +194,14 @@ func VerifyEvidenceRecordSignature(r *Record, keys map[string]RegisteredKey) (st
 	if err != nil {
 		return "", err
 	}
-	if keys[keyID].Namespace != NamespaceEvidence {
+	want, err := r.PrimarySignerNamespace()
+	if err != nil {
+		return "", err
+	}
+	if keys[keyID].Namespace != want {
 		return "", errf(CodeKeyNamespaceMismatch,
-			"key %q is in the %q namespace; evidence records require an evidence key (SE-003)",
-			keyID, keys[keyID].Namespace)
+			"key %q is in the %q namespace; %s requires a %q primary signer (ES-033)",
+			keyID, keys[keyID].Namespace, r.RecordType(), want)
 	}
 	return keyID, nil
 }

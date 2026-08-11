@@ -17,6 +17,7 @@ from cryptography.hazmat.primitives.asymmetric.ed25519 import (
 )
 
 from sdk_python.evidence.canonical import canonical_digest, canonicalize
+from sdk_python.evidence.origin import primary_signer_namespace
 from sdk_python.evidence.schema import RecordEnvelope
 from sdk_python.evidence.signing import (
     ALGORITHM,
@@ -234,6 +235,8 @@ def _signature_key_id(
     public_keys: Mapping[str, Ed25519PublicKey],
     *,
     verification_keys: Mapping[str, RegisteredPublicKey],
+    valid_through_sequence: int | None = None,
+    coverage_gap_body: Mapping[str, object] | None = None,
 ) -> str:
     try:
         key_id = verify_record_signature(record, public_keys=public_keys)
@@ -242,12 +245,18 @@ def _signature_key_id(
             f"signature verification failed at sequence {record.sequence}: {exc}",
             stream_id=record.stream_id,
             break_sequence=record.sequence,
+            valid_through_sequence=valid_through_sequence,
+            coverage_gap_body=coverage_gap_body,
         ) from exc
-    if verification_keys[key_id].namespace != "evidence":
+    expected = primary_signer_namespace(record.record_type)
+    if verification_keys[key_id].namespace != expected:
         raise KeyNamespaceError(
-            "key namespace mismatch: evidence streams require an evidence key",
+            "key namespace mismatch: "
+            f"{record.record_type} requires an {expected} primary signer",
             stream_id=record.stream_id,
             break_sequence=record.sequence,
+            valid_through_sequence=valid_through_sequence,
+            coverage_gap_body=coverage_gap_body,
         )
     return key_id
 
@@ -303,6 +312,16 @@ def _verify_stream(
         )
     ordered = sorted(materialized, key=lambda record: record.sequence)
     stream_id = ordered[0].stream_id
+    stream_namespace = primary_signer_namespace(ordered[0].record_type)
+    for record in ordered[1:]:
+        record_namespace = primary_signer_namespace(record.record_type)
+        if record_namespace != stream_namespace:
+            raise KeyNamespaceError(
+                "stream changes primary signer namespace; ES-033 requires a new "
+                "stream rather than cross-role continuity",
+                stream_id=stream_id,
+                break_sequence=record.sequence,
+            )
 
     first = ordered[0]
     if first.sequence != 1:
@@ -357,7 +376,13 @@ def _verify_stream(
             )
 
         current_key_id = _signature_key_id(
-            current, public_keys, verification_keys=verification_keys
+            current,
+            public_keys,
+            verification_keys=verification_keys,
+            valid_through_sequence=previous.sequence,
+            coverage_gap_body=_gap_body(
+                previous, current, cause="key_discontinuity"
+            ),
         )
         continuity = current.signature.get("key_continuity")
         if current_key_id != last_key_id:
@@ -425,19 +450,20 @@ def verify_evidence_stream(
     *,
     verification_keys: Mapping[str, RegisteredPublicKey],
 ) -> ChainVerificationResult:
-    """Verify one evidence stream and enforce SE-003 on every active signer.
+    """Verify one record stream and enforce ES-033 on every active signer.
 
     A fork is fatal for the complete stream.  Other breaks expose the last
     valid sequence so an attestation window can terminate there rather than
     incorporating unverifiable evidence.
 
-    There is deliberately no namespace-free variant of this function.  One
+    There is deliberately no namespace-free variant of this function. One
     existed and was exported as ``verify_stream``: it took bare Ed25519 keys,
     which carry no custody namespace, so it could not establish SE-003.  Any
     caller that reached for the primitive instead of the wrapper bypassed the
     check, and an issuer key authenticating a customer stream is exactly the
-    confusion the two namespaces exist to make impossible.  A weakening path
-    that is merely unattractive is still a path.  This mirrors the same rule
+    confusion the two namespaces exist to make impossible. Issuer-observation
+    streams use the same entry point and are dispatched from record_type. A
+    weakening path that is merely unattractive is still a path. This mirrors the same rule
     in ``verifier-go/internal/evidence/chain.go``.
     """
 

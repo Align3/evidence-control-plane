@@ -12,7 +12,9 @@ Negative-first (AG-007): each one asserts a refusal.
 from __future__ import annotations
 
 import importlib
+from datetime import UTC, datetime, timedelta
 from typing import Any
+from uuid import uuid4
 
 import pytest
 from sqlalchemy import Engine, text
@@ -21,8 +23,10 @@ from sqlalchemy.exc import IntegrityError
 from services.ledger import (
     APP_GRANTS,
     EVIDENCE_PARENT_TABLE,
+    POPULATION_PARENT_TABLE,
     TenantEngines,
     evidence_partition,
+    population_partition,
     provision_tenant,
     tenant_connection,
     verify_projection,
@@ -35,7 +39,13 @@ from tests.ledger_support import (
     RecordFactory,
 )
 
-EVIDENCE_TABLES = ("evidence_records", "collectors", "keys", "tenants")
+EVIDENCE_TABLES = (
+    "evidence_records",
+    "population_records",
+    "collectors",
+    "keys",
+    "tenants",
+)
 
 
 def test_no_cascade_on_any_constraint_touching_evidence(owner_engine: Engine) -> None:
@@ -58,11 +68,13 @@ def test_no_cascade_on_any_constraint_touching_evidence(owner_engine: Engine) ->
                 " WHERE c.contype = 'f'"
                 "   AND (c.confdeltype <> 'r' OR c.confupdtype <> 'r')"
                 "   AND (t.relname = ANY(:tables) OR r.relname = ANY(:tables)"
-                "        OR t.relname LIKE :partitions)"
+                "        OR t.relname LIKE :partitions"
+                "        OR t.relname LIKE :population_partitions)"
             ),
             {
                 "tables": list(EVIDENCE_TABLES),
                 "partitions": f"{EVIDENCE_PARENT_TABLE}\\_%",
+                "population_partitions": "population\\_%",
             },
         ).all()
     assert offenders == [], (
@@ -76,7 +88,9 @@ def test_no_cascade_on_any_constraint_touching_evidence(owner_engine: Engine) ->
 
 
 def test_fork_is_refused_by_the_database_not_by_ingestion(
-    tenant_engines: TenantEngines, record_factories: dict[str, RecordFactory]
+    tenant_engines: TenantEngines,
+    record_factories: dict[str, RecordFactory],
+    default_boundaries: dict[str, str],
 ) -> None:
     """ES-006: two records sharing (stream_id, sequence) are a fatal integrity
     failure that must be *reported*, never resolved.
@@ -140,7 +154,7 @@ def test_unreceipted_record_is_refused(
     with pytest.raises(IntegrityError) as caught:
         with tenant_connection(tenant_engines, TENANT_A) as conn:
             conn.execute(evidence_partition(TENANT_A).insert(), row)
-    assert getattr(caught.value.orig, "sqlstate", None) == "23502"
+    assert getattr(caught.value.orig, "sqlstate", None) == CHECK_VIOLATION
 
 
 def test_non_ed25519_length_receipt_signature_is_refused(
@@ -180,6 +194,127 @@ def test_ingestion_receipt_cannot_reference_an_evidence_namespace_key(
         with tenant_connection(tenant_engines, TENANT_A) as conn:
             conn.execute(evidence_partition(TENANT_A).insert(), row)
     assert getattr(caught.value.orig, "sqlstate", None) == "23503"
+
+
+def _population_row(factory: RecordFactory, *, sequence: int = 1) -> dict[str, Any]:
+    start = datetime(2026, 8, 1, 10, tzinfo=UTC)
+    return {
+        "population_ref": str(uuid4()),
+        "tenant_id": factory.tenant_id,
+        "boundary_ref": f"{factory.tenant_id}:default:1",
+        "stream_id": f"{factory.tenant_id}:population:1",
+        "sequence": sequence,
+        "prev_digest": None,
+        "record_digest": b"d" * 32,
+        "action_family": "payment.transfer",
+        "destination_system": "ledger-sandbox",
+        "window_start": start,
+        "window_end": start + timedelta(hours=1),
+        "enumeration_query": {"scope": {"actor": "agent"}},
+        "identifier_digest": None,
+        "identifiers": ["destination-1"],
+        "count": 1,
+        "pagination_complete": True,
+        "result_cap_hit": False,
+        "retrieved_at": start + timedelta(hours=1, seconds=1),
+        "authoritative_timestamps": {
+            "min": "2026-08-01T10:30:00.000Z",
+            "max": "2026-08-01T10:30:00.000Z",
+        },
+        "source_time": start + timedelta(hours=1, seconds=1),
+        "authoritative_time": start + timedelta(minutes=30),
+        "key_id": factory.receipt_key_id,
+        "key_namespace": "issuer",
+        "signature": b"s" * 64,
+        "canonical_bytes": b"{}",
+        "received_wire_bytes": b'{"signature":{}}',
+    }
+
+
+def test_population_record_cannot_reference_an_evidence_namespace_key(
+    tenant_engines: TenantEngines,
+    record_factories: dict[str, RecordFactory],
+    default_boundaries: dict[str, str],
+) -> None:
+    factory = record_factories[TENANT_A]
+    row = _population_row(factory)
+    row["key_id"] = factory.key_id
+
+    with pytest.raises(IntegrityError) as caught:
+        with tenant_connection(tenant_engines, TENANT_A) as conn:
+            conn.execute(population_partition(TENANT_A).insert(), row)
+    assert getattr(caught.value.orig, "sqlstate", None) == "23503"
+
+
+def test_population_record_issuer_namespace_is_structurally_accepted(
+    tenant_engines: TenantEngines,
+    record_factories: dict[str, RecordFactory],
+    default_boundaries: dict[str, str],
+) -> None:
+    row = _population_row(record_factories[TENANT_A])
+    with tenant_connection(tenant_engines, TENANT_A) as conn:
+        conn.execute(population_partition(TENANT_A).insert(), row)
+
+
+def test_external_confirmation_namespace_is_dispatched_from_record_type(
+    tenant_engines: TenantEngines,
+    record_factories: dict[str, RecordFactory],
+    default_boundaries: dict[str, str],
+) -> None:
+    factory = record_factories[TENANT_A]
+    wrong = dict(factory.next_record(record_type="ExternalConfirmation"))
+    with pytest.raises(IntegrityError) as caught:
+        with tenant_connection(tenant_engines, TENANT_A) as conn:
+            conn.execute(evidence_partition(TENANT_A).insert(), wrong)
+    assert getattr(caught.value.orig, "sqlstate", None) == CHECK_VIOLATION
+
+    right = dict(factory.next_record(record_type="ExternalConfirmation"))
+    right.update(
+        {
+            "key_id": factory.receipt_key_id,
+            "record_key_namespace": "issuer",
+            "collector_id": None,
+            "ingest_time": None,
+            "clock_skew_ms": None,
+            "receipt_key_id": None,
+            "receipt_key_namespace": None,
+            "receipt_signature": None,
+            "receipt_canonical_bytes": None,
+        }
+    )
+    with tenant_connection(tenant_engines, TENANT_A) as conn:
+        conn.execute(evidence_partition(TENANT_A).insert(), right)
+
+
+def test_unknown_record_type_has_no_database_namespace_fallback(
+    tenant_engines: TenantEngines, record_factories: dict[str, RecordFactory]
+) -> None:
+    """ES-033 is a closed map at the storage boundary as well as in code."""
+
+    row = dict(record_factories[TENANT_A].next_record(record_type="FutureRecord"))
+    with pytest.raises(IntegrityError) as caught:
+        with tenant_connection(tenant_engines, TENANT_A) as conn:
+            conn.execute(evidence_partition(TENANT_A).insert(), row)
+    assert getattr(caught.value.orig, "sqlstate", None) == CHECK_VIOLATION
+
+
+def test_issuer_observation_cannot_carry_customer_ingestion_metadata(
+    tenant_engines: TenantEngines,
+    record_factories: dict[str, RecordFactory],
+    default_boundaries: dict[str, str],
+) -> None:
+    factory = record_factories[TENANT_A]
+    row = dict(factory.next_record(record_type="ExternalConfirmation"))
+    row.update(
+        {
+            "key_id": factory.receipt_key_id,
+            "record_key_namespace": "issuer",
+        }
+    )
+    with pytest.raises(IntegrityError) as caught:
+        with tenant_connection(tenant_engines, TENANT_A) as conn:
+            conn.execute(evidence_partition(TENANT_A).insert(), row)
+    assert getattr(caught.value.orig, "sqlstate", None) == CHECK_VIOLATION
 
 
 def test_evidence_key_without_collector_binding_is_refused(
@@ -411,6 +546,22 @@ def test_runtime_schema_matches_the_migrated_database(
         f"database has {sorted(actual - declared)} schema.py omits"
     )
 
+    population_declared = {
+        column.name for column in population_partition(TENANT_A).columns
+    }
+    with owner_engine.connect() as conn:
+        population_actual = {
+            row.column_name
+            for row in conn.execute(
+                text(
+                    "SELECT column_name FROM information_schema.columns"
+                    " WHERE table_name = :table"
+                ),
+                {"table": POPULATION_PARENT_TABLE},
+            )
+        }
+    assert population_declared == population_actual
+
 
 def test_partition_is_attached_to_the_parent(
     owner_engine: Engine, tenants: list[str]
@@ -431,6 +582,21 @@ def test_partition_is_attached_to_the_parent(
             )
         }
     assert attached == {f"{EVIDENCE_PARENT_TABLE}_{t}" for t in tenants}
+
+    with owner_engine.connect() as conn:
+        population_attached = {
+            row.relname
+            for row in conn.execute(
+                text(
+                    "SELECT c.relname FROM pg_class c"
+                    " JOIN pg_inherits i ON i.inhrelid = c.oid"
+                    " JOIN pg_class p ON p.oid = i.inhparent"
+                    " WHERE p.relname = :parent"
+                ),
+                {"parent": POPULATION_PARENT_TABLE},
+            )
+        }
+    assert population_attached == {f"population_{t}" for t in tenants}
 
 
 def test_parent_table_grants_nothing_to_anyone(owner_engine: Engine) -> None:
@@ -453,6 +619,17 @@ def test_parent_table_grants_nothing_to_anyone(owner_engine: Engine) -> None:
         + ", ".join(f"{g.grantee}:{g.privilege_type}" for g in grants)
     )
     assert APP_GRANTS == ("INSERT", "SELECT")
+
+    with owner_engine.connect() as conn:
+        population_grants = conn.execute(
+            text(
+                "SELECT grantee, privilege_type"
+                " FROM information_schema.table_privileges"
+                " WHERE table_name = :parent AND grantee <> (SELECT current_user)"
+            ),
+            {"parent": POPULATION_PARENT_TABLE},
+        ).all()
+    assert population_grants == []
 
 
 def test_verify_projection_detects_a_tampered_projection(

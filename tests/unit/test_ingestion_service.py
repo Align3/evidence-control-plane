@@ -6,12 +6,14 @@ import ast
 import inspect
 import json
 from datetime import UTC, datetime, timedelta
+from pathlib import Path
 from typing import Any
 
 import pytest
 from cryptography.hazmat.primitives.asymmetric.ed25519 import Ed25519PrivateKey
 from sqlalchemy import Engine, select, text
 
+from sdk_python.evidence.canonical import canonicalize
 from sdk_python.evidence.schema import serialize_record, validate_record
 from sdk_python.evidence.signing import sign_record
 from services.ingestion import api as ingestion_api
@@ -217,6 +219,28 @@ def test_invalid_customer_signature_never_enters_ledger(
     with pytest.raises(CollectorAuthenticationError, match="signature verification"):
         ingestion_service.ingest(serialize_record(record))
     assert _stored_record_ids(tenant_engines, record.stream_id) == []
+
+
+def test_customer_ingestion_refuses_issuer_origin_before_collector_lookup(
+    ingestion_service: IngestionService,
+) -> None:
+    """The EV-07 endpoint cannot become a weaker issuer-observation path."""
+
+    document = json.loads(
+        (Path(__file__).parents[1] / "vectors" / "vectors-v0.1.json").read_text(
+            encoding="utf-8"
+        )
+    )
+    vector = next(
+        item
+        for item in document["vectors"]
+        if item["id"] == "accept-populationrecord-signed-by-issuer-key"
+    )
+    vector["record"]["tenant_id"] = TENANT_A
+    with pytest.raises(
+        CollectorAuthenticationError, match="only customer-origin"
+    ):
+        ingestion_service.ingest(canonicalize(vector["record"]))
 
 
 def test_registered_collector_version_mismatch_is_refused(

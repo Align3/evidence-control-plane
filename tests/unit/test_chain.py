@@ -457,7 +457,7 @@ def test_an_issuer_key_cannot_authenticate_an_evidence_stream() -> None:
     key = Ed25519PrivateKey.generate()
     record = sign_record(_record(1), key_id="ISSUER1", private_key=key)
 
-    with pytest.raises(KeyNamespaceError, match="require an evidence key"):
+    with pytest.raises(KeyNamespaceError, match="requires an evidence primary signer"):
         verify_evidence_stream(
             [record],
             verification_keys={
@@ -490,7 +490,7 @@ def test_rotation_onto_an_issuer_namespace_successor_is_refused() -> None:
     # An authenticated rotation cannot confer a custody namespace: the
     # successor's namespace is a fact stated by the keyring, not by the key
     # it replaces.
-    with pytest.raises(KeyNamespaceError, match="require an evidence key"):
+    with pytest.raises(KeyNamespaceError, match="requires an evidence primary signer"):
         verify_evidence_stream(
             [first, second],
             verification_keys={
