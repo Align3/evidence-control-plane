@@ -172,6 +172,40 @@ var requiredBodyMembers = map[string][]string{
 	},
 }
 
+// primarySignerNamespaces is the closed ES-033 record-origin dispatch. It is
+// deliberately a complete table rather than "issuer exceptions plus an
+// evidence default": a new record type has no signing authority until the
+// specification and vectors classify it.
+var primarySignerNamespaces = map[string]string{
+	"AssuranceBoundary":    NamespaceEvidence,
+	"QualificationRecord":  NamespaceEvidence,
+	"PopulationRecord":     NamespaceIssuer,
+	"AgentIdentity":        NamespaceEvidence,
+	"ActionProposal":       NamespaceEvidence,
+	"AuthorityDecision":    NamespaceEvidence,
+	"HumanReview":          NamespaceEvidence,
+	"ExecutionReceipt":     NamespaceEvidence,
+	"ExternalConfirmation": NamespaceIssuer,
+	"FinalityRecord":       NamespaceEvidence,
+	"OutcomeRecord":        NamespaceEvidence,
+	"CoverageGap":          NamespaceEvidence,
+	"AttestationWindow":    NamespaceEvidence,
+	"RevocationRecord":     NamespaceIssuer,
+}
+
+// PrimarySignerNamespace returns the namespace ES-033 assigns to this record
+// type. Validation already rejects an unrecognised type; retaining an error
+// here prevents a future caller from converting a missing classification into
+// an evidence-key default.
+func (r *Record) PrimarySignerNamespace() (string, error) {
+	namespace, ok := primarySignerNamespaces[r.RecordType()]
+	if !ok {
+		return "", errf(CodeUnknownRecordType,
+			"record type %q has no ES-033 origin classification", r.RecordType())
+	}
+	return namespace, nil
+}
+
 // Record is a parsed evidence record.
 type Record struct {
 	Obj *jcs.Object

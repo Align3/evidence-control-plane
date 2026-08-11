@@ -58,6 +58,14 @@ REQUIRED_ATTACK_VECTORS = {
     "reject-hosted-clock_skew_ms-in-customer-record",
     "reject-receipt-signed-by-evidence-namespace-key",
     "reject-record-signed-by-issuer-namespace-key",
+    "accept-populationrecord-signed-by-issuer-key",
+    "reject-populationrecord-signed-by-evidence-key",
+    "accept-externalconfirmation-signed-by-issuer-key",
+    "reject-externalconfirmation-signed-by-evidence-key",
+    "accept-revocationrecord-signed-by-issuer-key",
+    "reject-revocationrecord-signed-by-evidence-key",
+    "issuer-observation-stream-uses-issuer-namespace",
+    "reject-issuer-stream-rotation-to-evidence-key",
     "reject-non-canonical-customer-record-wire",
     "receipt-negative-clock-skew",
     "receipt-negative-sub-millisecond-skew-truncates-to-zero",
@@ -83,6 +91,8 @@ REQUIRED_ATTACK_VECTORS = {
 REQUIRED_ADVERSARIAL_VECTORS = {
     "adversarial-reject-issuer-key-on-evidence-stream",
     "adversarial-reject-attestation-without-issuer-signature",
+    "reject-populationrecord-signed-by-evidence-key",
+    "reject-externalconfirmation-signed-by-evidence-key",
 }
 JCS_REFERENCE = Path(__file__).parents[1] / "property" / "jcs_reference.js"
 
@@ -416,19 +426,43 @@ def _run_verify_evidence_record_signature(vector: dict[str, Any]) -> None:
     assert key_id == expected["key_id"]
 
 
+def _run_verify_record_origin_signature(vector: dict[str, Any]) -> None:
+    from services.ingestion.receipts import verify_record_origin_signature
+
+    record = _record(vector["record"])
+    expected = vector["expected"]
+    try:
+        key_id = verify_record_origin_signature(
+            record,
+            verification_keys=_registered_public_keys(vector["verification_keys"]),
+        )
+    except Exception as error:  # noqa: BLE001 - the vector states the code
+        assert not expected["accepted"]
+        assert _error_code(error) == expected["error_code"]
+        return
+    assert expected["accepted"]
+    assert key_id == expected["key_id"]
+
+
 def _run_verify_canonical_evidence_record(vector: dict[str, Any]) -> None:
     """DM-023: valid proof does not authorize wire normalization."""
 
     from services.ingestion.receipts import verify_canonical_evidence_record
 
     verification_keys = _registered_public_keys(vector["verification_keys"])
-    control = bytes.fromhex(vector["canonical_control_utf8_hex"])
-    verify_canonical_evidence_record(control, verification_keys=verification_keys)
+    if "canonical_control_utf8_hex" in vector:
+        control = bytes.fromhex(vector["canonical_control_utf8_hex"])
+        verify_canonical_evidence_record(control, verification_keys=verification_keys)
+    wire = (
+        canonicalize(vector["record"])
+        if "record" in vector
+        else bytes.fromhex(vector["received_wire_utf8_hex"])
+    )
 
     expected = vector["expected"]
     try:
         verify_canonical_evidence_record(
-            bytes.fromhex(vector["received_wire_utf8_hex"]),
+            wire,
             verification_keys=verification_keys,
         )
     except Exception as error:  # noqa: BLE001 - the vector states the code
@@ -447,13 +481,14 @@ RUNNERS = {
     "validate_record": _run_validate_record,
     "verify_ingestion_receipt": _run_verify_ingestion_receipt,
     "verify_evidence_record_signature": _run_verify_evidence_record_signature,
+    "verify_record_origin_signature": _run_verify_record_origin_signature,
     "verify_canonical_evidence_record": _run_verify_canonical_evidence_record,
 }
 
 
 def test_es_029_vector_manifest_is_closed_and_attack_complete() -> None:
     assert DOCUMENT["format"] == "evidence-control-plane-conformance-vectors"
-    assert DOCUMENT["format_version"] == "1.1.0"
+    assert DOCUMENT["format_version"] == "1.2.0"
     assert DOCUMENT["spec_version"] == "0.1"
     ids = [vector["id"] for vector in VECTORS]
     assert len(ids) == len(set(ids))
@@ -478,11 +513,17 @@ def test_es_029_vector_manifest_is_closed_and_attack_complete() -> None:
     # toward a tidier claim than the measurement supports.
     for vector in ADVERSARIAL_VECTORS:
         _assert_adversarial_provenance(vector)
-    assert all(
-        vector["pre_fix"]["revision"] == "9e5904b"
+    revisions = {
+        vector["id"]: vector["pre_fix"]["revision"]
         for vector in ADVERSARIAL_VECTORS
         if vector["id"] in REQUIRED_ADVERSARIAL_VECTORS
-    )
+    }
+    assert revisions == {
+        "adversarial-reject-issuer-key-on-evidence-stream": "9e5904b",
+        "adversarial-reject-attestation-without-issuer-signature": "9e5904b",
+        "reject-populationrecord-signed-by-evidence-key": "4fbba6c",
+        "reject-externalconfirmation-signed-by-evidence-key": "4fbba6c",
+    }
     assert {vector["operation"] for vector in ADVERSARIAL_VECTORS} <= {
         "verify_stream",
         "verify_canonical_evidence_record",

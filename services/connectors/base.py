@@ -14,9 +14,11 @@ from enum import StrEnum
 from typing import Literal, Never, Protocol, runtime_checkable
 
 from sdk_python.evidence.schema import (
-    ExternalConfirmationRecord,
+    ClocksModel,
+    ExternalConfirmationBody,
+    JsonObject,
     JsonValue,
-    PopulationRecord,
+    PopulationRecordBody,
 )
 
 
@@ -141,6 +143,24 @@ class ActionReference:
             raise ValueError("an action reference requires both identifiers")
 
 
+@dataclass(frozen=True, slots=True)
+class PopulationObservation:
+    """Unsigned destination facts returned by an enumeration adapter."""
+
+    body: PopulationRecordBody
+    clocks: ClocksModel
+    source: JsonObject
+
+
+@dataclass(frozen=True, slots=True)
+class ConfirmationObservation:
+    """Unsigned destination facts returned by a confirmation adapter."""
+
+    body: ExternalConfirmationBody
+    clocks: ClocksModel
+    source: JsonObject
+
+
 @runtime_checkable
 class DestinationConnector(Protocol):
     """Metadata common to every connector; no operational capability implied."""
@@ -154,14 +174,14 @@ class EnumerationConnector(DestinationConnector, Protocol):
 
     def enumerate(
         self, scope: ConnectorScope, window: EnumerationWindow
-    ) -> PopulationRecord: ...
+    ) -> PopulationObservation: ...
 
 
 @runtime_checkable
 class ConfirmationConnector(DestinationConnector, Protocol):
     """A connector whose static surface includes one-action confirmation."""
 
-    def confirm(self, action_ref: ActionReference) -> ExternalConfirmationRecord: ...
+    def confirm(self, action_ref: ActionReference) -> ConfirmationObservation: ...
 
 
 class ConnectorCapabilityError(RuntimeError):
@@ -179,9 +199,11 @@ class ConnectorContractError(ConnectorCapabilityError):
 class EnumerationUnusableError(ConnectorCapabilityError):
     """An enumeration result cannot be used as a denominator."""
 
-    def __init__(self, message: str, *, population_record: PopulationRecord) -> None:
+    def __init__(
+        self, message: str, *, population_observation: PopulationObservation
+    ) -> None:
         super().__init__(message)
-        self.population_record = population_record
+        self.population_observation = population_observation
 
 
 class SettlementLagExceededError(EnumerationUnusableError):
@@ -234,11 +256,11 @@ def enumerate_for_window_coverage(
     connector: DestinationConnector,
     scope: ConnectorScope,
     window: EnumerationWindow,
-) -> PopulationRecord:
+) -> PopulationObservation:
     """Enumerate and reject every explicitly unusable denominator signal.
 
-    The rejected signed record is retained on the exception so EV-14 can store
-    the evidence and EV-16 can state why a ratio was withheld.  A bound, empty
+    The rejected observation is retained on the exception so EV-14 can issuer-
+    sign and store the evidence and EV-16 can state why a ratio was withheld. A bound, empty
     enumeration is valid: zero is a possible authoritative population, while
     qualification is responsible for establishing that the query itself is an
     adequate source.  Exact request/response binding prevents a population
@@ -292,14 +314,14 @@ def enumerate_for_window_coverage(
     if mismatches:
         raise EnumerationResponseMismatchError(
             "enumeration response does not match the request: " + ", ".join(mismatches),
-            population_record=result,
+            population_observation=result,
         )
 
     identifiers = result.body.record_identifiers
     if identifiers is not None and result.body.count != len(identifiers):
         raise EnumerationResponseMismatchError(
             "enumeration count does not match the inline record identifiers",
-            population_record=result,
+            population_observation=result,
         )
     timestamp_range = result.body.authoritative_timestamps
     minimum = timestamp_range.get("min")
@@ -308,7 +330,7 @@ def enumerate_for_window_coverage(
         if minimum is not None or maximum is not None:
             raise EnumerationResponseMismatchError(
                 "empty enumeration must have a null authoritative timestamp range",
-                population_record=result,
+                population_observation=result,
             )
         # An empty population relays no destination record, so under ES-019 and
         # ES-030 there is no destination timestamp for the envelope to carry.
@@ -317,7 +339,7 @@ def enumerate_for_window_coverage(
         if result.clocks.authoritative_time is not None:
             raise EnumerationResponseMismatchError(
                 "empty enumeration cannot relay a destination authoritative time",
-                population_record=result,
+                population_observation=result,
             )
         return _check_truncation_and_lag(result, capabilities)
     if (
@@ -329,7 +351,7 @@ def enumerate_for_window_coverage(
     ):
         raise EnumerationResponseMismatchError(
             "enumeration authoritative timestamp range is absent, inverted, or outside the window",
-            population_record=result,
+            population_observation=result,
         )
     # ES-019 defines authoritative_time as the destination's timestamp relayed
     # by the collector, and ES-030 forbids representing it as an observation the
@@ -341,31 +363,31 @@ def enumerate_for_window_coverage(
     if relayed is None:
         raise EnumerationResponseMismatchError(
             "connector declared authoritative time but omitted it from the record clocks",
-            population_record=result,
+            population_observation=result,
         )
     if _parse_timestamp(relayed) != _parse_timestamp(maximum):
         raise EnumerationResponseMismatchError(
             "clocks.authoritative_time must relay the newest enumerated destination "
             "timestamp, not the collector's own read clock",
-            population_record=result,
+            population_observation=result,
         )
     return _check_truncation_and_lag(result, capabilities)
 
 
 def _check_truncation_and_lag(
-    result: PopulationRecord, capabilities: ConnectorCapabilities
-) -> PopulationRecord:
+    result: PopulationObservation, capabilities: ConnectorCapabilities
+) -> PopulationObservation:
     """Refuse the explicit truncation flags and the declared settlement bound."""
 
     if result.body.result_cap_hit:
         raise EnumerationUnusableError(
             "enumeration result cap was hit; the denominator is truncated",
-            population_record=result,
+            population_observation=result,
         )
     if not result.body.pagination_complete:
         raise EnumerationUnusableError(
             "enumeration pagination is incomplete; the denominator is truncated",
-            population_record=result,
+            population_observation=result,
         )
 
     observed_ms = (result.body.model_extra or {}).get("observed_settlement_lag_ms")
@@ -382,7 +404,7 @@ def _check_truncation_and_lag(
         if timedelta(milliseconds=observed_ms) > declared:
             raise SettlementLagExceededError(
                 "observed settlement lag exceeded the connector's declared bound",
-                population_record=result,
+                population_observation=result,
             )
     return result
 

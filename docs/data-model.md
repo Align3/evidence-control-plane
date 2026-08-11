@@ -22,9 +22,9 @@ This is the shared contract between concurrently working agents. On DamDam, a re
 
 **DM-004** — The `evidence_records` table is append-only. The application role holds `INSERT` and `SELECT` only; `UPDATE` and `DELETE` are granted to no application role (AC-012, SE-012).
 
-**DM-005** — `canonical_bytes` is authoritative for the customer-signed record, and `receipt_canonical_bytes` is authoritative for the issuer-signed hosted receipt. Every parsed column is a projection and must be rebuildable from the signed bytes of the attestor that observed it (AC-015). A migration that changes a projection column does not touch either authoritative byte string.
+**DM-005** — `canonical_bytes` is authoritative for the record's primary signed form, and `receipt_canonical_bytes` is authoritative for an issuer-signed ingestion receipt when the primary record is customer-origin. Every parsed column is a projection and must be rebuildable from the signed bytes of the attestor that observed it (AC-015). A migration that changes a projection column does not touch either authoritative byte string.
 
-"Every parsed column" is the whole list, not the droppable subset. Columns split three ways: **droppable** ones are dropped and rebuilt outright; **repairable** ones are recomputed in place, because no identity or uniqueness guarantee hangs off them; and **verified-only** ones — the record identity, the partition key, and the fork-detection key `(stream_id, sequence)` — are checked but never rewritten, because rewriting them would relocate rows between partitions or silently resolve a fork that ES-006 says must be reported. Review found the earlier implementation verifying eight of sixteen derived columns, which let a `source_time` edited away from the bytes go undetected and survive a rebuild. `ingest_time` and `clock_skew_ms` are deliberately not derived from customer `canonical_bytes`: they reproduce from `receipt_canonical_bytes`, signed by the service that observed and computed them (ES-019, ES-030). `key_id` and `signature` live in the customer signature member that `canonical_bytes` excludes (ES-021); `receipt_key_id` and `receipt_signature` likewise authenticate but are not members of the receipt payload they sign.
+"Every parsed column" is the whole list, not the droppable subset. Columns split three ways: **droppable** ones are dropped and rebuilt outright; **repairable** ones are recomputed in place, because no identity or uniqueness guarantee hangs off them; and **verified-only** ones — the record identity, the partition key, and the fork-detection key `(stream_id, sequence)` — are checked but never rewritten, because rewriting them would relocate rows between partitions or silently resolve a fork that ES-006 says must be reported. Review found the earlier implementation verifying eight of sixteen derived columns, which let a `source_time` edited away from the bytes go undetected and survive a rebuild. `ingest_time` and `clock_skew_ms` are deliberately not derived from customer `canonical_bytes`: they reproduce from `receipt_canonical_bytes`, signed by the service that observed and computed them (ES-019, ES-030). `key_id` and `signature` live in the primary signature member that `canonical_bytes` excludes (ES-021); `receipt_key_id` and `receipt_signature` likewise authenticate but are not members of the receipt payload they sign.
 
 **DM-006** — Cross-tenant reads must be inexpressible at the query layer, not filtered in application code (SE-011). Two mechanisms, because two access patterns:
 
@@ -91,7 +91,7 @@ Registered collection sources. Records from unregistered collectors are rejected
 | `predecessor_key_id` | text null | |
 | `compromised_from` | timestamptz null | SE-009 |
 
-**DM-008** — A key in namespace `issuer` may never sign an evidence record; a key in namespace `evidence` may never counter-sign an attestation. Enforced by a check at ingestion and at issuance, tested by SE-S-001.
+**DM-008** — A key may authenticate only the record-origin role assigned by ES-033. Customer-origin primary signatures require `evidence`; `PopulationRecord`, `ExternalConfirmation`, and `RevocationRecord` primary signatures require `issuer`; an `AttestationWindow` requires an `evidence` primary proof and an `issuer` counter-signature. `IngestionReceipt` also requires `issuer`. The database pins these discriminators to record type, and every shipped verifier dispatches from the record type rather than from caller-selected mode.
 
 For SE-018, every `evidence` key is bound to exactly one registered collector by the composite foreign key `(tenant_id, collector_id)`; an `issuer` key is bound to none. Key rotation may create multiple evidence keys for one collector, but one evidence key cannot authenticate two collector identities. The database refuses both an unbound evidence key and an issuer key carrying a collector binding. Ingestion requires the record's declared `source.collector_id` to equal the signing key's binding.
 
@@ -212,20 +212,20 @@ Partitioned by `tenant_id`. Append-only.
 | `sequence` | bigint | Monotonic within stream |
 | `prev_digest` | bytea null | |
 | `record_digest` | bytea | |
-| `collector_id` | text FK | |
+| `collector_id` | text FK null | Required for customer-origin records; absent for issuer observations |
 | `key_id` | text FK | |
-| `record_key_namespace` | key_namespace | Fixed to `evidence`; part of the key FK |
+| `record_key_namespace` | key_namespace | Type-dispatched by ES-033; part of the key FK |
 | `signature` | bytea | |
 | `source_time` | timestamptz | |
-| `ingest_time` | timestamptz | |
+| `ingest_time` | timestamptz null | Receipt-derived for customer-origin records; absent for issuer observations |
 | `authoritative_time` | timestamptz null | Governs where present (ES-020) |
-| `clock_skew_ms` | integer | |
+| `clock_skew_ms` | integer null | Receipt-derived for customer-origin records; absent for issuer observations |
 | `canonical_bytes` | bytea | **Authoritative** |
-| `received_wire_bytes` | bytea | Exact accepted canonical wire record, including `signature`; receipt-bound |
-| `receipt_key_id` | text FK | Issuer-namespace key used for ES-030 |
-| `receipt_key_namespace` | key_namespace | Fixed to `issuer`; part of the receipt-key FK |
-| `receipt_signature` | bytea | Raw Ed25519 signature over `receipt_canonical_bytes` |
-| `receipt_canonical_bytes` | bytea | **Authoritative hosted receipt** |
+| `received_wire_bytes` | bytea | Exact accepted canonical wire record, including `signature`; receipt-bound for customer-origin ingestion |
+| `receipt_key_id` | text FK null | Issuer-namespace key used for ES-030; absent when the primary record is already an issuer observation |
+| `receipt_key_namespace` | key_namespace null | Fixed to `issuer` when a receipt is present |
+| `receipt_signature` | bytea null | Raw Ed25519 signature over `receipt_canonical_bytes` |
+| `receipt_canonical_bytes` | bytea null | **Authoritative hosted receipt**; absent for issuer-origin records |
 | `body` | jsonb | Projection — rebuildable |
 | `action_id` | uuid null | Projection for join performance |
 | `action_family` | text null | Projection |
@@ -287,8 +287,13 @@ The denominator. Distinct table because CM-002 forbids conflating population wit
 
 | Column | Type | Notes |
 |---|---|---|
-| `population_ref` | text PK | |
+| `population_ref` | text PK | Record-envelope `record_id` |
 | `tenant_id` | text FK | |
+| `boundary_ref` | text FK | Assurance boundary governing the observation |
+| `stream_id` | text | Issuer-observation stream |
+| `sequence` | bigint | Monotonic within stream |
+| `prev_digest` | bytea null | Previous complete-record digest |
+| `record_digest` | bytea | SHA-256 digest |
 | `action_family` | text | |
 | `destination_system` | text | |
 | `window_start` | timestamptz | |
@@ -300,7 +305,16 @@ The denominator. Distinct table because CM-002 forbids conflating population wit
 | `pagination_complete` | boolean | |
 | `result_cap_hit` | boolean | |
 | `retrieved_at` | timestamptz | |
-| `signature` | bytea | |
+| `authoritative_timestamps` | jsonb | Minimum and maximum destination timestamps observed |
+| `source_time` | timestamptz | Issuer observation time |
+| `authoritative_time` | timestamptz null | Destination time where one value represents the record |
+| `key_id` | text FK | Primary signing key |
+| `key_namespace` | key_namespace | Fixed to `issuer`; part of the key FK |
+| `signature` | bytea | Raw Ed25519 primary signature |
+| `canonical_bytes` | bytea | Authoritative signature-excluded record bytes |
+| `received_wire_bytes` | bytea | Complete canonical record including `signature` |
+
+The table is append-only evidence, not a refresh cache. Re-enumerating a window inserts a new `population_ref`; it never overwrites an earlier observation. Its key foreign key includes the fixed `issuer` discriminator so a customer key cannot author the denominator even when the cryptographic proof is otherwise valid.
 
 **DM-010** — `result_cap_hit` or `NOT pagination_complete` must force `coverage_ratio` to null downstream (ES-011/012). Enforced in the coverage engine and asserted by ES-S-002.
 
@@ -405,7 +419,8 @@ Claim a number here before writing the migration (DM-001).
 | 0009 | — | *void* — was EV-20's pre-allocation (admin audit log) | void, never written |
 | 0010 | EV-27 | Signed ingestion receipts and receipt-derived clock metadata | applied |
 | 0011 | EV-07 | Collector-key binding, exact received wire retention, tenant-visible ingestion integrity events | applied |
-| 0012 | EV-12 | Boundaries, qualification records, `evidence_records.boundary_ref` FK | claimed |
+| 0012 | EV-12 | Boundaries, qualification records, `evidence_records.boundary_ref` FK | applied |
+| 0013 | EV-40 | Record-type signer-namespace pinning for issuer observations | applied |
 
 ### §3 amendment 1 — register reconciliation (EV-12)
 
@@ -471,7 +486,7 @@ described; only the number moves. Read DM-017 as naming **0012**.
 
 > **Verification for DM-007 — otherwise-verified.** `pytest:tests/unit/test_ledger_schema_invariants.py::test_no_cascade_on_any_constraint_touching_evidence` — This requirement is verified by a structural, database, CI, or artifact check rather than a Gherkin product scenario.
 
-> **Verification for DM-008 — scenario-bearing; deferred EV-37.** This is externally observable runtime behaviour; EV-37 owns its missing Gherkin scenario and executable acceptance proof.
+> **Verification for DM-008 — scenario-bearing; ES-S-019.** Python, Go, and the live database all dispatch the signing namespace from a closed record-type map; the database checks are additionally pinned by `pytest:tests/unit/test_ledger_schema_invariants.py::test_unknown_record_type_has_no_database_namespace_fallback` and its origin-substitution cases.
 
 > **Verification for DM-026 — otherwise-verified; deferred EV-38.** `pytest:tests/unit/test_boundary_immutability.py::test_boundaries_have_no_superseded_by_column` — This requirement is verified by a structural, database, CI, or artifact check rather than a Gherkin product scenario.
 

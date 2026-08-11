@@ -10,7 +10,7 @@ from cryptography.hazmat.primitives.asymmetric.ed25519 import Ed25519PrivateKey
 from pydantic import ValidationError
 
 from sdk_python.evidence.canonical import canonical_digest, canonicalize
-from sdk_python.evidence.schema import IngestionReceipt
+from sdk_python.evidence.schema import IngestionReceipt, validate_record
 from sdk_python.evidence.signing import sign_record, signing_digest
 from services.ingestion.receipts import (
     KeyNamespaceError,
@@ -127,6 +127,46 @@ def test_issuer_namespace_key_is_refused_for_an_evidence_record() -> None:
         verify_evidence_record_signature(
             record,
             verification_keys={"issuer-key": _registered(issuer_key)},
+        )
+
+
+def test_legacy_signature_entry_point_dispatches_issuer_observations() -> None:
+    raw = _unsigned_record().model_dump(mode="json", exclude_unset=True)
+    raw["record_type"] = "ExternalConfirmation"
+    raw["body"] = {
+        "action_id": "action-1",
+        "destination_system": "destination-1",
+        "destination_record_id": "ticket-1",
+        "destination_record_digest": "sha256:" + "11" * 32,
+        "authoritative_timestamp": "2026-08-01T12:00:00.000Z",
+        "reconciliation_status": "matched",
+        "retrieved_at": "2026-08-01T12:00:01.000Z",
+    }
+    raw["signature"] = {}
+    observation = validate_record(raw)
+    issuer = Ed25519PrivateKey.generate()
+    issuer_signed = sign_record(
+        observation, key_id="issuer", private_key=issuer
+    )
+
+    assert (
+        verify_evidence_record_signature(
+            issuer_signed,
+            verification_keys={"issuer": _registered(issuer)},
+        )
+        == "issuer"
+    )
+
+    evidence = Ed25519PrivateKey.generate()
+    evidence_signed = sign_record(
+        observation, key_id="evidence", private_key=evidence
+    )
+    with pytest.raises(KeyNamespaceError, match="requires an issuer primary signer"):
+        verify_evidence_record_signature(
+            evidence_signed,
+            verification_keys={
+                "evidence": _registered(evidence, namespace="evidence")
+            },
         )
 
 

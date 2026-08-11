@@ -3,20 +3,18 @@
 from __future__ import annotations
 
 import json
+from dataclasses import replace
 from datetime import UTC, datetime, timedelta
 
 import pytest
-from cryptography.hazmat.primitives.asymmetric.ed25519 import Ed25519PrivateKey
 from pydantic import ValidationError
 
-from sdk_python.evidence.canonical import canonical_digest
-from sdk_python.evidence.chain import verify_evidence_stream
-from sdk_python.evidence.schema import ClocksModel, PopulationRecord
-from sdk_python.evidence.signing import sign_record, verify_record_signature
+from sdk_python.evidence.schema import ClocksModel
 from services.connectors import (
     ActionReference,
     AttributionSurface,
     ConfirmationConnector,
+    ConfirmationObservation,
     ConnectorCapabilities,
     ConnectorCapabilityError,
     ConnectorContractError,
@@ -27,6 +25,7 @@ from services.connectors import (
     EnumerationWindow,
     MockConnectorConfig,
     MockDestinationRecord,
+    PopulationObservation,
     SettlementLagExceededError,
     SilentTruncationError,
     WindowCoverageUnavailableError,
@@ -35,7 +34,6 @@ from services.connectors import (
     require_confirmer,
     require_window_enumerator,
 )
-from services.ingestion.receipts import RegisteredPublicKey
 
 NOW = datetime(2026, 8, 11, 12, tzinfo=UTC)
 WINDOW = EnumerationWindow(NOW - timedelta(hours=1), NOW + timedelta(hours=1))
@@ -62,20 +60,18 @@ def _records() -> tuple[MockDestinationRecord, ...]:
 
 
 def _mock(config: MockConnectorConfig | None = None):
-    key = Ed25519PrivateKey.generate()
     connector = create_mock_connector(
         config=config,
         records=_records(),
-        private_key=key,
         retrieved_at=NOW,
     )
-    return connector, key
+    return connector, None
 
 
 class _FixedEnumerationConnector:
     def __init__(
         self,
-        record: PopulationRecord,
+        record: PopulationObservation,
         capabilities: ConnectorCapabilities,
     ) -> None:
         self.record = record
@@ -88,23 +84,18 @@ class _FixedEnumerationConnector:
 
     def enumerate(
         self, scope: ConnectorScope, window: EnumerationWindow
-    ) -> PopulationRecord:
+    ) -> PopulationObservation:
         return self.record
 
 
-def _resign_population(
-    record: PopulationRecord,
-    key: Ed25519PrivateKey,
+def _alter_population(
+    record: PopulationObservation,
     *,
     body_updates: dict[str, object] | None = None,
     clocks: ClocksModel | None = None,
-) -> PopulationRecord:
+) -> PopulationObservation:
     body = record.body.model_copy(update=body_updates or {}, deep=True)
-    unsigned = record.model_copy(
-        update={"body": body, "clocks": clocks or record.clocks, "signature": {}},
-        deep=True,
-    )
-    return sign_record(unsigned, key_id="mock-evidence-key", private_key=key)
+    return replace(record, body=body, clocks=clocks or record.clocks)
 
 
 def test_confirmation_only_is_structurally_not_an_enumerator() -> None:
@@ -178,7 +169,7 @@ def test_explicit_truncation_flags_make_enumeration_unusable(
     with pytest.raises(EnumerationUnusableError, match=message) as refusal:
         enumerate_for_window_coverage(connector, SCOPE, WINDOW)
 
-    rejected = refusal.value.population_record
+    rejected = refusal.value.population_observation
     assert rejected.body.result_cap_hit is config.result_cap_hit
     assert rejected.body.pagination_complete is config.pagination_complete
 
@@ -192,8 +183,8 @@ def test_remote_silent_truncation_is_turned_into_a_loud_failure() -> None:
     assert issubclass(SilentTruncationError, ConnectorCapabilityError)
 
 
-def test_duplicates_and_missing_actor_attribution_are_returned_as_evidence() -> None:
-    connector, key = _mock(
+def test_duplicates_and_missing_actor_attribution_are_returned_as_observations() -> None:
+    connector, _ = _mock(
         MockConnectorConfig(duplicate_records=True, unattributable_records=True)
     )
 
@@ -204,9 +195,8 @@ def test_duplicates_and_missing_actor_attribution_are_returned_as_evidence() -> 
     observations = result.body.model_extra["attribution_observations"]
     assert isinstance(observations, list)
     assert all(observation["actor_attribute"] is None for observation in observations)
-    assert verify_record_signature(
-        result, public_keys={"mock-evidence-key": key.public_key()}
-    ) == "mock-evidence-key"
+    assert isinstance(result, PopulationObservation)
+    assert not hasattr(result, "signature")
 
 
 def test_duplicate_identifiers_pass_the_gate_for_reconciliation_classification() -> None:
@@ -232,24 +222,27 @@ def test_settlement_lag_beyond_declared_bound_is_reported_and_refused() -> None:
         enumerate_for_window_coverage(connector, SCOPE, WINDOW)
 
     assert (
-        refusal.value.population_record.body.model_extra["observed_settlement_lag_ms"]
+        refusal.value.population_observation.body.model_extra[
+            "observed_settlement_lag_ms"
+        ]
         == 360_000
     )
 
 
-def test_mock_returns_signed_population_and_confirmation_evidence() -> None:
-    connector, key = _mock()
-    public_keys = {"mock-evidence-key": key.public_key()}
+def test_mock_returns_unsigned_population_and_confirmation_observations() -> None:
+    connector, _ = _mock()
 
     population = enumerate_for_window_coverage(connector, SCOPE, WINDOW)
     confirmation = require_confirmer(connector).confirm(
         ActionReference("action-1", "ticket-1")
     )
 
-    assert population.record_type == "PopulationRecord"
-    assert confirmation.record_type == "ExternalConfirmation"
-    assert verify_record_signature(population, public_keys=public_keys)
-    assert verify_record_signature(confirmation, public_keys=public_keys)
+    assert isinstance(population, PopulationObservation)
+    assert isinstance(confirmation, ConfirmationObservation)
+    assert not hasattr(population, "signature")
+    assert not hasattr(confirmation, "signature")
+    assert not hasattr(population, "record_id")
+    assert not hasattr(confirmation, "record_id")
     assert confirmation.body.authoritative_timestamp == "2026-08-11T11:58:00.000Z"
     # The newest enumerated destination record, not the 12:00 collector read.
     assert population.clocks.authoritative_time == "2026-08-11T11:59:00.000Z"
@@ -257,24 +250,17 @@ def test_mock_returns_signed_population_and_confirmation_evidence() -> None:
     assert confirmation.clocks.authoritative_time == "2026-08-11T11:58:00.000Z"
 
 
-def test_mock_records_form_a_valid_es_006a_stream() -> None:
-    connector, key = _mock()
+def test_connector_cannot_choose_envelope_or_chain_position() -> None:
+    connector, _ = _mock()
     population = enumerate_for_window_coverage(connector, SCOPE, WINDOW)
     confirmation = require_confirmer(connector).confirm(
         ActionReference("action-1", "ticket-1")
     )
 
-    assert confirmation.prev_digest == canonical_digest(population)
-    result = verify_evidence_stream(
-        [population, confirmation],
-        verification_keys={
-            "mock-evidence-key": RegisteredPublicKey(
-                namespace="evidence", public_key=key.public_key()
-            )
-        },
-    )
-
-    assert result.end_sequence == 2
+    for observation in (population, confirmation):
+        assert not hasattr(observation, "stream_id")
+        assert not hasattr(observation, "sequence")
+        assert not hasattr(observation, "prev_digest")
 
 
 @pytest.mark.parametrize(
@@ -299,21 +285,21 @@ def test_mock_records_form_a_valid_es_006a_stream() -> None:
 def test_gate_rejects_population_that_does_not_match_its_request(
     body_updates: dict[str, object], field: str
 ) -> None:
-    connector, key = _mock()
+    connector, _ = _mock()
     original = require_window_enumerator(connector).enumerate(SCOPE, WINDOW)
-    mismatched = _resign_population(original, key, body_updates=body_updates)
+    mismatched = _alter_population(original, body_updates=body_updates)
     fixed = _FixedEnumerationConnector(mismatched, connector.capabilities())
 
     with pytest.raises(EnumerationResponseMismatchError, match=field) as refusal:
         enumerate_for_window_coverage(fixed, SCOPE, WINDOW)
 
-    assert refusal.value.population_record is mismatched
+    assert refusal.value.population_observation is mismatched
 
 
 def test_gate_rejects_count_that_disagrees_with_inline_identifiers() -> None:
-    connector, key = _mock()
+    connector, _ = _mock()
     original = require_window_enumerator(connector).enumerate(SCOPE, WINDOW)
-    mismatched = _resign_population(original, key, body_updates={"count": 5_000})
+    mismatched = _alter_population(original, body_updates={"count": 5_000})
     fixed = _FixedEnumerationConnector(mismatched, connector.capabilities())
 
     with pytest.raises(EnumerationResponseMismatchError, match="count"):
@@ -328,11 +314,10 @@ def test_gate_requires_declared_and_emitted_authoritative_time() -> None:
     with pytest.raises(WindowCoverageUnavailableError, match="authoritative time"):
         enumerate_for_window_coverage(unavailable, SCOPE, WINDOW)
 
-    connector, key = _mock()
+    connector, _ = _mock()
     original = require_window_enumerator(connector).enumerate(SCOPE, WINDOW)
-    missing_clock = _resign_population(
+    missing_clock = _alter_population(
         original,
-        key,
         clocks=ClocksModel(source_time=original.clocks.source_time),
     )
     fixed = _FixedEnumerationConnector(missing_clock, connector.capabilities())
@@ -349,14 +334,13 @@ def test_relayed_authoritative_time_cannot_be_the_collectors_own_clock() -> None
     makes the declared capability cost the connector something.
     """
 
-    connector, key = _mock()
+    connector, _ = _mock()
     original = require_window_enumerator(connector).enumerate(SCOPE, WINDOW)
     assert original.clocks.authoritative_time == original.body.authoritative_timestamps["max"]
     assert original.clocks.authoritative_time != original.clocks.source_time
 
-    echoed_read_clock = _resign_population(
+    echoed_read_clock = _alter_population(
         original,
-        key,
         clocks=ClocksModel(
             source_time=original.clocks.source_time,
             authoritative_time=original.clocks.source_time,
@@ -368,12 +352,10 @@ def test_relayed_authoritative_time_cannot_be_the_collectors_own_clock() -> None
 
 
 def test_empty_enumeration_cannot_relay_a_destination_timestamp() -> None:
-    key = Ed25519PrivateKey.generate()
-    connector = create_mock_connector(records=(), private_key=key, retrieved_at=NOW)
+    connector = create_mock_connector(records=(), retrieved_at=NOW)
     original = require_window_enumerator(connector).enumerate(SCOPE, WINDOW)
-    fabricated = _resign_population(
+    fabricated = _alter_population(
         original,
-        key,
         clocks=ClocksModel(
             source_time=original.clocks.source_time,
             authoritative_time=original.clocks.source_time,
@@ -395,10 +377,7 @@ def test_gate_uses_one_capability_snapshot() -> None:
 
 
 def test_empty_but_exactly_bound_enumeration_is_a_valid_zero_denominator() -> None:
-    key = Ed25519PrivateKey.generate()
-    connector = create_mock_connector(
-        records=(), private_key=key, retrieved_at=NOW
-    )
+    connector = create_mock_connector(records=(), retrieved_at=NOW)
 
     result = enumerate_for_window_coverage(connector, SCOPE, WINDOW)
 
@@ -430,14 +409,15 @@ def test_scope_parameters_are_deeply_immutable_hashable_and_json_compatible() ->
         filters.append("unsafe")
 
 
-def test_fixed_retrieval_time_does_not_create_record_id_collisions() -> None:
+def test_connector_observations_do_not_allocate_record_identities() -> None:
     first, _ = _mock()
     second, _ = _mock()
 
     first_record = require_window_enumerator(first).enumerate(SCOPE, WINDOW)
     second_record = require_window_enumerator(second).enumerate(SCOPE, WINDOW)
 
-    assert first_record.record_id != second_record.record_id
+    assert not hasattr(first_record, "record_id")
+    assert not hasattr(second_record, "record_id")
 
 
 def test_mock_cannot_escape_the_closed_confirmation_status_enumeration() -> None:

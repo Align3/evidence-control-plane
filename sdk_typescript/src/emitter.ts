@@ -2,6 +2,7 @@ import { randomBytes } from "node:crypto";
 import { digestJson } from "./crypto.ts";
 import { refuse } from "./errors.ts";
 import type { JsonObject } from "./json.ts";
+import { primarySignerNamespace } from "./origin.ts";
 import { signRecord } from "./signing.ts";
 import type {
   ActionProposalBody, AgentIdentityBody, AssuranceBoundaryBody, AttestationWindowBody,
@@ -40,6 +41,9 @@ export class EvidenceEmitter {
   }
 
   emit<T extends RecordType>(recordType: T, body: RecordBodyMap[T], overrides: EmitOverrides = {}): SignedEvidenceRecord<T> {
+    if (primarySignerNamespace(recordType) !== "evidence") {
+      refuse("key.namespace_mismatch", `${recordType} is issuer-authored and cannot be emitted by the customer SDK`);
+    }
     const sequence = this.sequence + 1;
     const schemaVersion = this.options.schemaVersion ?? "1.0.0";
     const boundaryRef = overrides.boundaryRef ?? this.options.boundaryRef;

@@ -46,18 +46,18 @@ type RecordVerification struct {
 	IssuerKeyID string
 }
 
-// VerifyEvidenceRecord verifies a complete record: the customer signature under
-// SE-003, and every further signature the record's type requires.
+// VerifyEvidenceRecord verifies a complete record: the ES-033 primary proof
+// under SE-003, and every further signature the record's type requires.
 //
 // The dispatch belongs here rather than in a caller. ES-023 gives the
 // AttestationWindow a second signature, and a verifier that checks only the
-// customer's reports an attestation with its counter-signature stripped as a
+// primary proof reports an attestation with its counter-signature stripped as a
 // valid record — a true statement about one signature presented as a conclusion
 // about the record. Leaving that to "whoever remembers to ask for the issuer
 // check" means the answer depends on which entry point a relying party happened
 // to call.
 func VerifyEvidenceRecord(r *Record, keys map[string]RegisteredKey) (*RecordVerification, error) {
-	keyID, err := VerifyEvidenceRecordSignature(r, keys)
+	keyID, err := VerifyRecordOriginSignature(r, keys)
 	if err != nil {
 		return nil, err
 	}

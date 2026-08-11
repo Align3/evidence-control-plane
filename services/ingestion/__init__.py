@@ -14,6 +14,7 @@ from .receipts import (
     verify_canonical_evidence_record,
     verify_evidence_record_signature,
     verify_ingestion_receipt,
+    verify_record_origin_signature,
 )
 from .service import (
     ChainConflictError,
@@ -51,5 +52,6 @@ __all__ = [
     "parse_canonical_record_wire",
     "verify_canonical_evidence_record",
     "verify_evidence_record_signature",
+    "verify_record_origin_signature",
     "verify_ingestion_receipt",
 ]

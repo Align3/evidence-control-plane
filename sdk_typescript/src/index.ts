@@ -3,6 +3,7 @@ export * from "./conformance.ts";
 export * from "./emitter.ts";
 export * from "./errors.ts";
 export * from "./json.ts";
+export * from "./origin.ts";
 export * from "./review.ts";
 export * from "./schema.ts";
 export * from "./signing.ts";

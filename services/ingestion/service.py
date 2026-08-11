@@ -25,6 +25,7 @@ from cryptography.hazmat.primitives.asymmetric.ed25519 import (
 from sqlalchemy import Connection, RowMapping, or_, select, text
 from sqlalchemy.exc import IntegrityError, SQLAlchemyError
 
+from sdk_python.evidence.origin import primary_signer_namespace
 from sdk_python.evidence.schema import EvidenceRecord
 from sdk_python.evidence.signing import SignatureError
 from services.ledger import (
@@ -385,6 +386,10 @@ class IngestionService:
             validate_tenant_id(record.tenant_id)
         except ValueError as exc:
             raise IngestionError("record names an invalid or unprovisioned tenant") from exc
+        if primary_signer_namespace(record.record_type) != "evidence":
+            raise CollectorAuthenticationError(
+                "customer ingestion accepts only customer-origin evidence records"
+            )
         collector_id = _required_source_text(record, "collector_id")
         key_id = _signature_key_id(record)
         signer = self._issuer_signers.get(record.tenant_id)

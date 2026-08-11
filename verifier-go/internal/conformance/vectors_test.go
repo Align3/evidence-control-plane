@@ -212,7 +212,7 @@ func TestVectors(t *testing.T) {
 	if vf.Format != "evidence-control-plane-conformance-vectors" {
 		t.Fatalf("unexpected corpus format %q", vf.Format)
 	}
-	if vf.FormatVersion != "1.1.0" {
+	if vf.FormatVersion != "1.2.0" {
 		t.Fatalf("unexpected corpus format version %q", vf.FormatVersion)
 	}
 	seen := map[string]bool{}
@@ -250,6 +250,8 @@ func runVector(t *testing.T, id, op string, v map[string]any) {
 		runVerifyReceipt(t, id, v)
 	case "verify_evidence_record_signature":
 		runVerifyEvidenceRecordSignature(t, id, v)
+	case "verify_record_origin_signature":
+		runVerifyRecordOriginSignature(t, id, v)
 	case "verify_canonical_evidence_record":
 		runVerifyCanonicalWire(t, id, v)
 	default:
@@ -410,11 +412,40 @@ func runVerifyEvidenceRecordSignature(t *testing.T, id string, v map[string]any)
 	}
 }
 
-func runVerifyCanonicalWire(t *testing.T, id string, v map[string]any) {
-	wireHex, _ := v["received_wire_utf8_hex"].(string)
-	wire, err := hex.DecodeString(wireHex)
+func runVerifyRecordOriginSignature(t *testing.T, id string, v map[string]any) {
+	rec, err := evidence.ParseRecord(remarshal(t, v["record"]))
 	if err != nil {
-		t.Fatalf("%s: decode wire hex: %v", id, err)
+		if !accepted(v) {
+			checkRefusal(t, id, err, wantCode(v))
+			return
+		}
+		t.Fatalf("%s: parse record: %v", id, err)
+	}
+	keyID, err := evidence.VerifyRecordOriginSignature(
+		rec, registeredKeyring(t, v["verification_keys"]))
+	if !accepted(v) {
+		checkRefusal(t, id, err, wantCode(v))
+		return
+	}
+	if err != nil {
+		t.Fatalf("%s: expected acceptance, got %v", id, err)
+	}
+	if want := wantString(v, "key_id"); want != "" && keyID != want {
+		t.Fatalf("%s: key id %s != %s", id, keyID, want)
+	}
+}
+
+func runVerifyCanonicalWire(t *testing.T, id string, v map[string]any) {
+	var wire []byte
+	var err error
+	if record, ok := v["record"]; ok {
+		wire = remarshal(t, record)
+	} else {
+		wireHex, _ := v["received_wire_utf8_hex"].(string)
+		wire, err = hex.DecodeString(wireHex)
+		if err != nil {
+			t.Fatalf("%s: decode wire hex: %v", id, err)
+		}
 	}
 	_, err = evidence.VerifyCanonicalEvidenceRecord(wire, registeredKeyring(t, v["verification_keys"]))
 	if !accepted(v) {

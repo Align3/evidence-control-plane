@@ -64,7 +64,7 @@ Sizing target: one to five days for a competent agent with review. Anything larg
 
 ### Story-ID allocation register
 
-Story IDs are claimed in integer order by the commit that adds the complete story below. An ID is never reserved, pre-allocated, or held for a branch: concurrent authors rebase and claim the next integer above the current head. The last ID claimed in this document is EV-39; the next author computes its successor only when adding that story's full purpose, Touches, dependencies, Satisfies, and Acceptance record.
+Story IDs are claimed in integer order by the commit that adds the complete story below. An ID is never reserved, pre-allocated, or held for a branch: concurrent authors rebase and claim the next integer above the current head. The last ID claimed in this document is EV-40; the next author computes its successor only when adding that story's full purpose, Touches, dependencies, Satisfies, and Acceptance record.
 
 ---
 
@@ -196,11 +196,11 @@ The two-capability interface (`enumerate`, `confirm`, `capabilities`). First con
 **Blocked on:** destination system decision.
 
 #### EV-14 — Population service
-Scheduled enumeration honouring settlement lag. Emits signed `PopulationRecord`. Refuses to emit a usable denominator on truncation.
+Scheduled enumeration honouring settlement lag. Emits an issuer-signed `PopulationRecord` that faithfully records truncation; interpretation of a truncated record as an unusable denominator belongs to EV-16.
 **Touches:** `services/computation/population.py`, Celery tasks
-**Depends on:** EV-13
+**Depends on:** EV-13, EV-40
 **Satisfies:** CM-019, ES-011, ES-012, TM-012
-**Acceptance:** ES-S-002
+**Acceptance:** ES-S-020
 
 #### EV-15 — Reconciliation engine
 Pure function matching evidence to population and confirmations. Closed classification enumeration, no residual bucket. Duplicate and ambiguous handling.
@@ -214,7 +214,7 @@ Applies the lattice: claimed level = min(evidence-supported, class-admissible). 
 **Touches:** `services/computation/coverage.py`
 **Depends on:** EV-15
 **Satisfies:** CM-008, CM-009, CM-011, CM-014, AC-005, ES-020, TM-006
-**Acceptance:** CM-S-001, CM-S-003, CM-S-004, CM-S-010, QA-S-002, ES-S-014
+**Acceptance:** CM-S-001, CM-S-003, CM-S-004, CM-S-010, QA-S-002, ES-S-014, ES-S-021
 
 ---
 
@@ -225,7 +225,7 @@ Window assembly, assertion selection from the closed catalogue, exclusions, issu
 **Touches:** `services/attestation/`
 **Depends on:** EV-16
 **Satisfies:** AR-003…006, AR-027, AR-028, ES-017, ES-018, SE-002, SE-003
-**Acceptance:** AR-S-001, AR-S-002, AR-S-003, AR-S-007, AR-S-008, ES-S-006, SE-S-001
+**Acceptance:** AR-S-001, AR-S-002, AR-S-003, AR-S-007, AR-S-008, ES-S-002, ES-S-006, SE-S-001
 
 **Note on AR-027 / AR-028 and their scenarios.** Both requirements, and the scenarios AR-S-007 and AR-S-008 that exercise them, were written by EV-25 when it found A-02 and A-09 resting on citations that did not state their claims. They are claimed here rather than there because both are conditions on **assertion selection** — each scenario's `When` is "the attestation is generated", which is this service and nothing earlier. EV-12 supplies the referenced boundary record, but it cannot emit an attestation. Production of outcome proof is explicitly outside the MVP; until matching `OutcomeRecord` evidence exists, EV-17 satisfies AR-028 by withholding A-09 rather than assuming confirmation. A future outcome-evidence producer still will not own the issuance condition. Until EV-17 lands, both scenarios are correctly reported as untested scenarios owned by an unlanded story.
 
@@ -434,6 +434,13 @@ Provide an independently controlled and externally verifiable history of signed 
 **Depends on:** EV-12, EV-19
 **Satisfies:** TM-002, TM-003
 **Acceptance:** TM-S-002
+
+#### EV-40 — Record-origin signing categories
+Replace the false two-category assumption that every evidence record is customer-authored except for an issuer counter-signature with an explicit three-category model: customer observations are customer-signed; hosted issuer observations (`IngestionReceipt`, `PopulationRecord`, and `ExternalConfirmation`) are issuer-signed; issuer conclusions are issuer-authenticated (`AttestationWindow` retains its two-proof counter-signature form, while `RevocationRecord` carries an issuer primary signature). Namespace dispatch is closed by record type in Python, Go, and the database. Correct EV-13 so connectors return destination observations and the hosted service, not the connector caller or customer, authors issuer observations. State the deployment consequence explicitly: P2/P3 placement does not change whose claim an observation is, so issuer signing remains mandatory and issuer-key custody must be available without silently converting the record to customer evidence.
+**Touches:** evidence, security, architecture, data-model, and QA documentation; `sdk_python/evidence/`, `sdk_typescript/`, `services/ingestion/`, `services/connectors/`, `services/ledger/`, Go verifier, migrations, normative vectors, and signing/namespace acceptance tests
+**Depends on:** EV-05, EV-13, EV-27, EV-30
+**Satisfies:** ES-033, SE-001, SE-002, SE-003, DM-008
+**Acceptance:** ES-S-019, SE-S-008
 
 ---
 

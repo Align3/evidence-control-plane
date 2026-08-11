@@ -70,13 +70,13 @@ The correction that matters most from the methodology work. A connector has **tw
 interface DestinationConnector:
 
     # Capability 1 — ENUMERATION (produces the denominator)
-    enumerate(scope, window) -> PopulationRecord
+    enumerate(scope, window) -> PopulationObservation
         MUST report pagination_complete and result_cap_hit
         MUST NOT silently truncate
         MAY be unavailable -> denominator class degrades
 
     # Capability 2 — CONFIRMATION (verifies one action)
-    confirm(action_ref) -> ExternalConfirmation
+    confirm(action_ref) -> ConfirmationObservation
         MUST return an authoritative timestamp where the system provides one
         MUST classify into the closed enumeration (ES-015)
 
@@ -93,12 +93,14 @@ interface DestinationConnector:
 
 1. Agent or gateway produces `ActionProposal`, `AuthorityDecision`, `ExecutionReceipt` — signed client-side, appended synchronously.
 2. `HumanReview` emitted from the review surface, capturing what was rendered and the action state at review.
-3. Population service enumerates the destination for the window after the declared settlement lag; emits `PopulationRecord`.
-4. Connector retrieves `ExternalConfirmation` per action.
+3. Population service enumerates the destination for the window after the declared settlement lag, constructs the governed envelope from the unsigned connector observation, and issuer-signs the `PopulationRecord`.
+4. Connector returns an unsigned confirmation observation; the hosted producer constructs and issuer-signs `ExternalConfirmation`.
 5. Reconciliation engine matches and classifies. Pure function.
 6. Coverage engine applies the lattice. Pure function.
 7. Attestation service assembles, asserts from the catalogue, counter-signs.
 8. Relying party verifies offline; checks revocation online.
+
+The connector is an adapter, not an evidence principal. It reports destination facts but neither chooses the record envelope nor signs a record. Under P2/P3 the adapter may run in customer infrastructure, while the resulting observation remains an issuer claim; those profiles require a constrained route to issuer signing and fail closed when it is unavailable.
 
 **AC-009** — Steps 3–7 are idempotent and replayable. Re-running against an unchanged ledger produces byte-identical output (the golden-attestation property in `testing-qa.md`).
 

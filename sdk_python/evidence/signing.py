@@ -231,7 +231,7 @@ def signing_digest(record: RecordEnvelope) -> str:
 
 
 def record_signing_bytes(record: RecordEnvelope) -> bytes:
-    """Return the exact customer-authored bytes covered by ``signed_digest``."""
+    """Return the exact primary-signer bytes covered by ``signed_digest``."""
 
     return canonicalize(_unsigned_mapping(record))
 
@@ -255,7 +255,12 @@ def sign_record[RecordT: RecordEnvelope](
     private_key: Ed25519PrivateKey,
     key_continuity: Mapping[str, object] | None = None,
 ) -> RecordT:
-    """Return a copy signed by the customer's evidence key.
+    """Return a copy carrying its primary Ed25519 signature.
+
+    This primitive proves bytes, not custody role. ES-033 namespace dispatch is
+    enforced by the complete record verifiers; callers producing issuer
+    observations pass an issuer key and callers producing customer records pass
+    an evidence key.
 
     ``key_continuity`` is attached only on the first record using a new key.
     It is a separately authenticated assertion created by ``chain`` and is
@@ -284,7 +289,23 @@ def verify_record_signature(
     *,
     public_keys: Mapping[str, Ed25519PublicKey],
 ) -> str:
-    """Verify the customer signature and return its key ID."""
+    """Verify the primary signature's cryptography and return its key ID.
+
+    This is deliberately *not* an ES-033 entry point and cannot become one:
+    ``public_keys`` holds bare Ed25519 keys, which carry no custody namespace,
+    so origin dispatch is unrepresentable here rather than merely omitted. It
+    answers "was this signed by the key claimed" and nothing about whether that
+    key was allowed to sign this record type.
+
+    ``chain.py`` removed its namespace-free ``verify_stream`` export on the
+    grounds that a weakening path which is merely unattractive is still a path.
+    The reason this primitive stays is that it is not such a path: it is
+    unexported from ``sdk_python.evidence``, and both in-tree callers
+    (``chain._signature_key_id`` and
+    ``services.ingestion.receipts.verify_record_origin_signature``) apply
+    ``primary_signer_namespace`` to the key ID it returns. Reach for
+    ``verify_record_origin_signature`` unless you are building that check.
+    """
 
     return verify_record_signature_bytes(
         record,
@@ -299,7 +320,7 @@ def verify_record_signature_bytes(
     signing_bytes: bytes,
     public_keys: Mapping[str, Ed25519PublicKey],
 ) -> str:
-    """Verify against the exact customer bytes retained by ingestion.
+    """Verify against the exact primary-signing bytes retained by storage.
 
     Callers that possess the received canonical representation pass those
     bytes here.  The ordinary model-only verifier remains available for
