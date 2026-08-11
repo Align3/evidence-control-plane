@@ -64,7 +64,7 @@ Sizing target: one to five days for a competent agent with review. Anything larg
 
 ### Story-ID allocation register
 
-Story IDs are claimed in integer order by the commit that adds the complete story below. An ID is never reserved, pre-allocated, or held for a branch: concurrent authors rebase and claim the next integer above the current head. The last ID claimed in this document is EV-39; the next author computes its successor only when adding that story's full purpose, Touches, dependencies, Satisfies, and Acceptance record.
+Story IDs are claimed in integer order by the commit that adds the complete story below. An ID is never reserved, pre-allocated, or held for a branch: concurrent authors rebase and claim the next integer above the current head. The last ID claimed in this document is EV-40; the next author computes its successor only when adding that story's full purpose, Touches, dependencies, Satisfies, and Acceptance record.
 
 ---
 
@@ -434,6 +434,13 @@ Provide an independently controlled and externally verifiable history of signed 
 **Depends on:** EV-12, EV-19
 **Satisfies:** TM-002, TM-003
 **Acceptance:** TM-S-002
+
+#### EV-40 — Record-origin signing categories
+Replace the false two-category assumption that every evidence record is customer-authored except for an issuer counter-signature with an explicit three-category model: customer observations are customer-signed; hosted issuer observations (`IngestionReceipt`, `PopulationRecord`, and `ExternalConfirmation`) are issuer-signed; issuer conclusions (`AttestationWindow`) retain their issuer-authenticated conclusion and counter-signature semantics. Namespace dispatch is closed by record type in Python, Go, and the database. Correct EV-13 so connectors return destination observations and the hosted service, not the connector caller or customer, authors issuer observations. State the deployment consequence explicitly: P2/P3 placement does not change whose claim an observation is, so issuer signing remains mandatory and issuer-key custody must be available without silently converting the record to customer evidence.
+**Touches:** evidence, security, architecture, and data-model documentation; `sdk_python/evidence/`, `services/ingestion/`, `services/connectors/`, Go verifier, migrations, normative vectors, and signing/namespace acceptance tests
+**Depends on:** EV-05, EV-13, EV-27, EV-30
+**Satisfies:** ES-033, SE-001, SE-002, SE-003, DM-008
+**Acceptance:** ES-S-018, SE-S-008
 
 ---
 
