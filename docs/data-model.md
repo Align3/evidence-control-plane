@@ -454,3 +454,69 @@ described; only the number moves. Read DM-017 as naming **0012**.
 **DM-013** — Derived tables (`reconciliation_results`, projections) may be dropped and rebuilt freely. Evidence, population records, gaps, attestations, and revocations may not.
 
 **DM-014** — Retention floor: attestation validity plus the dispute window, with 12 months recommended as the configurable default (IN-009 note).
+
+## Verification classifications
+
+> **Verification for DM-001 — non-testable (process).** Migration numbers are allocated through a repository authoring procedure, not runtime product behaviour.
+
+> **Verification for DM-002 — non-testable (process).** Numbered section amendments are a concurrent documentation authoring rule.
+
+> **Verification for DM-003 — non-testable (process).** Touch-set separation governs concurrent story scheduling and does not describe product execution.
+
+> **Verification for DM-004 — otherwise-verified; deferred EV-38.** `pytest:tests/traceability/test_structural_requirements.py::test_dm_004_evidence_roles_have_only_insert_and_select` — This requirement is verified by a structural, database, CI, or artifact check rather than a Gherkin product scenario.
+
+> **Verification for DM-006 — otherwise-verified; deferred EV-38.** `pytest:tests/traceability/test_structural_requirements.py::test_dm_006_cross_tenant_reads_are_inexpressible` — This requirement is verified by a structural, database, CI, or artifact check rather than a Gherkin product scenario.
+
+> **Verification for DM-022 — otherwise-verified.** `pytest:tests/unit/test_ledger_registry_isolation.py::test_registry_isolation_is_enabled_not_merely_declared` — This requirement is verified by a structural, database, CI, or artifact check rather than a Gherkin product scenario.
+
+> **Verification for DM-007 — otherwise-verified.** `pytest:tests/unit/test_ledger_schema_invariants.py::test_no_cascade_on_any_constraint_touching_evidence` — This requirement is verified by a structural, database, CI, or artifact check rather than a Gherkin product scenario.
+
+> **Verification for DM-008 — scenario-bearing; deferred EV-37.** This is externally observable runtime behaviour; EV-37 owns its missing Gherkin scenario and executable acceptance proof.
+
+> **Verification for DM-026 — otherwise-verified; deferred EV-38.** `pytest:tests/unit/test_boundary_immutability.py::test_boundaries_have_no_superseded_by_column` — This requirement is verified by a structural, database, CI, or artifact check rather than a Gherkin product scenario.
+
+> **Verification for DM-027 — otherwise-verified; deferred EV-38.** `pytest:tests/traceability/test_structural_requirements.py::test_dm_027_boundary_signature_key_is_composite_and_evidence_pinned` — This requirement is verified by a structural, database, CI, or artifact check rather than a Gherkin product scenario.
+
+> **Verification for DM-028 — scenario-bearing; deferred EV-34.** This is externally observable runtime behaviour; EV-34 owns its missing Gherkin scenario and executable acceptance proof.
+
+> **Verification for DM-029 — otherwise-verified; deferred EV-38.** `pytest:tests/unit/test_boundary_immutability.py::test_boundary_ref_format_check_and_composite_fk_are_present` — This requirement is verified by a structural, database, CI, or artifact check rather than a Gherkin product scenario.
+
+> **Verification for DM-030 — otherwise-verified.** `pytest:tests/unit/test_boundary_immutability.py::test_a_family_row_without_a_qualification_is_unrepresentable` — This requirement is verified by a structural, database, CI, or artifact check rather than a Gherkin product scenario.
+
+> **Verification for DM-009 — otherwise-verified; deferred EV-38.** `pytest:tests/traceability/test_structural_requirements.py::test_dm_009_mutation_and_resolution_guards_both_hold` — This requirement is verified by a structural, database, CI, or artifact check rather than a Gherkin product scenario.
+
+> **Verification for DM-031 — otherwise-verified; deferred EV-38.** `pytest:tests/traceability/test_structural_requirements.py::test_dm_031_owner_mutation_guards_cover_every_boundary_column` — This requirement is verified by a structural, database, CI, or artifact check rather than a Gherkin product scenario.
+
+> **Verification for DM-032 — otherwise-verified.** `pytest:tests/unit/test_boundary_immutability.py::test_a_stronger_class_cannot_be_backdated_behind_an_existing_record` — This requirement is verified by a structural, database, CI, or artifact check rather than a Gherkin product scenario.
+
+> **Verification for DM-033 — otherwise-verified; deferred EV-38.** `pytest:tests/traceability/test_structural_requirements.py::test_dm_033_all_numbered_class_caps_are_database_checks` — This requirement is verified by a structural, database, CI, or artifact check rather than a Gherkin product scenario.
+
+> **Verification for DM-034 — scenario-bearing; deferred EV-33.** This is externally observable runtime behaviour; EV-33 owns its missing Gherkin scenario and executable acceptance proof.
+
+> **Verification for DM-035 — non-testable (documentation).** This records the documented limit of owner-controlled PostgreSQL triggers and explicitly withholds a claim.
+
+> **Verification for DM-015 — otherwise-verified; deferred EV-38.** `pytest:tests/unit/test_ledger_schema_invariants.py::test_evidence_primary_key_is_tenant_id_and_record_id` — This requirement is verified by a structural, database, CI, or artifact check rather than a Gherkin product scenario.
+
+> **Verification for DM-016 — otherwise-verified; deferred EV-38.** `pytest:tests/traceability/test_structural_requirements.py::test_dm_016_all_tenant_owned_foreign_keys_are_composite` — This requirement is verified by a structural, database, CI, or artifact check rather than a Gherkin product scenario.
+
+> **Verification for DM-017 — otherwise-verified; deferred EV-38.** `pytest:tests/unit/test_ledger_schema_invariants.py::test_boundary_ref_fk_is_added_only_when_boundaries_exist` — This requirement is verified by a structural, database, CI, or artifact check rather than a Gherkin product scenario.
+
+> **Verification for DM-018 — otherwise-verified; deferred EV-38.** `pytest:tests/unit/test_ledger_schema_invariants.py::test_no_default_evidence_partition_exists` — This requirement is verified by a structural, database, CI, or artifact check rather than a Gherkin product scenario.
+
+> **Verification for DM-019 — otherwise-verified; deferred EV-38.** `pytest:tests/traceability/test_structural_requirements.py::test_dm_019_parent_and_tenant_partition_grants_are_exact` — This requirement is verified by a structural, database, CI, or artifact check rather than a Gherkin product scenario.
+
+> **Verification for DM-020 — otherwise-verified; deferred EV-38.** `pytest:tests/traceability/test_structural_requirements.py::test_dm_020_tenant_identifier_check_preserves_name_injectivity` — This requirement is verified by a structural, database, CI, or artifact check rather than a Gherkin product scenario.
+
+> **Verification for DM-023 — scenario-bearing; deferred EV-33.** This is externally observable runtime behaviour; EV-33 owns its missing Gherkin scenario and executable acceptance proof.
+
+> **Verification for DM-021 — otherwise-verified; deferred EV-38.** `pytest:tests/traceability/test_structural_requirements.py::test_dm_021_projection_rebuild_is_not_importable_from_traffic_services` — This requirement is verified by a structural, database, CI, or artifact check rather than a Gherkin product scenario.
+
+> **Verification for DM-010 — scenario-bearing; deferred EV-34.** This is externally observable runtime behaviour; EV-34 owns its missing Gherkin scenario and executable acceptance proof.
+
+> **Verification for DM-011 — scenario-bearing; deferred EV-34.** This is externally observable runtime behaviour; EV-34 owns its missing Gherkin scenario and executable acceptance proof.
+
+> **Verification for DM-012 — scenario-bearing; deferred EV-35.** This is externally observable runtime behaviour; EV-35 owns its missing Gherkin scenario and executable acceptance proof.
+
+> **Verification for DM-013 — otherwise-verified; deferred EV-38.** `pytest:tests/traceability/test_structural_requirements.py::test_dm_013_authoritative_and_rebuildable_relations_are_distinguished` — This requirement is verified by a structural, database, CI, or artifact check rather than a Gherkin product scenario.
+
+> **Verification for DM-014 — scenario-bearing; deferred EV-35.** This is externally observable runtime behaviour; EV-35 owns its missing Gherkin scenario and executable acceptance proof.

@@ -188,3 +188,39 @@ And the response is authoritative
 | Evidence retention floor | Recommend attestation validity + 12 months, configurable upward |
 | SDK buffer bound default | Recommend 10,000 records or 1 hour, whichever first; needs a real workload to tune |
 | Multi-region at MVP | No. Single EU region; revocation endpoint is the exception and should be geo-redundant from day one |
+
+## Verification classifications
+
+> **Verification for IN-002 — otherwise-verified; deferred EV-38.** `pytest:tests/traceability/test_deployment_controls.py::test_in_002_mode_two_has_no_checkpoint_dependency` — This requirement is verified by a structural, database, CI, or artifact check rather than a Gherkin product scenario.
+
+> **Verification for IN-004 — otherwise-verified; deferred EV-38.** `pytest:tests/traceability/test_deployment_controls.py::test_in_004_evidence_storage_has_synchronous_zero_rpo_commit_policy` — This requirement is verified by a structural, database, CI, or artifact check rather than a Gherkin product scenario.
+
+> **Verification for IN-005 — otherwise-verified; deferred EV-38.** `pytest:tests/traceability/test_operational_controls.py::test_in_005_ingestion_and_verification_rto_objectives_have_monitors_and_runbooks` — This requirement is verified by a structural, database, CI, or artifact check rather than a Gherkin product scenario.
+
+> **Verification for IN-006 — otherwise-verified; deferred EV-38.** `pytest:tests/traceability/test_deployment_controls.py::test_in_006_continuous_wal_archiving_is_configured` — This requirement is verified by a structural, database, CI, or artifact check rather than a Gherkin product scenario.
+
+> **Verification for IN-007 — otherwise-verified; deferred EV-38.** `pytest:tests/traceability/test_operational_controls.py::test_in_007_restore_evidence_is_current_and_quarterly` — This requirement is verified by a structural, database, CI, or artifact check rather than a Gherkin product scenario.
+
+> **Verification for IN-009 — scenario-bearing; deferred EV-36.** This is externally observable runtime behaviour; EV-36 owns its missing Gherkin scenario and executable acceptance proof.
+
+> **Verification for IN-010 — scenario-bearing; deferred EV-36.** This is externally observable runtime behaviour; EV-36 owns its missing Gherkin scenario and executable acceptance proof.
+
+> **Verification for IN-013 — scenario-bearing; deferred EV-36.** This is externally observable runtime behaviour; EV-36 owns its missing Gherkin scenario and executable acceptance proof.
+
+> **Verification for IN-014 — otherwise-verified; deferred EV-38.** `pytest:tests/traceability/test_deployment_controls.py::test_in_014_hosted_default_region_is_eu` — This requirement is verified by a structural, database, CI, or artifact check rather than a Gherkin product scenario.
+
+> **Verification for IN-015 — otherwise-verified; deferred EV-38.** `pytest:tests/traceability/test_deployment_controls.py::test_in_015_evidence_stores_and_data_flows_are_region_scoped` — This requirement is verified by a structural, database, CI, or artifact check rather than a Gherkin product scenario.
+
+> **Verification for IN-016 — otherwise-verified; deferred EV-38.** `pytest:tests/traceability/test_deployment_controls.py::test_in_016_connector_egress_location_matches_profile` — This requirement is verified by a structural, database, CI, or artifact check rather than a Gherkin product scenario.
+
+> **Verification for IN-017 — otherwise-verified; deferred EV-38.** `pytest:tests/traceability/test_operational_controls.py::test_in_017_required_alert_rules_exist` — This requirement is verified by a structural, database, CI, or artifact check rather than a Gherkin product scenario.
+
+> **Verification for IN-019 — otherwise-verified; deferred EV-38.** `pytest:tests/traceability/test_operational_controls.py::test_in_019_required_monitoring_integrations_are_configured` — This requirement is verified by a structural, database, CI, or artifact check rather than a Gherkin product scenario.
+
+> **Verification for IN-020 — otherwise-verified; deferred EV-38.** `pytest:tests/traceability/test_structural_requirements.py::test_in_020_telemetry_has_no_evidence_ledger_sink_or_import` — This requirement is verified by a structural, database, CI, or artifact check rather than a Gherkin product scenario.
+
+> **Verification for IN-021 — otherwise-verified; deferred EV-38.** `pytest:tests/traceability/test_ci_controls.py::test_in_021_branch_promotion_requires_signoff_artifact` — This requirement is verified by a structural, database, CI, or artifact check rather than a Gherkin product scenario.
+
+> **Verification for IN-022 — otherwise-verified; deferred EV-38.** `pytest:tests/traceability/test_ci_controls.py::test_in_022_promotion_requires_vectors_chain_verification_and_independent_reproduction` — This requirement is verified by a structural, database, CI, or artifact check rather than a Gherkin product scenario.
+
+> **Verification for IN-023 — non-testable (documentation).** The requirement is discharged by the existence and readiness review of named runbook documents.

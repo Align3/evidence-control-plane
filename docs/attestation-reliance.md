@@ -267,3 +267,45 @@ Then A-09 is withheld unless R is restated as R - S
 And the named source is identified in the attestation
 And an unnamed or absent source withholds A-09 outright
 ```
+
+## Verification classifications
+
+> **Verification for AR-001 — scenario-bearing; deferred EV-35.** This is externally observable runtime behaviour; EV-35 owns its missing Gherkin scenario and executable acceptance proof.
+
+> **Verification for AR-002 — non-testable (governance).** This defines the professional responsibility boundary and is governed through contracts and review, not product execution.
+
+> **Verification for AR-005 — scenario-bearing; deferred EV-35.** This is externally observable runtime behaviour; EV-35 owns its missing Gherkin scenario and executable acceptance proof.
+
+> **Verification for AR-007 — scenario-bearing; deferred EV-35.** This is externally observable runtime behaviour; EV-35 owns its missing Gherkin scenario and executable acceptance proof.
+
+> **Verification for AR-008 — scenario-bearing; deferred EV-35.** This is externally observable runtime behaviour; EV-35 owns its missing Gherkin scenario and executable acceptance proof.
+
+> **Verification for AR-010 — scenario-bearing; deferred EV-35.** This is externally observable runtime behaviour; EV-35 owns its missing Gherkin scenario and executable acceptance proof.
+
+> **Verification for AR-012 — scenario-bearing; deferred EV-35.** This is externally observable runtime behaviour; EV-35 owns its missing Gherkin scenario and executable acceptance proof.
+
+> **Verification for AR-013 — scenario-bearing; deferred EV-35.** This is externally observable runtime behaviour; EV-35 owns its missing Gherkin scenario and executable acceptance proof.
+
+> **Verification for AR-014 — non-testable (governance).** This defines contractual liability scope rather than behaviour an executable product scenario can establish.
+
+> **Verification for AR-015 — scenario-bearing; deferred EV-35.** This is externally observable runtime behaviour; EV-35 owns its missing Gherkin scenario and executable acceptance proof.
+
+> **Verification for AR-016 — scenario-bearing; deferred EV-35.** This is externally observable runtime behaviour; EV-35 owns its missing Gherkin scenario and executable acceptance proof.
+
+> **Verification for AR-017 — scenario-bearing; deferred EV-35.** This is externally observable runtime behaviour; EV-35 owns its missing Gherkin scenario and executable acceptance proof.
+
+> **Verification for AR-018 — scenario-bearing; deferred EV-35.** This is externally observable runtime behaviour; EV-35 owns its missing Gherkin scenario and executable acceptance proof.
+
+> **Verification for AR-019 — scenario-bearing; deferred EV-35.** This is externally observable runtime behaviour; EV-35 owns its missing Gherkin scenario and executable acceptance proof.
+
+> **Verification for AR-020 — scenario-bearing; deferred EV-35.** This is externally observable runtime behaviour; EV-35 owns its missing Gherkin scenario and executable acceptance proof.
+
+> **Verification for AR-021 — non-testable (governance).** Partner responsibility and commercial disclosure are contractual governance obligations, not runtime behaviour.
+
+> **Verification for AR-022 — non-testable (governance).** The prohibition on remediation consultancy for an attested scope is an organisational conflict rule.
+
+> **Verification for AR-023 — non-testable (governance).** A future trust mark's legal-entity separation is corporate governance rather than executable behaviour.
+
+> **Verification for AR-024 — otherwise-verified; deferred EV-38.** `pytest:tests/traceability/test_artifact_controls.py::test_ar_024_phase_zero_template_has_all_first_page_disclosures` — This requirement is verified by a structural, database, CI, or artifact check rather than a Gherkin product scenario.
+
+> **Verification for AR-026 — non-testable (process).** Phase-zero retention, retrospective review, and recipient contact are governed operating procedures.

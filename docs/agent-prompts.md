@@ -220,3 +220,7 @@ Track D is the critical path and should get your most capable agent. Track B con
 **AP-003** — Include `docs/agent-working-agreement.md` in the opening context every time. Do not assume it carried over.
 
 **AP-004** — When a session goes long and the agent starts proposing schema changes or new envelope fields, end it. That is the signature of context degradation in this codebase, and both changes are architectural.
+
+## Verification classifications
+
+> **Verification (document default) — non-testable (process).** These requirements govern agent session prompts and scheduling; they do not describe product runtime behaviour.

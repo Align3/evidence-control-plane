@@ -61,8 +61,10 @@ from tests.traceability.corpus import (
     corpus as _corpus,
 )
 from tests.traceability.matrix import (
+    ALWAYS_BLOCKING,
     ENFORCEMENT_SCHEDULE,
     Severity,
+    build_matrix,
     effective_threshold,
     main,
     mandated_threshold,
@@ -76,6 +78,86 @@ def _run(root: Path, *extra: str, today: date | None = None) -> int:
 
 
 REGRESSION = FIXTURES / "regression"
+
+
+def test_qa_s_010_new_requirement_without_classification_fails_ci(tmp_path: Path) -> None:
+    """QA-S-010 / EV-26 forward gate: new claims cannot enlarge the backlog."""
+    rid = "CM-" + "801"  # keep fixture IDs out of the live citation scanner
+    docs = tmp_path / "docs"
+    tests = tmp_path / "tests"
+    docs.mkdir()
+    tests.mkdir()
+    (docs / "coverage-methodology.md").write_text(
+        f"**{rid}** — A newly introduced runtime rule with no classification.\n",
+        encoding="utf-8",
+    )
+    test_file = tests / "test_placeholder.py"
+    test_file.write_text("def test_placeholder():\n    pass\n", encoding="utf-8")
+    nodeid = "tests/test_placeholder.py::test_placeholder"
+
+    matrix = build_matrix(
+        repo_root=tmp_path,
+        docs_dir=docs,
+        features_dir=None,
+        node_ids=[nodeid],
+        baseline={},
+        baseline_description="fixture merge base",
+        requirement_baseline={},
+        regression_gate=True,
+        landed_stories=frozenset(),
+    )
+
+    findings = [
+        finding
+        for finding in matrix.findings
+        if finding.kind == "NEW_REQUIREMENT_UNCLASSIFIED"
+    ]
+    assert [finding.subject for finding in findings] == [rid]
+    assert findings[0].severity is Severity.CRITICAL
+    assert findings[0].kind in ALWAYS_BLOCKING
+
+
+def test_a_new_otherwise_verified_requirement_needs_its_named_check(
+    tmp_path: Path,
+) -> None:
+    """A future check name is classification metadata, not present evidence."""
+    rid = "AC-" + "803"
+    docs = tmp_path / "docs"
+    tests = tmp_path / "tests"
+    docs.mkdir()
+    tests.mkdir()
+    (docs / "architecture.md").write_text(
+        "\n".join(
+            [
+                f"**{rid}** — A new structural requirement.",
+                "",
+                "> **Verification — otherwise-verified; deferred EV-90.** "
+                "`pytest:tests/test_structure.py::test_missing` — "
+                "The named structural check is the substitute evidence for this rule.",
+            ]
+        ) + "\n",
+        encoding="utf-8",
+    )
+    (docs / "prd.md").write_text(
+        f"#### EV-90 — Structural check\n**Satisfies:** {rid}\n", encoding="utf-8"
+    )
+    (tests / "test_structure.py").write_text(
+        "def test_present():\n    pass\n", encoding="utf-8"
+    )
+    matrix = build_matrix(
+        repo_root=tmp_path,
+        docs_dir=docs,
+        features_dir=None,
+        node_ids=["tests/test_structure.py::test_present"],
+        baseline={},
+        baseline_description="fixture merge base",
+        requirement_baseline={},
+        regression_gate=True,
+        landed_stories=frozenset(),
+    )
+    kinds = {(finding.kind, finding.subject) for finding in matrix.findings}
+    assert ("OTHERWISE_VERIFIED_CHECK_MISSING", rid) in kinds
+    assert ("NEW_REQUIREMENT_UNCLASSIFIED", rid) in kinds
 
 
 def _git_corpus(tmp_path: Path, baseline: str, current: str) -> Path:

@@ -142,3 +142,11 @@ The probe is not only a technical gate.
 | Writing up 3 QualificationRecords | half a day | Yes, from your raw output |
 
 Roughly a week elapsed, running alongside the build. No cost — every candidate has a free sandbox tier.
+
+## Verification classifications
+
+> **Verification for DP-001 — otherwise-verified; deferred EV-38.** `pytest:tests/traceability/test_research_controls.py::test_dp_001_decision_record_is_based_on_a_phase_b_finding` — This requirement is verified by a structural, database, CI, or artifact check rather than a Gherkin product scenario.
+
+> **Verification for DP-002 — otherwise-verified; deferred EV-38.** `pytest:tests/traceability/test_research_controls.py::test_dp_002_phase_b_evidence_contains_raw_api_responses` — This requirement is verified by a structural, database, CI, or artifact check rather than a Gherkin product scenario.
+
+> **Verification for DP-003 — otherwise-verified; deferred EV-38.** `pytest:tests/traceability/test_research_controls.py::test_dp_003_ev_13_gate_has_all_three_phase_b_proofs` — This requirement is verified by a structural, database, CI, or artifact check rather than a Gherkin product scenario.

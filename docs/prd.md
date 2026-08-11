@@ -62,6 +62,10 @@ One action family, one destination system, end to end, in a live enterprise sale
 
 Sizing target: one to five days for a competent agent with review. Anything larger is decomposed.
 
+### Story-ID allocation register
+
+Story IDs are claimed in integer order by the commit that adds the complete story below. An ID is never reserved, pre-allocated, or held for a branch: concurrent authors rebase and claim the next integer above the current head. The last ID claimed in this document is EV-39; the next author computes its successor only when adding that story's full purpose, Touches, dependencies, Satisfies, and Acceptance record.
+
 ---
 
 ### Foundation
@@ -78,7 +82,7 @@ Typed record models for every type in `evidence-spec.md` §5. RFC 8785 JCS canon
 **Touches:** `sdk_python/evidence/schema.py`, `canonical.py`
 **Depends on:** EV-01
 **Satisfies:** ES-001…005, ES-002a, ES-002b, ES-019 (customer-observed record-shape portion — see note)
-**Acceptance:** ES-S-008
+**Acceptance:** ES-S-008, ES-S-009
 
 **Note on ES-002a / ES-002b.** Both were added to `evidence-spec.md` §2 during review of EV-02, which found that the rule they state existed only in the Python implementation. ES-002a requires a conformant canonicalizer to reject rather than serialize non-integer numbers, out-of-range integers, and `NaN`/`Infinity`; ES-002b requires optional members to be encoded by absence rather than explicit `null`. Both bind EV-05 as much as EV-02 — the Go verifier must reach the same conclusions independently, and until it does, ES-S-007 cannot detect a disagreement. **Neither has an acceptance scenario in `evidence-spec.md` §12.** One is not invented here; writing it is a documentation change and belongs to whoever next amends that document.
 
@@ -89,7 +93,7 @@ Ed25519 sign/verify. Envelope signature construction. Chain linking via `prev_di
 **Touches:** `sdk_python/evidence/signing.py`, `chain.py`
 **Depends on:** EV-02
 **Satisfies:** ES-006…008, ES-006a, ES-021…024, ES-021a, ES-024a, SE-008
-**Acceptance:** ES-S-001, ES-S-005, ES-S-010…012
+**Acceptance:** ES-S-001, ES-S-005, ES-S-010, ES-S-011, ES-S-012
 
 #### EV-04 — Conformance vectors
 Language-neutral JSON fixtures covering canonicalisation edge cases, digests, signatures, valid and invalid chains, key rotation with and without continuity. Published as normative (ES-029).
@@ -114,7 +118,7 @@ Append-only evidence table per `data-model.md`. Per-tenant partitioning. Applica
 **Touches:** `services/ledger/`, `migrations/`, `data-model.md`
 **Depends on:** EV-01
 **Satisfies:** AC-012…015, SE-011, SE-012
-**Acceptance:** AC-S-004, AC-S-006
+**Acceptance:** AC-S-004, AC-S-006, SE-S-003
 
 #### EV-27 — Issuer-signed ingestion receipts
 Remove hosted clock observations from the customer-signed record. Define and implement an issuer-signed receipt over the complete received wire record, including its customer signature, plus hosted `ingest_time` and measured `clock_skew_ms`; store its authoritative canonical bytes and proof atomically beside the record. Refuse migration of a non-empty unreceipted ledger rather than fabricate historical observations.
@@ -181,7 +185,7 @@ CRUD for `AssuranceBoundary` (versioned, immutable, signed) and `QualificationRe
 **Touches:** `services/admin/boundary.py`, `qualification.py`, migrations
 **Depends on:** EV-06
 **Satisfies:** ES-009, ES-010, CM-003, CM-004
-**Acceptance:** TM-S-005, CM-S-009
+**Acceptance:** CM-S-009
 
 #### EV-13 — Connector interface and first connector
 The two-capability interface (`enumerate`, `confirm`, `capabilities`). First concrete connector against the chosen destination system. Must report `pagination_complete` and `result_cap_hit` honestly.
@@ -265,7 +269,7 @@ Parses requirement IDs, scenario IDs, test IDs, and assertion IDs; generates the
 **Touches:** `tests/traceability/`, CI config
 **Depends on:** EV-01
 **Satisfies:** QA-010…012
-**Acceptance:** QA-S-001, QA-S-006, QA-S-007, QA-S-008
+**Acceptance:** QA-S-001, QA-S-006, QA-S-007, QA-S-008, QA-S-009
 
 #### EV-23 — Adversarial suite
 Executable test per attack in `threat-model.md` §4. Readable by someone who does not know the codebase.
@@ -297,12 +301,12 @@ QA-018 is the rule this story exists to satisfy, and it was unnumbered prose in 
 **Acceptance:** independent review confirms that both repaired catalogue rows cite requirements stating the same claim, and the generated matrix emits no `ASSERTION_NO_SCENARIO` finding for A-02 or A-09. Product demonstrations remain owned by EV-17. Stated as prose because the two scenarios written here belong to that story.
 
 #### EV-26 — Orphan triage and scenario ownership
-Classify every requirement that has no scenario: write one, mark it non-testable with a stated reason, or defer it to a story `prd.md` defines. Assign every scenario to a story through that story's `Acceptance:` field. The marking syntax, the ownership parsing, and the enforcement all already exist (EV-22); this is the judgement work they were built for. At the first generated matrix that was 163 requirements — 82 specification, 52 claimed by a story, 29 process. Three document-level defaults in `agent-working-agreement.md`, `agent-prompts.md` and `dev-environment.md` clear 29 of them.
+Classify every requirement as scenario-bearing, otherwise-verified, or non-testable. Scenario-bearing requirements without a scenario are deferred to a defined follow-up story; otherwise-verified requirements name the substitute check and remain debt until that check exists; non-testable requirements state why no executable check is honest. Assign every scenario to a story through that story's `Acceptance:` field.
 
 **Two findings from EV-22 that this story must resolve rather than paper over.** First, `data-model.md` has 14 requirements owned by **no** story and traced by nothing — the whole document is unclaimed, including the DM-001 migration-numbering rule that AG-004 depends on. Markings do not create owners. Second, a large share of the high findings were untested scenarios belonging to stories nobody has built; no amount of triage clears those, only shipping does. That share is no longer pooled with the rest: `SCENARIO_NO_TEST_UNBUILT` is medium roadmap debt against an unlanded owner, `SCENARIO_NO_TEST_LANDED` is a high-severity defect in something already shipped, and `SCENARIO_NO_TEST_UNOWNED` is high because nobody has said which of the two it is. EV-26 clears the third class outright and the first by ownership; only the second is a defect. This is what makes the 1 September high stage enforce completed triage rather than requiring EV-05 through EV-21 to have landed first.
 
-This story does not implement the product scenarios owned by EV-05 through EV-21; those stay visible as unbuilt-story debt until their owners land.
-**Touches:** all of `docs/` — including `docs/prd.md`, where the `Acceptance:` fields that record scenario ownership live — plus `tests/features/` and `tests/steps/`
+The forward gate compares requirements with the merge base and fails immediately when a new or materially rewritten requirement lacks a complete classification. Like QA-S-001, caller-controlled paths, dates, collections, and baseline references cannot weaken it. This story classifies and files runtime work; it does not write product scenarios.
+**Touches:** `docs/`, `tests/traceability/`
 **Depends on:** EV-22, EV-25
 **Satisfies:** QA-011
 **Acceptance:** QA-S-010
@@ -381,6 +385,55 @@ Touches the envelope, so per §7 of the working agreement this is an architectur
 **Depends on:** EV-02, EV-05, EV-12
 **Satisfies:** ES-031
 **Acceptance:** ES-S-015, ES-S-016, ES-S-018
+
+#### EV-33 — Evidence schema and verifier scenario backfill
+Write the missing runtime refusal and composition scenarios for evidence schema validation, chain reading, historical-version dispatch, canonical wire handling, and independent verification. This is documentation and acceptance work; production fixes remain with the owning implementation story when a new scenario exposes a defect.
+**Touches:** evidence, architecture, coverage, data-model, threat-model, and testing documentation; generated features and verifier acceptance tests
+**Depends on:** EV-19, EV-29
+**Satisfies:** AC-013, AC-016, CM-023, DM-023, DM-034, ES-002, ES-002a, ES-002b, ES-003, ES-004, ES-007, ES-008, ES-009, ES-010, ES-015, ES-021, ES-022, ES-023, QA-003, QA-013, TM-011
+**Acceptance:** QA-S-004, QA-S-005, plus one documented refusal/composition scenario for every Satisfies requirement that still lacks one.
+
+#### EV-34 — Boundary, qualification, and coverage scenario backfill
+Write the missing runtime scenarios for denominator provenance, mode assurance, boundary qualification, reconciliation classification, coverage withholding, settlement lag, clock skew, and class caps. Scenarios use the verifier as their oracle and lead with the false-claim case.
+**Touches:** architecture, coverage, data-model, and threat-model documentation; generated features and coverage acceptance tests
+**Depends on:** EV-16, EV-19
+**Satisfies:** AC-005, AC-006, CM-001, CM-003, CM-005, CM-006, CM-007, CM-010, CM-011, CM-012, CM-013, CM-017, CM-018, CM-019, CM-021, DM-010, DM-011, DM-028, TM-001, TM-004, TM-005, TM-009, TM-012
+**Acceptance:** CM-S-002, CM-S-005, CM-S-007, CM-S-008, TM-S-001, TM-S-003, plus one documented scenario for every Satisfies requirement that still lacks one.
+
+#### EV-35 — Attestation reliance and lifecycle scenario backfill
+Write the missing runtime scenarios for issued language, relying-party and purpose limits, liability prerequisites, revocation status, correction, dispute, supersession, retention, issuer signing, and deployment-profile disclosure.
+**Touches:** attestation, reliance, data-model, evidence, security, and testing documentation; generated features and lifecycle acceptance tests
+**Depends on:** EV-17, EV-18, EV-19
+**Satisfies:** AR-001, AR-005, AR-007, AR-008, AR-010, AR-012, AR-013, AR-015, AR-016, AR-017, AR-018, AR-019, AR-020, AR-025, DM-012, DM-014, ES-018, SE-002, SE-025
+**Acceptance:** AR-S-006, plus one documented withholding or lifecycle scenario for every Satisfies requirement that still lacks one.
+
+#### EV-36 — SDK, ingestion, gap, and operational-runtime scenario backfill
+Write the missing runtime scenarios for deterministic replay, SDK buffering and per-family failure policy, gap emission/detection, deployment wiring, and recovery-facing operational behaviour.
+**Touches:** architecture, infrastructure, and threat-model documentation; generated features and SDK/ingestion acceptance tests
+**Depends on:** EV-08, EV-09, EV-24
+**Satisfies:** AC-007, AC-009, IN-001, IN-008, IN-009, IN-010, IN-013, IN-018, TM-007, TM-008
+**Acceptance:** AC-S-005, IN-S-004, IN-S-005, IN-S-006, plus one documented scenario for every Satisfies requirement that still lacks one.
+
+#### EV-37 — Security composition and disclosure scenario backfill
+Write the missing runtime scenarios for key custody and namespaces, continuity, public keyrings, disclosure defaults, selective disclosure, administrative audit surfaces, buyer-link scope, and production-access visibility.
+**Touches:** data-model, evidence, security, and threat-model documentation; generated features and security acceptance tests
+**Depends on:** EV-17, EV-20, EV-21
+**Satisfies:** DM-008, ES-013, ES-025, ES-026, SE-001, SE-004, SE-005, SE-006, SE-007, SE-008, SE-009, SE-010, SE-011, SE-013, SE-014, SE-015, SE-016, SE-021, SE-022, TM-015, TM-017
+**Acceptance:** SE-S-002, SE-S-003, SE-S-005, SE-S-007, plus one documented scenario for every Satisfies requirement that still lacks one.
+
+#### EV-38 — Otherwise-verified substitute checks
+Build every named structural, database, CI, deployment, artifact, and research-control check recorded by EV-26 that does not already resolve to a collected pytest node. A named but absent check remains visible traceability debt and may not be converted to non-testable merely to clear the matrix.
+**Touches:** `tests/traceability/`, CI and the configuration or artifact manifests read by those tests
+**Depends on:** EV-26
+**Satisfies:** AC-003, AC-004, AC-011, AC-014, AR-024, CM-002, DM-004, DM-006, DM-007, DM-009, DM-013, DM-015, DM-016, DM-017, DM-018, DM-019, DM-020, DM-021, DM-022, DM-026, DM-027, DM-029, DM-030, DM-031, DM-032, DM-033, DP-001, DP-002, DP-003, ES-029, IN-002, IN-004, IN-005, IN-006, IN-007, IN-014, IN-015, IN-016, IN-017, IN-019, IN-020, IN-021, IN-022, QA-001, QA-004, QA-006, QA-009, QA-014, SE-012, SE-019, SE-020, SE-023, SE-024, TM-016
+**Acceptance:** every otherwise-verified marker resolves to its named collected check; deleting or renaming any substitute check makes the matrix fail.
+
+#### EV-39 — Owner-independent boundary history
+Provide an independently controlled and externally verifiable history of signed boundary versions. PostgreSQL owner triggers remain defence in depth but cannot satisfy an adversary holding the migrator credential, because that credential can disable them. Narrowing or replacing a boundary must therefore remain visible without trusting the database owner.
+**Touches:** boundary history publication, independent verifier inputs, threat-model and data-model documentation, adversarial acceptance tests
+**Depends on:** EV-12, EV-19
+**Satisfies:** TM-002, TM-003
+**Acceptance:** TM-S-002
 
 ---
 

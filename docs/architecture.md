@@ -221,3 +221,23 @@ When the parsed projection is dropped and rebuilt
 Then every record reproduces identically
 And all digests and signatures still verify
 ```
+
+## Verification classifications
+
+> **Verification for AC-003 — otherwise-verified; deferred EV-38.** `pytest:tests/traceability/test_structural_requirements.py::test_ac_003_only_the_evidence_spec_crosses_component_boundaries` — This requirement is verified by a structural, database, CI, or artifact check rather than a Gherkin product scenario.
+
+> **Verification for AC-004 — otherwise-verified; deferred EV-38.** `pytest:tests/traceability/test_structural_requirements.py::test_ac_004_checkpoint_and_ledger_are_separate_deployables` — This requirement is verified by a structural, database, CI, or artifact check rather than a Gherkin product scenario.
+
+> **Verification for AC-005 — scenario-bearing; deferred EV-34.** This is externally observable runtime behaviour; EV-34 owns its missing Gherkin scenario and executable acceptance proof.
+
+> **Verification for AC-006 — scenario-bearing; deferred EV-34.** This is externally observable runtime behaviour; EV-34 owns its missing Gherkin scenario and executable acceptance proof.
+
+> **Verification for AC-009 — scenario-bearing; deferred EV-36.** This is externally observable runtime behaviour; EV-36 owns its missing Gherkin scenario and executable acceptance proof.
+
+> **Verification for AC-011 — otherwise-verified; deferred EV-38.** `pytest:tests/traceability/test_structural_requirements.py::test_ac_011_go_verifier_shares_no_python_source_or_generated_code` — This requirement is verified by a structural, database, CI, or artifact check rather than a Gherkin product scenario.
+
+> **Verification for AC-013 — scenario-bearing; deferred EV-33.** This is externally observable runtime behaviour; EV-33 owns its missing Gherkin scenario and executable acceptance proof.
+
+> **Verification for AC-014 — otherwise-verified; deferred EV-38.** `pytest:tests/traceability/test_structural_requirements.py::test_ac_014_tenant_partitions_and_key_namespaces_are_isolated` — This requirement is verified by a structural, database, CI, or artifact check rather than a Gherkin product scenario.
+
+> **Verification for AC-016 — scenario-bearing; deferred EV-33.** This is externally observable runtime behaviour; EV-33 owns its missing Gherkin scenario and executable acceptance proof.

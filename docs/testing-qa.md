@@ -13,7 +13,7 @@
 
 When an attestation asserts "enforced coverage for family X over window W," that is a claim we must be able to demonstrate. A scenario is also a claim we must be able to demonstrate. It follows that:
 
-**QA-018** — No assertion enters `attestation-reliance.md` §2 without a basis requirement that states the assertion's claim and a documented scenario that exercises that requirement, and no requirement in any document is considered implemented or demonstrated without a passing scenario. The scenario lives in the acceptance section of whichever document owns the requirement — scenarios are extracted from all of `docs/`, and the suite is the union of those sections, not this file alone.
+**QA-018** — No assertion enters `attestation-reliance.md` §2 without a basis requirement that states the assertion's claim and a documented scenario that exercises that requirement. Every requirement is classified: runtime behaviour is scenario-bearing and is not demonstrated without a passing scenario; a structural, database, CI, deployment, or artefact rule is otherwise-verified and is not demonstrated without its named passing substitute check; only process, governance, and documentation requirements may be non-testable, with a stated reason. Scenarios live in the acceptance section of whichever document owns the requirement — scenarios are extracted from all of `docs/`, and the suite is the union of those sections, not this file alone.
 
 The reliance framework and the test suite grow together or not at all.
 
@@ -162,7 +162,7 @@ On a normal project this matrix is internal QA hygiene. Here it is **evidence fo
 
 This requirement originally read: *"…and it is binary: every requirement has a passing scenario, or the build fails."* That was written before the requirement-to-scenario ratio was known, and it was unsatisfiable as drafted — the first generated matrix (EV-22) found 222 requirements against 55 scenarios. It is corrected here rather than quietly relaxed, and the original wording is quoted above so that a reader comparing versions can see we were wrong and fixed it, not that a standard was softened when it became inconvenient.
 
-The binary framing was wrong in two specific ways. It admitted no requirement that genuinely cannot carry a scenario — a process rule, a statement about what a document says — and it admitted no interval during which a known backlog is worked off. What survives is the part that mattered: requirement coverage remains the metric, and it remains binary **per requirement** — a requirement either has a passing scenario or is explicitly marked non-testable with a stated reason, and there is no third state. The build fails on everything else at the severity QA-011 currently enforces; QA-011 is the single source of that schedule.
+The binary framing was wrong in three specific ways. It confused runtime behaviour with structural checks, pushed real database and CI assertions toward “non-testable”, admitted no requirement that genuinely cannot carry a scenario, and admitted no interval during which known backlog is worked off. The replacement is the three-class policy above. Requirement coverage remains exact per requirement: scenario, named substitute check, or reasoned non-testable classification. There is no unclassified fourth state.
 
 ---
 
@@ -334,3 +334,25 @@ than relying on primitive tests plus cross-implementation agreement.
 | Publish the adversarial suite? | **Yes, eventually.** It is the most persuasive artifact in the repository for a security reviewer. Hold until the spec is public so the two land together |
 | Publish the traceability matrix? | Yes — it is the auditor's evidence. Generated output only, no customer content |
 | Fuzzing the verifier | Worth it before the spec is published. A verifier that crashes on malformed input is a denial-of-service against relying parties |
+
+**Requirement classification has the same forward gate.** Every requirement is exactly one of three classes. Scenario-bearing requirements describe runtime behaviour and require Gherkin; while backlogged they name a real PRD story that claims them. Otherwise-verified requirements are objectively testable through a structural, database, CI, deployment, or artefact assertion and name the exact substitute pytest check; naming no check, or a check that does not resolve, does not discharge them. Non-testable requirements are process, governance, or documentation and state why executable verification would be dishonest. A new or materially rewritten requirement without its complete classification fails immediately as `NEW_REQUIREMENT_UNCLASSIFIED`, outside the staged backlog schedule. This comparison uses the same fail-closed merge base and non-weakening input rules as QA-S-001.
+
+## Verification classifications
+
+> **Verification for QA-001 — otherwise-verified; deferred EV-38.** `pytest:tests/traceability/test_policy_coverage.py::test_qa_001_each_level_class_and_assertion_has_a_withholding_scenario` — This requirement is verified by a structural, database, CI, or artifact check rather than a Gherkin product scenario.
+
+> **Verification for QA-004 — otherwise-verified; deferred EV-38.** `pytest:tests/traceability/test_ci_controls.py::test_qa_004_ci_executes_the_shipped_verifier_artifact` — This requirement is verified by a structural, database, CI, or artifact check rather than a Gherkin product scenario.
+
+> **Verification for QA-006 — otherwise-verified; deferred EV-38.** `pytest:tests/traceability/test_policy_coverage.py::test_qa_006_every_threat_model_attack_has_an_executable_ci_test` — This requirement is verified by a structural, database, CI, or artifact check rather than a Gherkin product scenario.
+
+> **Verification for QA-007 — non-testable (documentation).** Readability for an external security reviewer requires human editorial judgement rather than an executable assertion.
+
+> **Verification for QA-009 — otherwise-verified; deferred EV-38.** `pytest:tests/traceability/test_policy_coverage.py::test_qa_009_golden_manifest_covers_every_required_case` — This requirement is verified by a structural, database, CI, or artifact check rather than a Gherkin product scenario.
+
+> **Verification for QA-014 — otherwise-verified; deferred EV-38.** `pytest:tests/traceability/test_ci_controls.py::test_qa_014_promotion_requires_signoff_and_independent_reproduction` — This requirement is verified by a structural, database, CI, or artifact check rather than a Gherkin product scenario.
+
+> **Verification for QA-015 — non-testable (documentation).** This documents the deliberate absence of a code-coverage target and selection of a different metric.
+
+> **Verification for QA-016 — non-testable (meta).** This explicitly defines matters outside the testable assertion catalogue.
+
+> **Verification for QA-017 — non-testable (governance).** Test-data provenance and permission are governance facts a repository test cannot establish completely.

@@ -376,3 +376,29 @@ Cannot be closed solo. Each blocks a specific downstream section.
 | Class | Assigned class with evidence |
 | Trial | Window reconciled, match rate, unmatched-record explanations |
 | Validity | Qualification date, re-verification cadence, signature |
+
+## Verification classifications
+
+> **Verification for CM-001 — scenario-bearing; deferred EV-34.** This is externally observable runtime behaviour; EV-34 owns its missing Gherkin scenario and executable acceptance proof.
+
+> **Verification for CM-002 — otherwise-verified; deferred EV-38.** `pytest:tests/traceability/test_structural_requirements.py::test_cm_002_population_and_denominator_are_distinct_schema_fields` — This requirement is verified by a structural, database, CI, or artifact check rather than a Gherkin product scenario.
+
+> **Verification for CM-003 — scenario-bearing; deferred EV-34.** This is externally observable runtime behaviour; EV-34 owns its missing Gherkin scenario and executable acceptance proof.
+
+> **Verification for CM-007 — scenario-bearing; deferred EV-34.** This is externally observable runtime behaviour; EV-34 owns its missing Gherkin scenario and executable acceptance proof.
+
+> **Verification for CM-011 — scenario-bearing; deferred EV-34.** This is externally observable runtime behaviour; EV-34 owns its missing Gherkin scenario and executable acceptance proof.
+
+> **Verification for CM-012 — scenario-bearing; deferred EV-34.** This is externally observable runtime behaviour; EV-34 owns its missing Gherkin scenario and executable acceptance proof.
+
+> **Verification for CM-018 — scenario-bearing; deferred EV-34.** This is externally observable runtime behaviour; EV-34 owns its missing Gherkin scenario and executable acceptance proof.
+
+> **Verification for CM-019 — scenario-bearing; deferred EV-34.** This is externally observable runtime behaviour; EV-34 owns its missing Gherkin scenario and executable acceptance proof.
+
+> **Verification for CM-021 — scenario-bearing; deferred EV-34.** This is externally observable runtime behaviour; EV-34 owns its missing Gherkin scenario and executable acceptance proof.
+
+> **Verification for CM-022 — non-testable (documentation).** The methodology has its own published version and change history; this requirement governs documents.
+
+> **Verification for CM-023 — scenario-bearing; deferred EV-33.** This is externally observable runtime behaviour; EV-33 owns its missing Gherkin scenario and executable acceptance proof.
+
+> **Verification for CM-024 — non-testable (governance).** Material methodology changes require change-log disclosure and committee governance rather than a product scenario.
