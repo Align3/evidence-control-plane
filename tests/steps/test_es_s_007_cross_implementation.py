@@ -1,4 +1,4 @@
-"""ES-S-007 -- the Python writer and the Go verifier agree byte-for-byte (ES-001).
+"""ES-S-007 -- Python, Go, and TypeScript agree byte-for-byte (ES-001).
 
 This is the acceptance test EV-05 exists to make runnable. It is the only place
 in the suite where AC-011's independence claim is actually checked, so it is
@@ -7,10 +7,9 @@ built to be hard to satisfy accidentally.
 Two properties the implementation of this test has to have, or it proves
 nothing:
 
-* It **runs the real Go binary**. Re-deriving the canonical form in Python and
-  comparing that to Python would demonstrate only that Python agrees with
-  itself. Every comparison below is against bytes that came out of a compiled
-  `verify` process over a pipe.
+* It **runs the real Go binary and TypeScript SDK**. Re-deriving the canonical
+  form in Python would demonstrate only that Python agrees with itself. Every
+  comparison below includes bytes from the independent implementations.
 * It **builds that binary itself**, rather than assuming some earlier CI step
   left one lying around. `make all` runs `test` before `go-test`, so at the
   moment pytest executes there is no built binary; a test that silently skipped
@@ -37,6 +36,7 @@ from sdk_python.evidence.canonical import canonicalize as python_canonicalize
 REPO = Path(__file__).resolve().parents[2]
 VECTORS = REPO / "tests" / "vectors" / "vectors-v0.1.json"
 VERIFIER_DIR = REPO / "verifier-go"
+TYPESCRIPT_CANONICALIZER = REPO / "sdk_typescript" / "bin" / "canonicalize.ts"
 
 
 @scenario("evidence.feature", "ES-S-007 Cross-implementation canonicalization")
@@ -104,6 +104,85 @@ def _go_canonicalize(binary: Path, payload: str) -> tuple[bytes, str]:
     return canonical, digest
 
 
+def _typescript_canonicalize(payload: str) -> tuple[bytes, str]:
+    """Canonicalise through the TypeScript SDK's token-level parser."""
+    node = shutil.which("node")
+    if node is None:
+        raise AssertionError("Node is required to demonstrate EV-10 cross-implementation parity")
+    result = subprocess.run(  # noqa: S603
+        [node, "--experimental-strip-types", str(TYPESCRIPT_CANONICALIZER)],
+        input=payload.encode(),
+        capture_output=True,
+        check=False,
+    )
+    if result.returncode != 0:
+        raise AssertionError(
+            "TypeScript SDK refused input it should have canonicalised: "
+            f"{result.stderr.decode(errors='replace')}"
+        )
+    digest = ""
+    for line in result.stderr.decode(errors="replace").splitlines():
+        if line.startswith("digest "):
+            digest = line.split(" ", 1)[1].strip()
+    return result.stdout, digest
+
+
+def _go_canonicalize_raw(binary: Path, payload: str) -> subprocess.CompletedProcess[bytes]:
+    """Run a source token through Go without first parsing it in Python."""
+    with tempfile.NamedTemporaryFile("w", suffix=".json", delete=False) as handle:
+        handle.write(payload)
+        path = handle.name
+    try:
+        return subprocess.run(  # noqa: S603
+            [str(binary), "-mode", "canonicalize", path],
+            capture_output=True,
+            check=False,
+        )
+    finally:
+        Path(path).unlink(missing_ok=True)
+
+
+def _typescript_canonicalize_raw(payload: str) -> subprocess.CompletedProcess[bytes]:
+    """Run a source token through TypeScript without Python value conversion."""
+    node = shutil.which("node")
+    if node is None:
+        raise AssertionError("Node is required to demonstrate EV-10 token-level parity")
+    return subprocess.run(  # noqa: S603
+        [node, "--experimental-strip-types", str(TYPESCRIPT_CANONICALIZER)],
+        input=payload.encode(),
+        capture_output=True,
+        check=False,
+    )
+
+
+def test_es_s_007_source_tokens_match_normative_vectors(go_verifier: Path) -> None:
+    """ES-002a source spelling reaches both foreign implementations unchanged."""
+    corpus = json.loads(VECTORS.read_text(encoding="utf-8"))
+    vectors = [
+        vector for vector in corpus["vectors"] if vector["operation"] == "canonicalize"
+    ]
+    for vector in vectors:
+        expected = vector["expected"]
+        go = _go_canonicalize_raw(go_verifier, vector["input_json"])
+        typescript = _typescript_canonicalize_raw(vector["input_json"])
+        if expected["accepted"]:
+            expected_bytes = bytes.fromhex(expected["canonical_utf8_hex"])
+            assert go.returncode == 0, f"{vector['id']}: {go.stderr.decode()}"
+            assert typescript.returncode == 0, (
+                f"{vector['id']}: {typescript.stderr.decode()}"
+            )
+            assert go.stdout.rstrip(b"\n") == expected_bytes, vector["id"]
+            assert typescript.stdout == expected_bytes, vector["id"]
+        else:
+            error_code = expected["error_code"]
+            assert go.returncode != 0, f"{vector['id']}: Go accepted {vector['input_json']}"
+            assert typescript.returncode != 0, (
+                f"{vector['id']}: TypeScript accepted {vector['input_json']}"
+            )
+            assert error_code in go.stderr.decode(errors="replace"), vector["id"]
+            assert error_code in typescript.stderr.decode(errors="replace"), vector["id"]
+
+
 def _subjects(corpus: dict[str, Any]) -> list[tuple[str, Any]]:
     """Every JSON value in the corpus that both sides must canonicalise alike.
 
@@ -148,36 +227,49 @@ def _published_vectors() -> list[tuple[str, Any]]:
       target_fixture="comparison")
 def _canonicalize_both(
     subjects: list[tuple[str, Any]], go_verifier: Path
-) -> list[tuple[str, bytes, bytes, str, str]]:
+) -> list[tuple[str, bytes, bytes, bytes, str, str, str]]:
     results = []
     for label, value in subjects:
         payload = json.dumps(value)
         go_bytes, go_digest = _go_canonicalize(go_verifier, payload)
+        ts_bytes, ts_digest = _typescript_canonicalize(payload)
         py_bytes = python_canonicalize(value)
         py_digest = "sha256:" + hashlib.sha256(py_bytes).hexdigest()
-        results.append((label, go_bytes, py_bytes, go_digest, py_digest))
+        results.append(
+            (label, go_bytes, py_bytes, ts_bytes, go_digest, py_digest, ts_digest)
+        )
     return results
 
 
 @then("both produce byte-identical output")
-def _bytes_identical(comparison: list[tuple[str, bytes, bytes, str, str]]) -> None:
+def _bytes_identical(
+    comparison: list[tuple[str, bytes, bytes, bytes, str, str, str]],
+) -> None:
     divergent = [
-        (label, go, py) for label, go, py, _, _ in comparison if go != py
+        (label, go, py, ts)
+        for label, go, py, ts, _, _, _ in comparison
+        if go != py or go != ts
     ]
     if divergent:
-        label, go, py = divergent[0]
+        label, go, py, ts = divergent[0]
         raise AssertionError(
             f"{len(divergent)} of {len(comparison)} values canonicalise "
-            f"differently. First: {label}\n  go     {go!r}\n  python {py!r}"
+            f"differently. First: {label}\n  go         {go!r}\n"
+            f"  python     {py!r}\n  typescript {ts!r}"
         )
 
 
 @then("both compute identical digests")
-def _digests_identical(comparison: list[tuple[str, bytes, bytes, str, str]]) -> None:
-    for label, _, _, go_digest, py_digest in comparison:
+def _digests_identical(
+    comparison: list[tuple[str, bytes, bytes, bytes, str, str, str]],
+) -> None:
+    for label, _, _, _, go_digest, py_digest, ts_digest in comparison:
         if not go_digest:
             raise AssertionError(f"{label}: Go verifier reported no digest")
-        if go_digest != py_digest:
+        if not ts_digest:
+            raise AssertionError(f"{label}: TypeScript SDK reported no digest")
+        if go_digest != py_digest or go_digest != ts_digest:
             raise AssertionError(
-                f"{label}: digests differ\n  go     {go_digest}\n  python {py_digest}"
+                f"{label}: digests differ\n  go         {go_digest}\n"
+                f"  python     {py_digest}\n  typescript {ts_digest}"
             )
