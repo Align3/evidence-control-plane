@@ -7,11 +7,11 @@ has performed the corresponding runtime capability check.
 
 from __future__ import annotations
 
+from collections.abc import Mapping
 from dataclasses import dataclass, field
-from datetime import datetime, timedelta
+from datetime import UTC, datetime, timedelta
 from enum import StrEnum
-from types import MappingProxyType
-from typing import Literal, Protocol, runtime_checkable
+from typing import Literal, Never, Protocol, runtime_checkable
 
 from sdk_python.evidence.schema import (
     ExternalConfirmationRecord,
@@ -61,16 +61,60 @@ class ConnectorCapabilities:
             )
 
 
+def _immutable_error(*_args: object, **_kwargs: object) -> Never:
+    raise TypeError("connector scope parameters are immutable")
+
+
+class _FrozenJsonList(list[JsonValue]):
+    """A JSON-compatible list that cannot change after construction."""
+
+    def __init__(self, values: list[JsonValue]) -> None:
+        list.__init__(self, (_freeze_json(value) for value in values))
+
+    append = clear = extend = insert = remove = reverse = sort = _immutable_error
+    pop = __setitem__ = __delitem__ = __iadd__ = __imul__ = _immutable_error
+
+    def __hash__(self) -> int:  # type: ignore[override]
+        return hash(tuple(self))
+
+
+class FrozenJsonObject(dict[str, JsonValue]):
+    """Deeply immutable while remaining serializable by ordinary JSON tools."""
+
+    def __init__(self, values: Mapping[str, JsonValue] | None = None) -> None:
+        dict.__init__(
+            self,
+            {
+                key: _freeze_json(value)
+                for key, value in (values.items() if values is not None else ())
+            },
+        )
+
+    clear = pop = popitem = setdefault = update = _immutable_error
+    __setitem__ = __delitem__ = __ior__ = _immutable_error
+
+    def __hash__(self) -> int:  # type: ignore[override]
+        return hash(frozenset(self.items()))
+
+
+def _freeze_json(value: JsonValue) -> JsonValue:
+    if isinstance(value, dict):
+        return FrozenJsonObject(value)
+    if isinstance(value, list):
+        return _FrozenJsonList(value)
+    return value
+
+
 @dataclass(frozen=True, slots=True)
 class ConnectorScope:
     action_family: str
     destination_system: str
-    parameters: dict[str, JsonValue] = field(default_factory=dict)
+    parameters: Mapping[str, JsonValue] = field(default_factory=FrozenJsonObject)
 
     def __post_init__(self) -> None:
         if not self.action_family or not self.destination_system:
             raise ValueError("scope requires an action family and destination system")
-        object.__setattr__(self, "parameters", MappingProxyType(dict(self.parameters)))
+        object.__setattr__(self, "parameters", FrozenJsonObject(self.parameters))
 
 
 @dataclass(frozen=True, slots=True)
@@ -144,16 +188,14 @@ class SettlementLagExceededError(EnumerationUnusableError):
     """Observed visibility lag exceeded the connector's declared bound."""
 
 
-def require_window_enumerator(connector: DestinationConnector) -> EnumerationConnector:
-    """Return the typed enumeration capability or refuse a coverage request.
+class EnumerationResponseMismatchError(EnumerationUnusableError):
+    """The returned population does not describe the requested query."""
 
-    Both the declaration and the structural method are checked.  A future
-    connector cannot unlock coverage merely by returning ``enumeration=True``.
-    Conversely, an accidentally present method cannot override an explicit
-    ``enumeration=False`` declaration.
-    """
 
-    capabilities = connector.capabilities()
+def _require_window_enumerator(
+    connector: DestinationConnector,
+    capabilities: ConnectorCapabilities,
+) -> EnumerationConnector:
     if not capabilities.enumeration:
         raise WindowCoverageUnavailableError(
             "window-level coverage requires destination enumeration"
@@ -163,6 +205,18 @@ def require_window_enumerator(connector: DestinationConnector) -> EnumerationCon
             "connector reports enumeration but does not implement enumerate()"
         )
     return connector
+
+
+def require_window_enumerator(connector: DestinationConnector) -> EnumerationConnector:
+    """Return the typed enumeration capability or refuse a coverage request.
+
+    Both the declaration and the structural method are checked.  A future
+    connector cannot unlock coverage merely by returning ``enumeration=True``.
+    Conversely, an accidentally present method cannot override an explicit
+    ``enumeration=False`` declaration.
+    """
+
+    return _require_window_enumerator(connector, connector.capabilities())
 
 
 def require_confirmer(connector: DestinationConnector) -> ConfirmationConnector:
@@ -184,11 +238,75 @@ def enumerate_for_window_coverage(
     """Enumerate and reject every explicitly unusable denominator signal.
 
     The rejected signed record is retained on the exception so EV-14 can store
-    the evidence and EV-16 can state why a ratio was withheld.
+    the evidence and EV-16 can state why a ratio was withheld.  A bound, empty
+    enumeration is valid: zero is a possible authoritative population, while
+    qualification is responsible for establishing that the query itself is an
+    adequate source.  Exact request/response binding prevents a population
+    that is empty merely because it answered a different query from passing.
     """
 
-    enumerator = require_window_enumerator(connector)
+    capabilities = connector.capabilities()
+    enumerator = _require_window_enumerator(connector, capabilities)
+    if not capabilities.authoritative_time:
+        raise WindowCoverageUnavailableError(
+            "window-level coverage requires destination-authoritative time"
+        )
     result = enumerator.enumerate(scope, window)
+
+    mismatches: list[str] = []
+    if result.body.action_family != scope.action_family:
+        mismatches.append("action_family")
+    if result.body.destination_system != scope.destination_system:
+        mismatches.append("destination_system")
+    if not _timestamp_matches(result.body.window_start, window.start):
+        mismatches.append("window_start")
+    if not _timestamp_matches(result.body.window_end, window.end):
+        mismatches.append("window_end")
+    query = result.body.enumeration_query
+    if query.get("scope") != dict(scope.parameters):
+        mismatches.append("enumeration_query.scope")
+    if not _timestamp_matches(query.get("window_start"), window.start):
+        mismatches.append("enumeration_query.window_start")
+    if not _timestamp_matches(query.get("window_end"), window.end):
+        mismatches.append("enumeration_query.window_end")
+    if mismatches:
+        raise EnumerationResponseMismatchError(
+            "enumeration response does not match the request: " + ", ".join(mismatches),
+            population_record=result,
+        )
+
+    identifiers = result.body.record_identifiers
+    if identifiers is not None and result.body.count != len(identifiers):
+        raise EnumerationResponseMismatchError(
+            "enumeration count does not match the inline record identifiers",
+            population_record=result,
+        )
+    if result.clocks.authoritative_time is None:
+        raise EnumerationResponseMismatchError(
+            "connector declared authoritative time but omitted it from the record clocks",
+            population_record=result,
+        )
+
+    timestamp_range = result.body.authoritative_timestamps
+    minimum = timestamp_range.get("min")
+    maximum = timestamp_range.get("max")
+    if result.body.count == 0:
+        if minimum is not None or maximum is not None:
+            raise EnumerationResponseMismatchError(
+                "empty enumeration must have a null authoritative timestamp range",
+                population_record=result,
+            )
+    elif (
+        not isinstance(minimum, str)
+        or not isinstance(maximum, str)
+        or not _timestamp_within_window(minimum, window)
+        or not _timestamp_within_window(maximum, window)
+        or _parse_timestamp(minimum) > _parse_timestamp(maximum)
+    ):
+        raise EnumerationResponseMismatchError(
+            "enumeration authoritative timestamp range is absent, inverted, or outside the window",
+            population_record=result,
+        )
     if result.body.result_cap_hit:
         raise EnumerationUnusableError(
             "enumeration result cap was hit; the denominator is truncated",
@@ -200,7 +318,6 @@ def enumerate_for_window_coverage(
             population_record=result,
         )
 
-    capabilities = connector.capabilities()
     observed_ms = (result.body.model_extra or {}).get("observed_settlement_lag_ms")
     if observed_ms is not None:
         if not isinstance(observed_ms, int) or isinstance(observed_ms, bool):
@@ -218,6 +335,29 @@ def enumerate_for_window_coverage(
                 population_record=result,
             )
     return result
+
+
+def _parse_timestamp(value: str) -> datetime:
+    """Parse a schema-validated timestamp for request/response instant matching."""
+
+    return datetime.fromisoformat(value.replace("Z", "+00:00")).astimezone(UTC)
+
+
+def _timestamp_matches(value: JsonValue, expected: datetime) -> bool:
+    if not isinstance(value, str):
+        return False
+    try:
+        return _parse_timestamp(value) == expected.astimezone(UTC)
+    except ValueError:
+        return False
+
+
+def _timestamp_within_window(value: str, window: EnumerationWindow) -> bool:
+    try:
+        parsed = _parse_timestamp(value)
+    except ValueError:
+        return False
+    return window.start.astimezone(UTC) <= parsed < window.end.astimezone(UTC)
 
 
 type ReconciliationStatus = Literal[

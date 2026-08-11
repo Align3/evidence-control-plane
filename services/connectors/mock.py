@@ -5,6 +5,7 @@ from __future__ import annotations
 from dataclasses import dataclass
 from datetime import UTC, datetime, timedelta
 from hashlib import sha256
+from secrets import randbits
 from uuid import UUID
 
 from cryptography.hazmat.primitives.asymmetric.ed25519 import (
@@ -12,7 +13,7 @@ from cryptography.hazmat.primitives.asymmetric.ed25519 import (
     Ed25519PublicKey,
 )
 
-from sdk_python.evidence.canonical import canonicalize
+from sdk_python.evidence.canonical import canonical_digest, canonicalize
 from sdk_python.evidence.schema import (
     ClocksModel,
     ExternalConfirmationBody,
@@ -21,11 +22,12 @@ from sdk_python.evidence.schema import (
     PopulationRecord,
     PopulationRecordBody,
 )
-from sdk_python.evidence.signing import sign_record, signing_digest
+from sdk_python.evidence.signing import sign_record
 from services.connectors.base import (
     ActionReference,
     AttributionSurface,
     ConnectorCapabilities,
+    ConnectorCapabilityError,
     ConnectorScope,
     DestinationConnector,
     EnumerationWindow,
@@ -39,13 +41,11 @@ def _timestamp(value: datetime) -> str:
     return value.astimezone(UTC).isoformat(timespec="milliseconds").replace("+00:00", "Z")
 
 
-def _uuid7(value: datetime, counter: int) -> str:
-    """Create a deterministic UUIDv7-shaped identifier for mock evidence."""
+def _uuid7(value: datetime) -> str:
+    """Create a collision-resistant UUIDv7 identifier for mock evidence."""
 
     milliseconds = int(value.timestamp() * 1_000) & ((1 << 48) - 1)
-    tail = int.from_bytes(
-        sha256(f"{milliseconds}:{counter}".encode()).digest()[:10], "big"
-    )
+    tail = randbits(80)
     raw = (milliseconds << 80) | tail
     raw &= ~(0xF << 76)
     raw |= 0x7 << 76
@@ -111,7 +111,7 @@ class MockConnectorConfig:
             )
 
 
-class SilentTruncationError(RuntimeError):
+class SilentTruncationError(ConnectorCapabilityError):
     """The mocked remote capped results without signalling it."""
 
 
@@ -177,10 +177,15 @@ class _MockCore:
             attribution_surface=attribution_surface,
         )
 
-    def _envelope_fields(self, record_type: str) -> _EnvelopeFields:
+    def _envelope_fields(
+        self,
+        record_type: str,
+        *,
+        authoritative_time: datetime | None,
+    ) -> _EnvelopeFields:
         self._sequence += 1
         return _EnvelopeFields(
-            record_id=_uuid7(self._retrieved_at, self._sequence),
+            record_id=_uuid7(self._retrieved_at),
             record_type=record_type,
             schema_version="0.1.0",
             tenant_id=self._tenant_id,
@@ -193,7 +198,14 @@ class _MockCore:
                 "destination_system": self._destination_system,
                 "version": "0.1.0",
             },
-            clocks=ClocksModel(source_time=_timestamp(self._retrieved_at)),
+            clocks=(
+                ClocksModel(
+                    source_time=_timestamp(self._retrieved_at),
+                    authoritative_time=_timestamp(authoritative_time),
+                )
+                if authoritative_time is not None
+                else ClocksModel(source_time=_timestamp(self._retrieved_at))
+            ),
             signature={},
         )
 
@@ -201,7 +213,9 @@ class _MockCore:
         self, record: RecordT
     ) -> RecordT:
         signed = sign_record(record, key_id=self._key_id, private_key=self._private_key)
-        self._prev_digest = signing_digest(signed)
+        # ES-006a commits to the complete previous record, including signature.
+        # This is deliberately not the ES-021 signature-excluded signing digest.
+        self._prev_digest = canonical_digest(signed)
         return signed
 
     def _enumerate(self, scope: ConnectorScope, window: EnumerationWindow) -> PopulationRecord:
@@ -240,6 +254,7 @@ class _MockCore:
         ]
         observed_ms = self._config.observed_settlement_lag // timedelta(milliseconds=1)
         authoritative = [record.authoritative_timestamp for record in returned]
+        has_authoritative_time = self._config.authoritative_time
         body_data: dict[str, object] = {
             "action_family": scope.action_family,
             "destination_system": self._destination_system,
@@ -256,15 +271,26 @@ class _MockCore:
             "result_cap_hit": self._config.result_cap_hit,
             "retrieved_at": _timestamp(self._retrieved_at),
             "authoritative_timestamps": {
-                "min": _timestamp(min(authoritative)) if authoritative else None,
-                "max": _timestamp(max(authoritative)) if authoritative else None,
+                "min": (
+                    _timestamp(min(authoritative))
+                    if authoritative and has_authoritative_time
+                    else None
+                ),
+                "max": (
+                    _timestamp(max(authoritative))
+                    if authoritative and has_authoritative_time
+                    else None
+                ),
             },
             # Factual observations only.  Qualification, not the connector,
             # decides whether these observations establish isolation.
             "attribution_observations": actors,
             "observed_settlement_lag_ms": observed_ms,
         }
-        envelope = self._envelope_fields("PopulationRecord")
+        envelope = self._envelope_fields(
+            "PopulationRecord",
+            authoritative_time=(self._retrieved_at if has_authoritative_time else None),
+        )
         record = PopulationRecord(
             record_id=envelope.record_id,
             record_type="PopulationRecord",
@@ -303,7 +329,10 @@ class _MockCore:
                 "action_id": matched.action_id,
             }
         digest = "sha256:" + sha256(canonicalize(payload)).hexdigest()
-        envelope = self._envelope_fields("ExternalConfirmation")
+        envelope = self._envelope_fields(
+            "ExternalConfirmation",
+            authoritative_time=(timestamp if self._config.authoritative_time else None),
+        )
         record = ExternalConfirmationRecord(
             record_id=envelope.record_id,
             record_type="ExternalConfirmation",
