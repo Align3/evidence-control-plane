@@ -180,7 +180,7 @@ Full `HumanReview` capture: reviewer identity and authority, evidence shown, opt
 CRUD for `AssuranceBoundary` (versioned, immutable, signed) and `QualificationRecord`. Enforce that every declared family carries a qualification ref, and that class cannot be upgraded retroactively.
 **Touches:** `services/admin/boundary.py`, `qualification.py`, migrations
 **Depends on:** EV-06
-**Satisfies:** ES-009, ES-010, CM-003, CM-004, TM-002
+**Satisfies:** ES-009, ES-010, CM-003, CM-004
 **Acceptance:** TM-S-005, CM-S-009
 
 #### EV-13 — Connector interface and first connector

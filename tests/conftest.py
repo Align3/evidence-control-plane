@@ -153,9 +153,112 @@ def record_factories(owner_engine: Engine, tenants: list[str]) -> dict[str, Reco
 
 
 @pytest.fixture(scope="session")
+def admin_actors(record_factories: dict[str, RecordFactory]) -> dict[str, Any]:
+    """Per-tenant administrative signing identity for EV-12's tables.
+
+    Reuses each tenant's evidence key rather than minting a new one: DM-008
+    puts boundaries and qualification records in the `evidence` namespace, and
+    a fixture that quietly registered a second key would hide the fact that
+    the namespace discriminator on those tables is doing anything.
+    """
+    from tests.admin_support import AdminActor
+
+    return {
+        tenant_id: AdminActor(
+            tenant_id=tenant_id,
+            collector_id=factory.collector_id,
+            key_id=factory.key_id,
+            private_key=factory.private_key,
+        )
+        for tenant_id, factory in record_factories.items()
+    }
+
+
+@pytest.fixture(scope="session")
+def default_boundaries(
+    owner_engine: Engine, record_factories: dict[str, RecordFactory]
+) -> dict[str, str]:
+    """The `{tenant}:default:1` boundary every `RecordFactory` record cites.
+
+    Required from migration 0012 onward: DM-017's deferred foreign key on
+    `evidence_records.boundary_ref` is enforced from that revision, so an
+    evidence row can no longer name a scope declaration that was never
+    recorded. Before 0012 the column was unvalidated and this fixture had
+    nothing to create.
+
+    Recorded through `record_boundary`, not by raw INSERT, so the qualified-
+    family invariant ES-009 states is exercised by every test that writes
+    evidence rather than only by the tests aimed at it.
+    """
+    from datetime import UTC, datetime
+
+    from services.admin import record_boundary, record_qualification
+    from tests.admin_support import (
+        boundary_body,
+        qualification_body,
+        signed_boundary,
+        signed_qualification,
+    )
+
+    qualified_at = datetime(2026, 1, 1, tzinfo=UTC)
+    refs: dict[str, str] = {}
+    with owner_engine.begin() as conn:
+        for tenant_id, factory in record_factories.items():
+            qualification, canonical, signature = signed_qualification(
+                tenant_id=tenant_id,
+                collector_id=factory.collector_id,
+                key_id=factory.key_id,
+                private_key=factory.private_key,
+                boundary_ref=f"{tenant_id}:default:1",
+                body=qualification_body(
+                    action_family="payment.transfer",
+                    destination_system="ledger-sandbox",
+                    assigned_class="C1",
+                    qualified_at=qualified_at,
+                ),
+            )
+            qualification_ref = record_qualification(
+                conn,
+                record=qualification,
+                canonical_bytes=canonical,
+                signature=signature,
+            )
+            boundary, canonical, signature = signed_boundary(
+                tenant_id=tenant_id,
+                collector_id=factory.collector_id,
+                key_id=factory.key_id,
+                private_key=factory.private_key,
+                name="default",
+                version=1,
+                body=boundary_body(
+                    tenant_id=tenant_id,
+                    version=1,
+                    window_start=datetime(2026, 1, 1, tzinfo=UTC),
+                    window_end=datetime(2027, 1, 1, tzinfo=UTC),
+                    families=[
+                        {
+                            "action_family": "payment.transfer",
+                            "destination_system": "ledger-sandbox",
+                            "qualification_ref": qualification_ref,
+                        }
+                    ],
+                ),
+            )
+            refs[tenant_id] = record_boundary(
+                conn,
+                record=boundary,
+                canonical_bytes=canonical,
+                signature=signature,
+                recorded_at=datetime(2026, 1, 1, tzinfo=UTC),
+            )
+    return refs
+
+
+@pytest.fixture(scope="session")
 def populated_ledger(
     tenant_engines: TenantEngines,
     record_factories: dict[str, RecordFactory],
+    default_boundaries: dict[str, str],
 ) -> dict[str, list[dict[str, Any]]]:
     """Appends records under each tenant's own role, into its own partition.
 
