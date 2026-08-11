@@ -42,12 +42,14 @@ def population(
     destination_system: str = "payments",
     result_cap_hit: bool = False,
     pagination_complete: bool = True,
+    window_start: str = "2026-08-11T11:00:00.000Z",
+    window_end: str = "2026-08-11T12:00:00.000Z",
 ) -> PopulationRecord:
     body: dict[str, object] = {
         "action_family": action_family,
         "destination_system": destination_system,
-        "window_start": "2026-08-11T11:00:00.000Z",
-        "window_end": "2026-08-11T12:00:00.000Z",
+        "window_start": window_start,
+        "window_end": window_end,
         "enumeration_query": {},
         "count": len(identifiers) if count is None and identifiers is not None else count,
         "pagination_complete": pagination_complete,
