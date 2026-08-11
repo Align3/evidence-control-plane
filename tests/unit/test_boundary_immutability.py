@@ -125,6 +125,25 @@ def test_the_owner_cannot_mutate_a_recorded_boundary(
             transaction.rollback()
 
 
+@pytest.mark.parametrize(
+    "table",
+    ["boundaries", "qualification_records", "boundary_action_families"],
+)
+def test_the_owner_cannot_truncate_append_only_admin_history(
+    owner_engine: Engine, recorded: str, table: str
+) -> None:
+    """A row trigger alone does not protect an append-only table from TRUNCATE."""
+    with owner_engine.connect() as conn:
+        transaction = conn.begin()
+        try:
+            with pytest.raises(Exception) as caught:  # noqa: B017 -- SQLSTATE asserted
+                conn.execute(text(f"TRUNCATE TABLE {table} CASCADE"))  # noqa: S608
+            assert _sqlstate(caught.value) == CHECK_VIOLATION
+            assert "append-only" in str(caught.value)
+        finally:
+            transaction.rollback()
+
+
 def test_a_change_to_a_boundary_is_a_new_version_not_an_edit(
     owner_engine: Engine, actor: AdminActor, recorded: str
 ) -> None:

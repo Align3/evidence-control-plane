@@ -49,8 +49,9 @@ ADMIN_TABLES: tuple[str, ...] = (
     "boundary_action_families",
 )
 
-#: The trigger name suffix migration 0012 attaches to every relation above.
+#: The trigger name suffixes migration 0012 attaches to every relation above.
 IMMUTABILITY_TRIGGER_SUFFIX = "_refuse_mutation"
+TRUNCATE_TRIGGER_SUFFIX = "_refuse_truncate"
 
 
 qualification_records = Table(
@@ -195,6 +196,7 @@ __all__ = [
     "ADMIN_TABLES",
     "DENOMINATOR_CLASS_LABELS",
     "IMMUTABILITY_TRIGGER_SUFFIX",
+    "TRUNCATE_TRIGGER_SUFFIX",
     "boundaries",
     "boundary_action_families",
     "metadata",

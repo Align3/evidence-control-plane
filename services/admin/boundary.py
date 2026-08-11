@@ -7,10 +7,10 @@ interval-coverage half of AR-027; see `interval_coverage` below.
 Immutability
 ------------
 There is no update function in this module, and there is nothing to call one
-if there were: migration 0012 attaches a trigger to `boundaries` that raises
-on `UPDATE` and `DELETE` for every role including the owner. A change to a
-boundary is `record_boundary` again with the next version number, which
-creates a row and leaves the previous one exactly as signed.
+if there were: migration 0012 attaches triggers to `boundaries` that raise on
+`UPDATE`, `DELETE`, and `TRUNCATE` for every role including the owner. A
+change to a boundary is `record_boundary` again with the next version number,
+which creates a row and leaves the previous one exactly as signed.
 
 `data-model.md` §2.4 lists a `superseded_by` column. It is not built, and
 cannot be: writing it means updating the row being superseded, which is the
@@ -21,6 +21,7 @@ amendment 1 records the change.
 
 from __future__ import annotations
 
+import hmac
 import json
 from collections.abc import Mapping, Sequence
 from dataclasses import dataclass
@@ -31,7 +32,11 @@ from cryptography.hazmat.primitives.asymmetric.ed25519 import Ed25519PublicKey
 from sqlalchemy import Connection, select
 
 from sdk_python.evidence.schema import AssuranceBoundaryRecord
-from sdk_python.evidence.signing import verify_record_signature_bytes
+from sdk_python.evidence.signing import (
+    InvalidSignatureError,
+    record_signature_bytes,
+    verify_record_signature_bytes,
+)
 
 from .schema import boundaries, boundary_action_families
 
@@ -292,6 +297,11 @@ def record_boundary(
     verify_record_signature_bytes(
         record, signing_bytes=canonical_bytes, public_keys=public_keys
     )
+    embedded_signature = record_signature_bytes(record)
+    if not hmac.compare_digest(signature, embedded_signature):
+        raise InvalidSignatureError(
+            "detached signature does not match the supplied record"
+        )
     families = declared_families(record)
 
     tenant, name, version = parse_boundary_ref(record.boundary_ref)

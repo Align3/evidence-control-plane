@@ -282,7 +282,15 @@ def test_the_result_offers_no_covered_subinterval_to_restate_over() -> None:
     field back.
     """
     fields = set(IntervalCoverage.__dataclass_fields__)
-    assert not fields & {"covered_subinterval", "covered_from", "covered_until"}, (
-        f"IntervalCoverage exposes {sorted(fields)}, which includes the bounds "
-        "of the covered part -- the input a narrower restatement of A-02 needs"
+    expected = {
+        "boundary_ref",
+        "effective",
+        "window_start",
+        "window_end",
+        "uncovered",
+    }
+    assert fields == expected, (
+        f"IntervalCoverage exposes {sorted(fields)} rather than exactly "
+        f"{sorted(expected)}; extra result fields can make the covered part "
+        "available for a narrower restatement of A-02"
     )

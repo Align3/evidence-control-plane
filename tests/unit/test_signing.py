@@ -20,6 +20,7 @@ from sdk_python.evidence.signing import (
     verify_attestation_counter_signature,
     verify_attestation_signatures,
     verify_record_signature,
+    verify_record_signature_bytes,
 )
 
 TS = "2026-07-31T12:00:00.000+01:00"
@@ -139,6 +140,24 @@ def test_unknown_body_extension_is_digest_covered_by_signature() -> None:
     with pytest.raises(InvalidSignatureError, match="signed_digest"):
         verify_record_signature(
             tampered, public_keys={"customer-key": private_key.public_key()}
+        )
+
+
+def test_verifier_refuses_signed_bytes_for_a_different_record_model() -> None:
+    """Composition callers cannot verify one artifact and project another."""
+    private_key = Ed25519PrivateKey.generate()
+    signed = sign_record(
+        _agent_record(), key_id="customer-key", private_key=private_key
+    )
+    original_bytes = record_signing_bytes(signed)
+    substituted_body = signed.body.model_copy(update={"deployment": "substituted"})
+    substituted = signed.model_copy(update={"body": substituted_body})
+
+    with pytest.raises(InvalidSignatureError, match="supplied record"):
+        verify_record_signature_bytes(
+            substituted,
+            signing_bytes=original_bytes,
+            public_keys={"customer-key": private_key.public_key()},
         )
 
 

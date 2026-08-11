@@ -236,6 +236,18 @@ def record_signing_bytes(record: RecordEnvelope) -> bytes:
     return canonicalize(_unsigned_mapping(record))
 
 
+def record_signature_bytes(record: RecordEnvelope) -> bytes:
+    """Return the raw Ed25519 proof embedded in ``record.signature``.
+
+    The same strict decoder used by verification is intentional: storage
+    callers must not acquire a second, weaker interpretation of the proof.
+    """
+
+    signature = _signature_object(record)
+    _validate_signature_members(record, signature)
+    return _decode_base64url(signature.get("sig"), label="sig", expected_length=64)
+
+
 def sign_record[RecordT: RecordEnvelope](
     record: RecordT,
     *,
@@ -293,6 +305,12 @@ def verify_record_signature_bytes(
     bytes here.  The ordinary model-only verifier remains available for
     offline callers that necessarily have to render the model first.
     """
+
+    expected_signing_bytes = record_signing_bytes(record)
+    if not hmac.compare_digest(signing_bytes, expected_signing_bytes):
+        raise InvalidSignatureError(
+            "canonical signing bytes do not match the supplied record"
+        )
 
     signature = _signature_object(record)
     _validate_signature_members(record, signature)

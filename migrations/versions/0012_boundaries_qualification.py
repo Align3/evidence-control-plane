@@ -498,6 +498,14 @@ def _attach_triggers() -> None:
             f" BEFORE UPDATE OR DELETE ON {table}"
             f" FOR EACH ROW EXECUTE FUNCTION {REFUSE_MUTATION_FUNCTION}()"
         )
+        # Row triggers do not run for TRUNCATE. The schema owner is in the
+        # threat model, so revoking TRUNCATE from lesser roles is insufficient:
+        # the owner must meet the same append-only refusal as every caller.
+        op.execute(
+            f"CREATE TRIGGER {table}_refuse_truncate"
+            f" BEFORE TRUNCATE ON {table}"
+            f" FOR EACH STATEMENT EXECUTE FUNCTION {REFUSE_MUTATION_FUNCTION}()"
+        )
     op.execute(
         f"CREATE TRIGGER {QUALIFICATIONS}_refuse_retroactive_upgrade"
         f" BEFORE INSERT ON {QUALIFICATIONS}"

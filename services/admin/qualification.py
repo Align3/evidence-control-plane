@@ -44,6 +44,7 @@ than restate the table.
 
 from __future__ import annotations
 
+import hmac
 import json
 from collections.abc import Iterable, Mapping, Sequence
 from dataclasses import dataclass
@@ -55,7 +56,11 @@ from cryptography.hazmat.primitives.asymmetric.ed25519 import Ed25519PublicKey
 from sqlalchemy import Connection, select
 
 from sdk_python.evidence.schema import QualificationRecord
-from sdk_python.evidence.signing import verify_record_signature_bytes
+from sdk_python.evidence.signing import (
+    InvalidSignatureError,
+    record_signature_bytes,
+    verify_record_signature_bytes,
+)
 
 from .schema import qualification_records
 
@@ -339,6 +344,11 @@ def record_qualification(
     verify_record_signature_bytes(
         record, signing_bytes=canonical_bytes, public_keys=public_keys
     )
+    embedded_signature = record_signature_bytes(record)
+    if not hmac.compare_digest(signature, embedded_signature):
+        raise InvalidSignatureError(
+            "detached signature does not match the supplied record"
+        )
     columns = projection(record)
     qualification_ref = record.record_id
     connection.execute(

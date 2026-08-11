@@ -36,7 +36,11 @@ from .qualification import (
     qualification_history,
     record_qualification,
 )
-from .schema import ADMIN_TABLES, IMMUTABILITY_TRIGGER_SUFFIX
+from .schema import (
+    ADMIN_TABLES,
+    IMMUTABILITY_TRIGGER_SUFFIX,
+    TRUNCATE_TRIGGER_SUFFIX,
+)
 
 #: Same policy name the registry uses, so a missing one is obvious across
 #: every tenant-scoped relation rather than only within one story's tables.
@@ -44,12 +48,12 @@ TENANT_ISOLATION_POLICY = "tenant_isolation"
 
 
 def admin_isolation_status(connection: Connection) -> dict[str, dict[str, object]]:
-    """Per table: row-level isolation, and whether the mutation trigger is armed.
+    """Per table: row isolation and whether both mutation triggers are armed.
 
     Introspection rather than trust, following `services.ledger.registry`. A
     table whose immutability trigger was dropped reads exactly like an
-    immutable one until someone issues an `UPDATE`, and the whole of TM-002
-    rests on that statement failing.
+    immutable one until someone issues a refused statement, and the whole of
+    TM-002 rests on `UPDATE`, `DELETE`, and `TRUNCATE` all failing.
     """
     rows = connection.execute(
         text(
@@ -62,7 +66,14 @@ def admin_isolation_status(connection: Connection) -> dict[str, dict[str, object
             "            AND t.tgname = c.relname || :suffix"
             "            AND NOT t.tgisinternal"
             "            AND t.tgenabled <> 'D'"
-            "       ) AS immutability_trigger"
+            "       ) AS immutability_trigger,"
+            "       EXISTS ("
+            "         SELECT 1 FROM pg_trigger t"
+            "          WHERE t.tgrelid = c.oid"
+            "            AND t.tgname = c.relname || :truncate_suffix"
+            "            AND NOT t.tgisinternal"
+            "            AND t.tgenabled <> 'D'"
+            "       ) AS truncate_trigger"
             "  FROM pg_class c"
             "  LEFT JOIN pg_policies p"
             "    ON p.tablename = c.relname AND p.policyname = :policy"
@@ -72,6 +83,7 @@ def admin_isolation_status(connection: Connection) -> dict[str, dict[str, object
             "policy": TENANT_ISOLATION_POLICY,
             "tables": list(ADMIN_TABLES),
             "suffix": IMMUTABILITY_TRIGGER_SUFFIX,
+            "truncate_suffix": TRUNCATE_TRIGGER_SUFFIX,
         },
     )
     return {
@@ -79,6 +91,7 @@ def admin_isolation_status(connection: Connection) -> dict[str, dict[str, object
             "rls_enabled": row.rls_enabled,
             "policy": row.policyname,
             "immutability_trigger": row.immutability_trigger,
+            "truncate_trigger": row.truncate_trigger,
         }
         for row in rows
     }
@@ -100,6 +113,8 @@ def assert_admin_tables_protected(connection: Connection) -> None:
                 problems.append("tenant isolation policy missing")
             if not table.get("immutability_trigger"):
                 problems.append("immutability trigger absent or disabled")
+            if not table.get("truncate_trigger"):
+                problems.append("truncate trigger absent or disabled")
         if problems:
             faults[name] = problems
     if faults:
