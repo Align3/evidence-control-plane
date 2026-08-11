@@ -251,7 +251,9 @@ def test_mock_returns_signed_population_and_confirmation_evidence() -> None:
     assert verify_record_signature(population, public_keys=public_keys)
     assert verify_record_signature(confirmation, public_keys=public_keys)
     assert confirmation.body.authoritative_timestamp == "2026-08-11T11:58:00.000Z"
-    assert population.clocks.authoritative_time == "2026-08-11T12:00:00.000Z"
+    # The newest enumerated destination record, not the 12:00 collector read.
+    assert population.clocks.authoritative_time == "2026-08-11T11:59:00.000Z"
+    assert population.clocks.source_time == "2026-08-11T12:00:00.000Z"
     assert confirmation.clocks.authoritative_time == "2026-08-11T11:58:00.000Z"
 
 
@@ -338,6 +340,51 @@ def test_gate_requires_declared_and_emitted_authoritative_time() -> None:
         enumerate_for_window_coverage(fixed, SCOPE, WINDOW)
 
 
+def test_relayed_authoritative_time_cannot_be_the_collectors_own_clock() -> None:
+    """ES-019/ES-030: the envelope relays the destination's clock, not ours.
+
+    A presence-only check is satisfied by echoing ``retrieved_at``, which is the
+    single value that is both trivially available and exactly wrong for the
+    ES-020 ordering rule.  Binding it to the newest enumerated record is what
+    makes the declared capability cost the connector something.
+    """
+
+    connector, key = _mock()
+    original = require_window_enumerator(connector).enumerate(SCOPE, WINDOW)
+    assert original.clocks.authoritative_time == original.body.authoritative_timestamps["max"]
+    assert original.clocks.authoritative_time != original.clocks.source_time
+
+    echoed_read_clock = _resign_population(
+        original,
+        key,
+        clocks=ClocksModel(
+            source_time=original.clocks.source_time,
+            authoritative_time=original.clocks.source_time,
+        ),
+    )
+    fixed = _FixedEnumerationConnector(echoed_read_clock, connector.capabilities())
+    with pytest.raises(EnumerationResponseMismatchError, match="own read clock"):
+        enumerate_for_window_coverage(fixed, SCOPE, WINDOW)
+
+
+def test_empty_enumeration_cannot_relay_a_destination_timestamp() -> None:
+    key = Ed25519PrivateKey.generate()
+    connector = create_mock_connector(records=(), private_key=key, retrieved_at=NOW)
+    original = require_window_enumerator(connector).enumerate(SCOPE, WINDOW)
+    fabricated = _resign_population(
+        original,
+        key,
+        clocks=ClocksModel(
+            source_time=original.clocks.source_time,
+            authoritative_time=original.clocks.source_time,
+        ),
+    )
+    fixed = _FixedEnumerationConnector(fabricated, connector.capabilities())
+
+    with pytest.raises(EnumerationResponseMismatchError, match="empty enumeration cannot relay"):
+        enumerate_for_window_coverage(fixed, SCOPE, WINDOW)
+
+
 def test_gate_uses_one_capability_snapshot() -> None:
     connector, _ = _mock()
     record = require_window_enumerator(connector).enumerate(SCOPE, WINDOW)
@@ -358,7 +405,9 @@ def test_empty_but_exactly_bound_enumeration_is_a_valid_zero_denominator() -> No
     assert result.body.count == 0
     assert result.body.record_identifiers == []
     assert result.body.authoritative_timestamps == {"min": None, "max": None}
-    assert result.clocks.authoritative_time is not None
+    # No destination record was enumerated, so there is no destination clock to
+    # relay.  Omission is the honest encoding; see ES-019 and ES-030.
+    assert result.clocks.authoritative_time is None
 
 
 def test_scope_parameters_are_deeply_immutable_hashable_and_json_compatible() -> None:

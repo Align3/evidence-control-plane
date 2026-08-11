@@ -287,9 +287,16 @@ class _MockCore:
             "attribution_observations": actors,
             "observed_settlement_lag_ms": observed_ms,
         }
+        # ES-019: the envelope relays the *destination's* timestamp, and ES-030
+        # forbids representing it as an observation the collector made.  The
+        # newest enumerated record is the only destination instant a population
+        # can relay; `retrieved_at` is our own read clock and belongs in
+        # source_time alone.  An empty population relays nothing and omits it.
         envelope = self._envelope_fields(
             "PopulationRecord",
-            authoritative_time=(self._retrieved_at if has_authoritative_time else None),
+            authoritative_time=(
+                max(authoritative) if authoritative and has_authoritative_time else None
+            ),
         )
         record = PopulationRecord(
             record_id=envelope.record_id,

@@ -243,6 +243,26 @@ def enumerate_for_window_coverage(
     qualification is responsible for establishing that the query itself is an
     adequate source.  Exact request/response binding prevents a population
     that is empty merely because it answered a different query from passing.
+
+    Two deliberate positions, recorded here because both are narrower than the
+    methodology and neither should be relaxed silently:
+
+    * **Authoritative time is required, not merely classified.**  Only C1 names
+      an authoritative timestamp among its requirements
+      (``coverage-methodology.md`` §5), and CM-018 handles its absence by
+      excluding skewed records from the *numerator* rather than by refusing the
+      denominator.  This function nonetheless refuses, which forecloses C2 and
+      C3 window coverage that CM-009 would permit to emit a ratio.  That is the
+      fail-closed direction and costs nothing until a C2 or C3 destination is
+      qualified.  EV-16 owns the lattice, so when it needs those classes the
+      fix is to move this decision into the denominator class it computes — not
+      to delete the check here because a story would otherwise fail.
+    * **enumeration_query.scope must echo the requested parameters.**  ES-011's
+      field is specified "as executed", so a connector translating scope into a
+      vendor query has nowhere truthful to put both.  Binding on the echo is
+      what makes a substituted population detectable at all; the first real
+      connector should carry the executed query alongside it rather than
+      loosening this comparison.
     """
 
     capabilities = connector.capabilities()
@@ -281,12 +301,6 @@ def enumerate_for_window_coverage(
             "enumeration count does not match the inline record identifiers",
             population_record=result,
         )
-    if result.clocks.authoritative_time is None:
-        raise EnumerationResponseMismatchError(
-            "connector declared authoritative time but omitted it from the record clocks",
-            population_record=result,
-        )
-
     timestamp_range = result.body.authoritative_timestamps
     minimum = timestamp_range.get("min")
     maximum = timestamp_range.get("max")
@@ -296,7 +310,17 @@ def enumerate_for_window_coverage(
                 "empty enumeration must have a null authoritative timestamp range",
                 population_record=result,
             )
-    elif (
+        # An empty population relays no destination record, so under ES-019 and
+        # ES-030 there is no destination timestamp for the envelope to carry.
+        # Omission is the only honest encoding; a value here could only be the
+        # collector's own clock, which ES-030 forbids relaying as authoritative.
+        if result.clocks.authoritative_time is not None:
+            raise EnumerationResponseMismatchError(
+                "empty enumeration cannot relay a destination authoritative time",
+                population_record=result,
+            )
+        return _check_truncation_and_lag(result, capabilities)
+    if (
         not isinstance(minimum, str)
         or not isinstance(maximum, str)
         or not _timestamp_within_window(minimum, window)
@@ -307,6 +331,32 @@ def enumerate_for_window_coverage(
             "enumeration authoritative timestamp range is absent, inverted, or outside the window",
             population_record=result,
         )
+    # ES-019 defines authoritative_time as the destination's timestamp relayed
+    # by the collector, and ES-030 forbids representing it as an observation the
+    # collector made.  Binding it to the newest enumerated destination record is
+    # what keeps the declared capability from being satisfied by echoing our own
+    # read clock, which is the one value that would pass a mere presence check
+    # while being exactly the wrong clock for the ES-020 ordering rule.
+    relayed = result.clocks.authoritative_time
+    if relayed is None:
+        raise EnumerationResponseMismatchError(
+            "connector declared authoritative time but omitted it from the record clocks",
+            population_record=result,
+        )
+    if _parse_timestamp(relayed) != _parse_timestamp(maximum):
+        raise EnumerationResponseMismatchError(
+            "clocks.authoritative_time must relay the newest enumerated destination "
+            "timestamp, not the collector's own read clock",
+            population_record=result,
+        )
+    return _check_truncation_and_lag(result, capabilities)
+
+
+def _check_truncation_and_lag(
+    result: PopulationRecord, capabilities: ConnectorCapabilities
+) -> PopulationRecord:
+    """Refuse the explicit truncation flags and the declared settlement bound."""
+
     if result.body.result_cap_hit:
         raise EnumerationUnusableError(
             "enumeration result cap was hit; the denominator is truncated",
