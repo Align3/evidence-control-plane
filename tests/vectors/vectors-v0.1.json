@@ -134,6 +134,17 @@
     {
       "expected": {
         "accepted": true,
+        "canonical_json": "{\"__proto__\":\"x\",\"a\":1}",
+        "canonical_utf8_hex": "7b225f5f70726f746f5f5f223a2278222c2261223a317d",
+        "digest": "sha256:c93e23c5dbc318beed9c7bbcb73f47bb1a78ae39d0c6e8169f9de5e5013bdf43"
+      },
+      "id": "canonical-prototype-key",
+      "input_json": "{\"__proto__\":\"x\",\"a\":1}",
+      "operation": "canonicalize"
+    },
+    {
+      "expected": {
+        "accepted": true,
         "canonical_json": "{\"😀\":2,\"\":1}",
         "canonical_utf8_hex": "7b22f09f9880223a322c22ee8080223a317d",
         "digest": "sha256:28c95d1bbb2209223307e62f489020e8f9e0cfa16adf2daf6d88127a1e8dd22a"

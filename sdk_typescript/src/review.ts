@@ -39,7 +39,7 @@ export class ReviewSurfaceInstrumentation {
 }
 
 /** Hash exact bytes read from a client renderer. Strings are UTF-8 without normalization. */
-export async function clientRenderedEvidence(rendered: RenderedEvidence): Promise<EvidenceShownCapture> {
+async function clientRenderedEvidence(rendered: RenderedEvidence): Promise<EvidenceShownCapture> {
   return {
     evidence_shown: await digestRenderedBytes(toBytes(rendered)),
     evidence_shown_provenance: "client_rendered",

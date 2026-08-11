@@ -2,7 +2,8 @@ import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
 import { resolve } from "node:path";
 import { test } from "node:test";
-import { ReviewSurfaceInstrumentation, clientRenderedEvidence, serverReconstructedEvidence } from "../src/index.ts";
+import { ReviewSurfaceInstrumentation, serverReconstructedEvidence } from "../src/index.ts";
+import * as reviewApi from "../src/review.ts";
 
 const fixture = JSON.parse(readFileSync(resolve(import.meta.dirname, "../../tests/fixtures/ev10-rendered-evidence.json"), "utf8"));
 
@@ -20,7 +21,7 @@ test("ES-013 hashes what the client actually rendered after paint", async () => 
   afterPaint!();
 
   const captured = await pendingCapture;
-  assert.deepEqual(captured, await clientRenderedEvidence(fixture.client_rendered));
+  assert.deepEqual(captured, await captureClientRendered(fixture.client_rendered));
   assert.equal(captured.evidence_shown_provenance, "client_rendered");
   assert.notEqual(captured.evidence_shown, (await serverReconstructedEvidence(fixture.server_reconstruction)).evidence_shown);
 });
@@ -28,7 +29,7 @@ test("ES-013 hashes what the client actually rendered after paint", async () => 
 test("server reconstruction is explicitly labelled and cannot masquerade as rendered evidence", async () => {
   const capture = await serverReconstructedEvidence(fixture.server_reconstruction);
   assert.equal(capture.evidence_shown_provenance, "server_reconstructed");
-  assert.notDeepEqual(capture, await clientRenderedEvidence(fixture.server_reconstruction));
+  assert.equal("clientRenderedEvidence" in reviewApi, false);
 });
 
 test("capture refuses without a client render boundary", async () => {
@@ -37,3 +38,10 @@ test("capture refuses without a client render boundary", async () => {
   });
   await assert.rejects(instrumentation.capture(), { code: "review.client_render_unavailable" });
 });
+
+async function captureClientRendered(rendered: string) {
+  return new ReviewSurfaceInstrumentation({
+    readRenderedEvidence: () => rendered,
+    afterPaint: (capture) => capture(),
+  }).capture();
+}

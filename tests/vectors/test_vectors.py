@@ -48,6 +48,7 @@ ADVERSARIAL_VECTORS: list[dict[str, Any]] = DOCUMENT["adversarial_vectors"]
 VECTORS = [*AGREEMENT_VECTORS, *ADVERSARIAL_VECTORS]
 
 REQUIRED_ATTACK_VECTORS = {
+    "canonical-prototype-key",
     "canonical-utf16-order",
     "receipt-issuer-signed-hosted-clocks",
     "reject-receipt-suppressed-clock-skew",

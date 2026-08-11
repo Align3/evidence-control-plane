@@ -154,6 +154,7 @@ def _attestation_record() -> AttestationWindowRecord:
 def _canonicalization_vectors() -> list[dict[str, Any]]:
     valid_inputs = {
         "canonical-object-order": '{"z":0,"a":[3,2,1],"nested":{"b":true,"a":null}}',
+        "canonical-prototype-key": '{"__proto__":"x","a":1}',
         "canonical-utf16-order": '{"\\ue000":1,"\\ud83d\\ude00":2}',
         "canonical-string-escaping": '{"text":"\\b\\t\\n\\f\\r\\u0000\\u001f\\\\\\\"/€"}',
         "canonical-safe-integers": (

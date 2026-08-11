@@ -1,5 +1,5 @@
 import { refuse } from "./errors.ts";
-import type { JsonObject, JsonValue } from "./json.ts";
+import { MAX_JSON_NESTING_DEPTH, type JsonObject, type JsonValue } from "./json.ts";
 import { RECORD_TYPES, type RecordType } from "./types.ts";
 
 const ENVELOPE_MEMBERS = new Set([
@@ -135,7 +135,10 @@ function requireMember(object: JsonObject, key: string, code: string): void {
   if (!Object.hasOwn(object, key) || object[key] === undefined) refuse(code, `missing required member: ${key}`);
 }
 
-function assertJsonValue(value: unknown, path = "$", seen = new Set<object>()): asserts value is JsonValue {
+function assertJsonValue(value: unknown, path = "$", seen = new Set<object>(), depth = 0): asserts value is JsonValue {
+  if (depth > MAX_JSON_NESTING_DEPTH) {
+    refuse("canonicalization.nesting_too_deep", `JSON nesting exceeds ${MAX_JSON_NESTING_DEPTH}`);
+  }
   if (value === null || typeof value === "string" || typeof value === "boolean") return;
   if (typeof value === "number") {
     if (!Number.isFinite(value) || !Number.isInteger(value)) refuse("canonicalization.float_forbidden", `${path} contains a forbidden number`);
@@ -145,7 +148,7 @@ function assertJsonValue(value: unknown, path = "$", seen = new Set<object>()): 
   if (typeof value !== "object") refuse("canonicalization.unsupported_value", `${path} is not JSON`);
   if (seen.has(value)) refuse("canonicalization.cyclic_value", `${path} is cyclic`);
   seen.add(value);
-  if (Array.isArray(value)) value.forEach((item, index) => assertJsonValue(item, `${path}[${index}]`, seen));
-  else Object.entries(value).forEach(([key, item]) => assertJsonValue(item, `${path}.${key}`, seen));
+  if (Array.isArray(value)) value.forEach((item, index) => assertJsonValue(item, `${path}[${index}]`, seen, depth + 1));
+  else Object.entries(value).forEach(([key, item]) => assertJsonValue(item, `${path}.${key}`, seen, depth + 1));
   seen.delete(value);
 }

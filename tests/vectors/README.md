@@ -25,6 +25,13 @@ test material only, never deployment keys. Including them lets an independent
 writer reproduce the expected signatures rather than merely verify bytes
 produced by Python.
 
+Object member names are always data. In particular, `__proto__` MUST survive
+parsing and canonicalization as an enumerable own member. Assigning parsed
+members into a normal JavaScript object with `result[key] = value` invokes the
+legacy inherited prototype setter for that name and silently drops signed
+content. `canonical-prototype-key` fixes the required bytes and digest for this
+JavaScript-specific interoperability trap.
+
 Operations:
 
 - `canonicalize`: parse `input_json`, then produce JCS bytes and an ES-003

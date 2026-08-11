@@ -5,6 +5,7 @@ export type JsonValue = JsonPrimitive | JsonValue[] | { [key: string]: JsonValue
 export type JsonObject = { [key: string]: JsonValue };
 
 const MAX_SAFE_INTEGER = 9_007_199_254_740_991n;
+export const MAX_JSON_NESTING_DEPTH = 512;
 
 /** Parse the source tokens required by ES-002a without losing their spelling. */
 export function parseCanonicalJson(source: string): JsonValue {
@@ -21,6 +22,13 @@ export function canonicalize(value: JsonValue): Uint8Array {
 }
 
 export function canonicalStringify(value: JsonValue): string {
+  return stringify(value, 0);
+}
+
+function stringify(value: JsonValue, depth: number): string {
+  if (depth > MAX_JSON_NESTING_DEPTH) {
+    refuse("canonicalization.nesting_too_deep", `JSON nesting exceeds ${MAX_JSON_NESTING_DEPTH}`);
+  }
   if (value === null) return "null";
   if (value === true) return "true";
   if (value === false) return "false";
@@ -35,12 +43,12 @@ export function canonicalStringify(value: JsonValue): string {
     return Object.is(value, -0) ? "0" : String(value);
   }
   if (Array.isArray(value)) {
-    return `[${value.map(canonicalStringify).join(",")}]`;
+    return `[${value.map((item) => stringify(item, depth + 1)).join(",")}]`;
   }
   if (typeof value === "object") {
     const entries = Object.keys(value)
       .sort(compareUtf16)
-      .map((key) => `${quoteString(key)}:${canonicalStringify(value[key]!)}`);
+      .map((key) => `${quoteString(key)}:${stringify(value[key]!, depth + 1)}`);
     return `{${entries.join(",")}}`;
   }
   return refuse("canonicalization.unsupported_value", "value is not JSON");
@@ -91,18 +99,21 @@ class JsonTokenParser {
 
   parse(): JsonValue {
     this.skipWhitespace();
-    const value = this.parseValue();
+    const value = this.parseValue(0);
     this.skipWhitespace();
     if (this.position !== this.source.length) this.invalid("trailing content");
     return value;
   }
 
-  private parseValue(): JsonValue {
+  private parseValue(depth: number): JsonValue {
+    if (depth > MAX_JSON_NESTING_DEPTH) {
+      refuse("canonicalization.nesting_too_deep", `JSON nesting exceeds ${MAX_JSON_NESTING_DEPTH}`);
+    }
     this.skipWhitespace();
     const char = this.source[this.position];
     if (char === '"') return this.parseString();
-    if (char === "{") return this.parseObject();
-    if (char === "[") return this.parseArray();
+    if (char === "{") return this.parseObject(depth);
+    if (char === "[") return this.parseArray(depth);
     if (char === "t") return this.literal("true", true);
     if (char === "f") return this.literal("false", false);
     if (char === "n") {
@@ -118,7 +129,7 @@ class JsonTokenParser {
     return this.invalid("expected a JSON value");
   }
 
-  private parseObject(): JsonObject {
+  private parseObject(depth: number): JsonObject {
     this.position += 1;
     const result: JsonObject = {};
     const seen = new Set<string>();
@@ -131,7 +142,13 @@ class JsonTokenParser {
       seen.add(key);
       this.skipWhitespace();
       if (!this.consume(":")) this.invalid("expected ':' after object key");
-      result[key] = this.parseValue();
+      const parsed = this.parseValue(depth + 1);
+      Object.defineProperty(result, key, {
+        value: parsed,
+        writable: true,
+        enumerable: true,
+        configurable: true,
+      });
       this.skipWhitespace();
       if (this.consume("}")) return result;
       if (!this.consume(",")) this.invalid("expected ',' or '}' in object");
@@ -139,13 +156,13 @@ class JsonTokenParser {
     }
   }
 
-  private parseArray(): JsonValue[] {
+  private parseArray(depth: number): JsonValue[] {
     this.position += 1;
     const result: JsonValue[] = [];
     this.skipWhitespace();
     if (this.consume("]")) return result;
     while (true) {
-      result.push(this.parseValue());
+      result.push(this.parseValue(depth + 1));
       this.skipWhitespace();
       if (this.consume("]")) return result;
       if (!this.consume(",")) this.invalid("expected ',' or ']' in array");

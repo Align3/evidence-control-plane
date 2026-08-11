@@ -127,6 +127,62 @@ def _typescript_canonicalize(payload: str) -> tuple[bytes, str]:
     return result.stdout, digest
 
 
+def _go_canonicalize_raw(binary: Path, payload: str) -> subprocess.CompletedProcess[bytes]:
+    """Run a source token through Go without first parsing it in Python."""
+    with tempfile.NamedTemporaryFile("w", suffix=".json", delete=False) as handle:
+        handle.write(payload)
+        path = handle.name
+    try:
+        return subprocess.run(  # noqa: S603
+            [str(binary), "-mode", "canonicalize", path],
+            capture_output=True,
+            check=False,
+        )
+    finally:
+        Path(path).unlink(missing_ok=True)
+
+
+def _typescript_canonicalize_raw(payload: str) -> subprocess.CompletedProcess[bytes]:
+    """Run a source token through TypeScript without Python value conversion."""
+    node = shutil.which("node")
+    if node is None:
+        raise AssertionError("Node is required to demonstrate EV-10 token-level parity")
+    return subprocess.run(  # noqa: S603
+        [node, "--experimental-strip-types", str(TYPESCRIPT_CANONICALIZER)],
+        input=payload.encode(),
+        capture_output=True,
+        check=False,
+    )
+
+
+def test_es_s_007_source_tokens_match_normative_vectors(go_verifier: Path) -> None:
+    """ES-002a source spelling reaches both foreign implementations unchanged."""
+    corpus = json.loads(VECTORS.read_text(encoding="utf-8"))
+    vectors = [
+        vector for vector in corpus["vectors"] if vector["operation"] == "canonicalize"
+    ]
+    for vector in vectors:
+        expected = vector["expected"]
+        go = _go_canonicalize_raw(go_verifier, vector["input_json"])
+        typescript = _typescript_canonicalize_raw(vector["input_json"])
+        if expected["accepted"]:
+            expected_bytes = bytes.fromhex(expected["canonical_utf8_hex"])
+            assert go.returncode == 0, f"{vector['id']}: {go.stderr.decode()}"
+            assert typescript.returncode == 0, (
+                f"{vector['id']}: {typescript.stderr.decode()}"
+            )
+            assert go.stdout.rstrip(b"\n") == expected_bytes, vector["id"]
+            assert typescript.stdout == expected_bytes, vector["id"]
+        else:
+            error_code = expected["error_code"]
+            assert go.returncode != 0, f"{vector['id']}: Go accepted {vector['input_json']}"
+            assert typescript.returncode != 0, (
+                f"{vector['id']}: TypeScript accepted {vector['input_json']}"
+            )
+            assert error_code in go.stderr.decode(errors="replace"), vector["id"]
+            assert error_code in typescript.stderr.decode(errors="replace"), vector["id"]
+
+
 def _subjects(corpus: dict[str, Any]) -> list[tuple[str, Any]]:
     """Every JSON value in the corpus that both sides must canonicalise alike.
 
