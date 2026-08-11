@@ -1,0 +1,4 @@
+{
+  "server_reconstruction": "Decision context\nCustomer: Acme Corp\nCredit limit: USD 100000\nRisk flag: manual review required",
+  "client_rendered": "Decision context\nCustomer: Acme Corp\nCredit limit: [redacted]\nRisk flag: manual review required"
+}
