@@ -391,7 +391,10 @@ def test_duplicates_remain_distinct_denominator_evidence(
 
     assert result.enumeration_alerts == ()
     assert record.body.count == 2
-    assert record.body.record_identifiers == ["destination-1", "destination-1"]
+    # Two destination identifiers, not one identifier stored twice: the
+    # population is a set, and both rows are genuine denominator evidence.
+    assert record.body.record_identifiers == ["destination-1", "destination-1-duplicate"]
+    assert len(set(record.body.record_identifiers)) == 2
 
 
 def test_reenumeration_appends_and_surfaces_disagreement_instead_of_refreshing(

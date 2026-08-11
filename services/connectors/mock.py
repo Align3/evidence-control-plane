@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from datetime import UTC, datetime, timedelta
 from hashlib import sha256
 
@@ -65,6 +65,7 @@ class MockConnectorConfig:
     pagination_complete: bool = True
     observed_settlement_lag: timedelta = timedelta(0)
     duplicate_records: bool = False
+    repeated_identifiers: bool = False
     unattributable_records: bool = False
 
     def __post_init__(self) -> None:
@@ -160,6 +161,18 @@ class _MockCore:
                 )
         returned = list(matching)
         if self._config.duplicate_records and returned:
+            # ES-015 / TM-010: a destination duplicate is two *distinct*
+            # destination identifiers carrying identical content -- the same
+            # action recorded twice by the destination.  Repeating one
+            # identifier instead would break the denominator's set invariant
+            # and is malformed enumeration data, not a duplicate; that case is
+            # `repeated_identifiers` below, and the two must not be conflated.
+            original = returned[0]
+            returned.append(replace(original, record_id=f"{original.record_id}-duplicate"))
+        if self._config.repeated_identifiers and returned:
+            # Malformed enumeration: the same identifier observed twice. A
+            # consumer must refuse this population rather than deduplicate it
+            # or read it as a destination-side duplicate.
             returned.append(returned[0])
 
         identifiers = [record.record_id for record in returned]

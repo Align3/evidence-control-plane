@@ -190,7 +190,7 @@ def test_duplicates_and_missing_actor_attribution_are_returned_as_observations()
 
     result = require_window_enumerator(connector).enumerate(SCOPE, WINDOW)
 
-    assert result.body.record_identifiers == ["ticket-1", "ticket-2", "ticket-1"]
+    assert result.body.record_identifiers == ["ticket-1", "ticket-2", "ticket-1-duplicate"]
     assert result.body.count == 3
     observations = result.body.model_extra["attribution_observations"]
     assert isinstance(observations, list)
@@ -199,15 +199,47 @@ def test_duplicates_and_missing_actor_attribution_are_returned_as_observations()
     assert not hasattr(result, "signature")
 
 
-def test_duplicate_identifiers_pass_the_gate_for_reconciliation_classification() -> None:
-    """Duplicates are raw population evidence; EV-15 owns their classification."""
+def test_destination_duplicates_are_distinct_identifiers_with_identical_content() -> None:
+    """ES-015 / TM-010: the same action recorded twice under two identifiers.
+
+    The denominator is a set of destination identifiers, so a duplicate must
+    still present two *distinct* ones. A repeated identifier is malformed
+    enumeration data and is modelled separately -- see the test below.
+    """
 
     connector, _ = _mock(MockConnectorConfig(duplicate_records=True))
 
     result = enumerate_for_window_coverage(connector, SCOPE, WINDOW)
 
+    identifiers = result.body.record_identifiers
+    assert identifiers == ["ticket-1", "ticket-2", "ticket-1-duplicate"]
+    assert len(set(identifiers)) == len(identifiers)
     assert result.body.count == 3
-    assert result.body.record_identifiers == ["ticket-1", "ticket-2", "ticket-1"]
+
+    # Identical content under a different identifier is what makes it a
+    # duplicate rather than a second, unrelated action.
+    observations = result.body.model_extra["attribution_observations"]
+    assert isinstance(observations, list)
+    by_id = {obs["record_identifier"]: obs["actor_attribute"] for obs in observations}
+    assert by_id["ticket-1"] == by_id["ticket-1-duplicate"]
+
+
+def test_repeated_identifier_is_malformed_enumeration_not_a_duplicate() -> None:
+    """A literally repeated identifier breaks the denominator's set invariant.
+
+    EV-15 refuses this population with a named integrity error. It must stay
+    reachable from the mock, and it must not be reachable via
+    `duplicate_records`, or the two cases collapse into one again.
+    """
+
+    connector, _ = _mock(MockConnectorConfig(repeated_identifiers=True))
+
+    result = enumerate_for_window_coverage(connector, SCOPE, WINDOW)
+
+    identifiers = result.body.record_identifiers
+    assert identifiers == ["ticket-1", "ticket-2", "ticket-1"]
+    assert len(set(identifiers)) < len(identifiers)
+    assert result.body.count == 3
 
 
 def test_settlement_lag_beyond_declared_bound_is_reported_and_refused() -> None:
