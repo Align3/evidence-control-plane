@@ -230,7 +230,25 @@ def test_ev_13_unusable_flags_are_preserved_but_not_reinterpreted_by_ev_15(
 
 
 def test_ev_13_repeated_identifier_mock_exposes_population_integrity_defect() -> None:
-    pop = _population_from_mock(MockConnectorConfig(duplicate_records=True))
+    pop = _population_from_mock(MockConnectorConfig(repeated_identifiers=True))
 
     with pytest.raises(PopulationIntegrityError, match="repeated identifier"):
         reconcile(pop, (), ())
+
+
+def test_ev_13_destination_duplicate_mock_produces_a_classifiable_population() -> None:
+    """RC-003 vs RC-004: the mock's duplicate is a population EV-15 accepts.
+
+    A destination duplicate carries two distinct identifiers, so it reaches
+    classification instead of being refused as a repeated identifier. The
+    classification itself is covered by
+    `test_distinct_identifiers_with_identical_content_are_both_duplicate`.
+    """
+
+    pop = _population_from_mock(MockConnectorConfig(duplicate_records=True))
+
+    assert len(set(pop.body.record_identifiers)) == len(pop.body.record_identifiers)
+
+    results = reconcile(pop, (), ())
+
+    assert len(results) == pop.body.count == 2
