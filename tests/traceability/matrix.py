@@ -20,38 +20,36 @@ ownership     the `**Satisfies:**` fields in `docs/prd.md`
 acceptance    the `**Acceptance:**` fields in `docs/prd.md`
 story status  reachable commit subjects following the `EV-nn: ...` convention
 
-Exemptions
-----------
-Most requirements are not scenario-bearing -- "this methodology is versioned
-independently", "runbooks 1, 2 and 6 must exist" -- so QA-011 applied literally
-fails permanently, and a gate that always fails gets switched off. A
-requirement may therefore be marked non-testable, but the marking is explicit,
-lives in the source document beside the requirement, and is *reported* rather
-than netted off:
-
-    **CM-022** — This methodology is versioned independently of the schema.
-
-    > **Non-testable — process.** Enforced by the §14 change-log review and the
-    > independent technical committee; no executable behaviour to assert.
+Classifications
+---------------
+Every requirement is scenario-bearing, otherwise-verified, or non-testable.
+The second class is deliberately distinct: database, source-structure, CI and
+artifact controls are testable even when Gherkin is the wrong instrument. Its
+marker must name the substitute pytest node. Scenario-bearing backlog names the
+story that owes the scenario; non-testable requirements state why no executable
+check is honest.
 
 Grammar, in full:
 
-    > **Non-testable[ (MODIFIER)] — TOKEN.** REASON
+    > **Verification — scenario-bearing; deferred EV-nn.** REASON
+    > **Verification — otherwise-verified[; deferred EV-nn].**
+    > `pytest:NODEID` — REASON
+    > **Verification — non-testable (CATEGORY).** REASON
+    > **Verification (document default) — non-testable (CATEGORY).** REASON
 
-    MODIFIER absent            TOKEN is a category; exempts this requirement
-    MODIFIER "document default" TOKEN is a category; exempts every requirement
-                                in the file that has no marker of its own
-    MODIFIER "deferred"        TOKEN is `EV-nn` or `unassigned`; records debt,
-                                reported separately and never as an exemption
-
-    category  process | documentation | meta | external
+    category  process | governance | documentation | meta | external
     REASON    at least 40 characters, after joining continuation lines
+
+The legacy `Non-testable` grammar remains readable so historical documents do
+not become malformed merely because the vocabulary improved. New markings use
+the three-class grammar above.
 
 A marker binds to the nearest requirement defined above it in the same file.
 Anything that does not parse -- unknown category, missing story, reason too
 short, no requirement above it, a second marker on one requirement -- is
-reported as MALFORMED_EXEMPTION and exempts nothing. Exemptions fail closed: a
-typo leaves a requirement orphaned rather than quietly excusing it.
+reported as MALFORMED_EXEMPTION and classifies nothing. Markings fail closed: a
+typo leaves a requirement orphaned rather than quietly excusing it. A missing
+otherwise-verified node is reported separately and never becomes non-testable.
 
 Usage
 -----
@@ -100,17 +98,18 @@ from typing import Any
 # --------------------------------------------------------------------------
 
 # Every requirement prefix that appears in docs/. `AP` is agent-prompts.md;
-# there is no `DP`. Adding a prefix here is how a new document joins the
+# `DP` is the destination-platform research register. Adding a prefix here is
+# how a new document joins the
 # matrix -- a document whose prefix is absent is silently untracked, which is
 # why the generator reports unknown-prefix definitions it finds.
-PREFIXES = ("AC", "AG", "AP", "AR", "CM", "DE", "DM", "ES", "IN", "QA", "SE", "TM")
+PREFIXES = ("AC", "AG", "AP", "AR", "CM", "DE", "DM", "DP", "ES", "IN", "QA", "SE", "TM")
 
 # Prefixes whose requirements describe the product. An orphan here is a gap in
 # the specification of the thing we sell. The rest (AG, AP, DE) describe how we
 # work, and an orphan there is worth knowing about but ranks below.
-SPEC_PREFIXES = frozenset({"AC", "AR", "CM", "DM", "ES", "IN", "QA", "SE", "TM"})
+SPEC_PREFIXES = frozenset({"AC", "AR", "CM", "DM", "DP", "ES", "IN", "QA", "SE", "TM"})
 
-CATEGORIES = ("documentation", "external", "meta", "process")
+CATEGORIES = ("documentation", "external", "governance", "meta", "process")
 MIN_REASON = 40
 
 # `test_matrix.py` names fictional 900-block requirements as fixture data, and
@@ -138,6 +137,8 @@ DEFAULT_EXCLUDED_CITATION_PATHS = (
 ALWAYS_BLOCKING = frozenset(
     {
         "NEW_ASSERTION_NO_SCENARIO",
+        "NEW_REQUIREMENT_UNCLASSIFIED",
+        "MULTIPLE_REQUIREMENT_CLASSIFICATIONS",
         "BASELINE_UNAVAILABLE",
         "STORY_HISTORY_UNAVAILABLE",
         # A run that cannot see a corpus cannot certify one. CM-001 and CM-009
@@ -190,6 +191,14 @@ EXEMPTION_OPEN = re.compile(
     r"^>\s*\*\*Non-testable(?:\s*\((?P<modifier>[^)]*)\))?\s*[—-]\s*"
     r"(?P<label>[^*.]+?)\.?\*\*\s*(?P<reason>.*)$"
 )
+VERIFICATION_OPEN = re.compile(
+    rf"^>\s*\*\*Verification(?:\s+for\s+(?P<rid>(?:{_P})-\d{{3}}[a-z]?))?"
+    r"(?P<default>\s*\(document default\))?\s*[—-]\s*"
+    r"(?P<classification>scenario-bearing|otherwise-verified|non-testable)"
+    r"(?:\s*\((?P<category>[^)]*)\))?"
+    r"(?:;\s*deferred\s+(?P<story>EV-\d{2}))?\.?\*\*\s*(?P<body>.*)$"
+)
+CHECK_REASON = re.compile(r"^`(?P<check>pytest:[^`]+)`\s*[—-]\s*(?P<reason>.*)$")
 QUOTE_LINE = re.compile(r"^>\s?(?P<text>.*)$")
 
 FEATURE_TAGS = re.compile(r"^\s*@\S")
@@ -332,8 +341,21 @@ FINDING_HELP = {
         "nothing demonstrates the assertion is true (QA-002, QA-S-001)."
     ),
     "MALFORMED_EXEMPTION": (
-        "A non-testable marker could not be parsed, so it exempted nothing. The "
+        "A verification marker could not be parsed, so it classified nothing. The "
         "requirement is still counted as an orphan below."
+    ),
+    "OTHERWISE_VERIFIED_CHECK_MISSING": (
+        "An otherwise-verified requirement names a substitute pytest node that was not "
+        "collected. Naming a check that does not exist does not discharge the requirement."
+    ),
+    "NEW_REQUIREMENT_UNCLASSIFIED": (
+        "This change introduced or materially rewrote a requirement without a complete "
+        "classification. New requirements must arrive with a scenario, a resolvable "
+        "otherwise-verified check, or a valid non-testable marking."
+    ),
+    "MULTIPLE_REQUIREMENT_CLASSIFICATIONS": (
+        "A requirement has both a scenario and a verification marker. Classification is "
+        "exclusive; remove the stale marker when its scenario lands."
     ),
     "DUPLICATE_REQUIREMENT": (
         "One requirement ID is defined in more than one place. The first definition "
@@ -454,6 +476,8 @@ class Exemption:
     source: str  # "file.md:line" of the marker
     story: str | None = None  # deferred only; "unassigned" is recorded as None
     inherited_from: str | None = None  # document name, when a document default
+    classification: str = "non-testable"
+    check: str | None = None
 
 
 @dataclass
@@ -554,6 +578,8 @@ class _RawMarker:
     reason: str
     line: int
     bound_to: str | None  # requirement id, or None for a document default
+    classification: str | None = None
+    check: str | None = None
 
 
 def _clean(text: str) -> str:
@@ -575,9 +601,41 @@ def _parse_document(path: Path) -> tuple[list[Requirement], list[_RawMarker], li
     while i < len(lines):
         line = lines[i]
 
-        match = EXEMPTION_OPEN.match(line)
+        verification = VERIFICATION_OPEN.match(line)
+        match = verification or EXEMPTION_OPEN.match(line)
         if match:
-            reason_parts = [match.group("reason").strip()]
+            classification: str | None
+            check: str | None
+            modifier: str | None
+            label: str
+            reason: str
+            if verification:
+                classification = match.group("classification")
+                body = match.group("body").strip()
+                check = None
+                if classification == "otherwise-verified":
+                    checked = CHECK_REASON.match(body)
+                    reason = checked.group("reason") if checked else body
+                    check = checked.group("check") if checked else None
+                    modifier = "otherwise-verified"
+                    if match.group("story"):
+                        modifier += " deferred"
+                    label = match.group("story") or "otherwise-verified"
+                elif classification == "scenario-bearing":
+                    reason = body
+                    modifier = "deferred"
+                    label = match.group("story") or "unassigned"
+                else:
+                    reason = body
+                    modifier = "document default" if match.group("default") else None
+                    label = (match.group("category") or "").strip()
+                reason_parts = [reason.strip()]
+            else:
+                classification = None
+                check = None
+                modifier = (match.group("modifier") or "").strip().lower() or None
+                label = match.group("label").strip()
+                reason_parts = [match.group("reason").strip()]
             j = i + 1
             while j < len(lines):
                 cont = QUOTE_LINE.match(lines[j])
@@ -585,14 +643,19 @@ def _parse_document(path: Path) -> tuple[list[Requirement], list[_RawMarker], li
                     break
                 reason_parts.append(cont.group("text").strip())
                 j += 1
-            modifier = (match.group("modifier") or "").strip().lower() or None
             markers.append(
                 _RawMarker(
                     modifier=modifier,
-                    label=match.group("label").strip(),
+                    label=label,
                     reason=_clean(" ".join(p for p in reason_parts if p)),
                     line=i + 1,
-                    bound_to=None if modifier == "document default" else last_rid,
+                    bound_to=(
+                        None
+                        if modifier == "document default"
+                        else ((match.group("rid") or last_rid) if verification else last_rid)
+                    ),
+                    classification=classification,
+                    check=check,
                 )
             )
             i = j
@@ -659,11 +722,21 @@ def _apply_markers(
         source = f"{doc}:{marker.line}"
         subject = marker.bound_to or doc
 
-        if marker.modifier not in (None, "document default", "deferred"):
+        if marker.modifier not in (
+            None, "document default", "deferred", "otherwise-verified",
+            "otherwise-verified deferred",
+        ):
             malformed(subject, marker.line, f"unknown modifier {marker.modifier!r}")
             continue
 
-        if marker.modifier == "deferred":
+        if marker.modifier in ("otherwise-verified", "otherwise-verified deferred"):
+            story = marker.label if marker.modifier.endswith("deferred") else None
+            if marker.check is None:
+                malformed(subject, marker.line, "otherwise-verified requires a `pytest:...` check")
+                continue
+            category = "otherwise-verified"
+            classification = "otherwise-verified"
+        elif marker.modifier == "deferred":
             if not re.fullmatch(r"EV-\d{2}|unassigned", marker.label):
                 malformed(
                     subject, marker.line,
@@ -673,6 +746,7 @@ def _apply_markers(
             category, story = "deferred", (
                 None if marker.label == "unassigned" else marker.label
             )
+            classification = "scenario-bearing"
         else:
             if marker.label not in CATEGORIES:
                 malformed(
@@ -681,6 +755,7 @@ def _apply_markers(
                 )
                 continue
             category, story = marker.label, None
+            classification = "non-testable"
 
         if len(marker.reason) < MIN_REASON:
             malformed(
@@ -697,12 +772,16 @@ def _apply_markers(
                 malformed(doc, marker.line, "a second document default in one file")
                 continue
             doc_default = Exemption(
-                category=category, reason=marker.reason, source=source, inherited_from=doc
+                category=category, reason=marker.reason, source=source, inherited_from=doc,
+                classification=classification,
             )
             continue
 
         if marker.bound_to is None:
             malformed(doc, marker.line, "marker has no requirement defined above it")
+            continue
+        if marker.bound_to not in requirements:
+            malformed(marker.bound_to, marker.line, "marker names an undefined requirement")
             continue
         if marker.bound_to in seen:
             malformed(marker.bound_to, marker.line, "a second marker on one requirement")
@@ -711,7 +790,8 @@ def _apply_markers(
 
         seen.add(marker.bound_to)
         requirements[marker.bound_to].exemption = Exemption(
-            category=category, reason=marker.reason, source=source, story=story
+            category=category, reason=marker.reason, source=source, story=story,
+            classification=classification, check=marker.check,
         )
 
     if doc_default is not None:
@@ -1133,6 +1213,27 @@ def baseline_corpus(repo_root: Path, base: str, docs_reldir: str = "docs") -> di
     return counts
 
 
+def baseline_requirements(
+    repo_root: Path, base: str, docs_reldir: str = "docs"
+) -> dict[str, str]:
+    """Requirement texts at the merge base for the forward classification gate."""
+    out: dict[str, str] = {}
+    listing = _git(repo_root, "ls-tree", "-r", "--name-only", base, "--", docs_reldir)
+    for relpath in (listing or "").splitlines():
+        if not relpath.endswith(".md"):
+            continue
+        blob = _git(repo_root, "show", f"{base}:{relpath}")
+        if blob is None:
+            continue
+        for line in blob.splitlines():
+            found = list(REQ_DEF.finditer(line))
+            for index, match in enumerate(found):
+                stop = found[index + 1].start() if index + 1 < len(found) else len(line)
+                text = _clean(line[match.end():stop].lstrip(" —-")) or _clean(match.group(0))
+                out.setdefault(match.group("rid"), text)
+    return out
+
+
 def baseline_assertions(
     repo_root: Path, ref: str, ar_relpath: str = "docs/attestation-reliance.md"
 ) -> tuple[dict[str, CatalogueEntry] | None, str]:
@@ -1187,6 +1288,7 @@ def build_matrix(
     extra_baselines: tuple[tuple[dict[str, CatalogueEntry] | None, str], ...] = (),
     collection_supplied: bool = False,
     corpus_floor: dict[str, int] | None = None,
+    requirement_baseline: dict[str, str] | None = None,
 ) -> Matrix:
     matrix = Matrix()
     matrix.excluded_citation_paths = tuple(sorted(exclude_citations))
@@ -1312,7 +1414,7 @@ def build_matrix(
         if rid in matrix.requirements:
             matrix.requirements[rid].claimed_by = tuple(sorted(set(owners)))
 
-    # A deferral names a story that owes the scenario. Validating only the
+    # A deferral names a story that owes the scenario or substitute check. Validating only the
     # `EV-nn` shape let a deferral to a story that does not exist suppress an
     # orphan outright -- a typo in the reference silently retired the debt,
     # which is the exact failure the fail-closed rule exists to prevent. The
@@ -1320,7 +1422,7 @@ def build_matrix(
     # as a second pass and revokes the exemption it rejects.
     for rid, req in sorted(matrix.requirements.items()):
         exemption = req.exemption
-        if exemption is None or exemption.category != "deferred" or exemption.story is None:
+        if exemption is None or exemption.story is None:
             continue
         if exemption.story not in matrix.story_definitions:
             req.exemption = None
@@ -1352,6 +1454,34 @@ def build_matrix(
     )
     matrix.tests = tests
     matrix.findings.extend(findings)
+
+    # Otherwise-verified is not another spelling of non-testable. The named
+    # substitute must resolve to a node this run actually collected. Existing
+    # backlog may point at an unlanded story that owes the check, which remains
+    # visible medium debt; a landed or ownerless missing check is high.
+    landed = set(matrix.landed_stories)
+    for rid, req in sorted(matrix.requirements.items()):
+        marker = req.exemption
+        if marker is None or marker.classification != "otherwise-verified":
+            continue
+        nodeid = (marker.check or "").removeprefix("pytest:")
+        if nodeid in matrix.tests:
+            continue
+        severity = (
+            Severity.MEDIUM
+            if marker.story is not None and marker.story not in landed
+            else Severity.HIGH
+        )
+        matrix.findings.append(
+            Finding(
+                kind="OTHERWISE_VERIFIED_CHECK_MISSING",
+                severity=severity,
+                subject=rid,
+                location=marker.source,
+                detail=f"named substitute {marker.check or '(none)'} was not collected"
+                       + (f"; owed by {marker.story}" if marker.story else "; no story owns it"),
+            )
+        )
 
     # -- link requirement -> scenario --------------------------------------
     by_requirement: dict[str, list[str]] = defaultdict(list)
@@ -1404,9 +1534,57 @@ def build_matrix(
                     continue
                 seen.add((finding.kind, finding.subject))
                 matrix.findings.append(finding)
+        matrix.findings.extend(
+            _check_requirement_regressions(
+                matrix, requirement_baseline, baseline_description
+            )
+        )
     matrix.findings.sort(key=Finding.sort_key)
     matrix.summary = _summarise(matrix)
     return matrix
+
+
+def _check_requirement_regressions(
+    matrix: Matrix,
+    baseline: dict[str, str] | None,
+    description: str,
+) -> list[Finding]:
+    """Block new or materially rewritten requirements without a full classification."""
+    if baseline is None:
+        return []  # BASELINE_UNAVAILABLE is already emitted by the assertion gate.
+    findings: list[Finding] = []
+    collected = set(matrix.tests)
+    for rid, req in sorted(matrix.requirements.items()):
+        previous = baseline.get(rid)
+        if previous is not None and previous == req.text:
+            continue
+        marker = req.exemption
+        complete = bool(req.scenarios)
+        if marker is not None and marker.classification == "non-testable":
+            complete = True
+        elif marker is not None and marker.classification == "scenario-bearing":
+            complete = (
+                marker.story is not None
+                and marker.story in matrix.story_definitions
+                and rid in matrix.stories.get(marker.story, ())
+            )
+        elif marker is not None and marker.classification == "otherwise-verified":
+            nodeid = (marker.check or "").removeprefix("pytest:")
+            complete = nodeid in collected
+        if complete:
+            continue
+        why = "new requirement" if previous is None else "requirement text changed"
+        findings.append(
+            Finding(
+                kind="NEW_REQUIREMENT_UNCLASSIFIED",
+                severity=Severity.CRITICAL,
+                subject=rid,
+                location=f"{req.doc}:{req.line}",
+                detail=f"{why}; no complete classification accompanies it "
+                       f"(baseline: {description})",
+            )
+        )
+    return findings
 
 
 def _check(
@@ -1639,6 +1817,17 @@ def _check(
 
     # Requirements.
     for rid, req in sorted(matrix.requirements.items()):
+        if req.scenarios and req.exemption is not None:
+            findings.append(
+                Finding(
+                    kind="MULTIPLE_REQUIREMENT_CLASSIFICATIONS",
+                    severity=Severity.CRITICAL,
+                    subject=rid,
+                    location=req.exemption.source,
+                    detail="requirement has a scenario and a verification marker; exactly one "
+                           "classification is permitted",
+                )
+            )
         if req.scenarios:
             continue
         exemption = req.exemption
@@ -1819,15 +2008,17 @@ def _check_regressions(
 
 
 def _summarise(matrix: Matrix) -> dict[str, Any]:
-    exempt_ids, deferred_ids = [], []
+    exempt_ids, otherwise_ids, deferred_ids = [], [], []
     by_category: dict[str, int] = defaultdict(int)
     by_story: dict[str, int] = defaultdict(int)
     for rid, req in sorted(matrix.requirements.items()):
-        if req.exemption is None:
+        if req.exemption is None or req.scenarios:
             continue
-        if req.exemption.category == "deferred":
+        if req.exemption.classification == "scenario-bearing":
             deferred_ids.append(rid)
             by_story[req.exemption.story or "unassigned"] += 1
+        elif req.exemption.classification == "otherwise-verified":
+            otherwise_ids.append(rid)
         else:
             exempt_ids.append(rid)
             by_category[req.exemption.category] += 1
@@ -1852,6 +2043,8 @@ def _summarise(matrix: Matrix) -> dict[str, Any]:
         "exempt": len(exempt_ids),
         "exempt_ids": exempt_ids,
         "exempt_by_category": dict(sorted(by_category.items())),
+        "otherwise_verified": len(otherwise_ids),
+        "otherwise_verified_ids": otherwise_ids,
         "deferred": len(deferred_ids),
         "deferred_ids": deferred_ids,
         "deferred_by_story": dict(sorted(by_story.items())),
@@ -1899,11 +2092,9 @@ def render_markdown(matrix: Matrix) -> str:
     add("   CM-008       →   CM-S-004    →  test_lattice_caps_level  →  A-06")
     add("```")
     add("")
-    add("A requirement that genuinely cannot carry a scenario — a process rule, a")
-    add("statement about what a document says — may be marked non-testable in the")
-    add("document that defines it, with a written reason. Those markings are listed in")
-    add("full below rather than subtracted from a total: an exemption you can see and")
-    add("argue with is honest, one that has been netted off is not.")
+    add("Every requirement is scenario-bearing, otherwise-verified, or non-testable.")
+    add("Otherwise-verified requirements name their substitute pytest node; non-testable")
+    add("requirements state why no executable check is honest; scenario backlog names its owner.")
     add("")
 
     add("## Summary")
@@ -1913,9 +2104,13 @@ def render_markdown(matrix: Matrix) -> str:
     add(f"| Requirements | {s['requirements']} |")
     add(f"| — with a scenario | {s['requirements_with_scenario']} |")
     add(f"| — marked non-testable | {s['exempt']} |")
+    add(f"| — otherwise verified | {s['otherwise_verified']} |")
     add(f"| — deferred to a later story | {s['deferred']} |")
-    add(f"| — neither (orphans) | "
-        f"{s['requirements'] - s['requirements_with_scenario'] - s['exempt'] - s['deferred']} |")
+    orphan_count = (
+        s["requirements"] - s["requirements_with_scenario"] - s["exempt"]
+        - s["otherwise_verified"] - s["deferred"]
+    )
+    add(f"| — neither (orphans) | {orphan_count} |")
     add(f"| Scenarios | {s['scenarios']} |")
     add(f"| — with a test | {s['scenarios_with_test']} |")
     add(f"| Tests collected | {s['tests']} |")
@@ -1981,6 +2176,22 @@ def render_markdown(matrix: Matrix) -> str:
             add(f"| `{rid}` | {e.category} | {_cell(e.reason, 160)} | `{source}` |")
         add("")
 
+    add("## Otherwise verified")
+    add("")
+    add(f"{s['otherwise_verified']} requirements name a non-Gherkin substitute check.")
+    add("")
+    if s["otherwise_verified"]:
+        add("| Requirement | Substitute check | Owed by | Reason | Source |")
+        add("|---|---|---|---|---|")
+        for rid in s["otherwise_verified_ids"]:
+            e = matrix.requirements[rid].exemption
+            assert e is not None
+            add(
+                f"| `{rid}` | `{e.check}` | {e.story or '—'} | "
+                f"{_cell(e.reason, 140)} | `{e.source}` |"
+            )
+        add("")
+
     add("## Deferred")
     add("")
     add(f"{s['deferred']} requirements are testable in principle and have no scenario yet.")
@@ -2035,8 +2246,10 @@ def render_markdown(matrix: Matrix) -> str:
             status = "traced"
         elif req.exemption is None:
             status = "**ORPHAN**"
-        elif req.exemption.category == "deferred":
+        elif req.exemption.classification == "scenario-bearing":
             status = "deferred"
+        elif req.exemption.classification == "otherwise-verified":
+            status = "otherwise verified"
         else:
             status = f"exempt ({req.exemption.category})"
         nodeids = sorted({n for sid in req.scenarios for n in matrix.scenarios[sid].tests})
@@ -2086,7 +2299,7 @@ def render_markdown(matrix: Matrix) -> str:
 
 def render_json(matrix: Matrix) -> str:
     payload: dict[str, Any] = {
-        "schema": "traceability-matrix/1",
+        "schema": "traceability-matrix/2",
         "summary": matrix.summary,
         "requirements": [
             {
@@ -2102,6 +2315,8 @@ def render_json(matrix: Matrix) -> str:
                     if req.exemption is None
                     else {
                         "category": req.exemption.category,
+                        "classification": req.exemption.classification,
+                        "check": req.exemption.check,
                         "story": req.exemption.story,
                         "reason": req.exemption.reason,
                         "source": req.exemption.source,
@@ -2160,6 +2375,16 @@ def render_json(matrix: Matrix) -> str:
             }
             for rid in matrix.summary["exempt_ids"]
         ],
+        "otherwise_verified": [
+            {
+                "requirement": rid,
+                "check": matrix.requirements[rid].exemption.check,  # type: ignore[union-attr]
+                "story": matrix.requirements[rid].exemption.story,  # type: ignore[union-attr]
+                "reason": matrix.requirements[rid].exemption.reason,  # type: ignore[union-attr]
+                "source": matrix.requirements[rid].exemption.source,  # type: ignore[union-attr]
+            }
+            for rid in matrix.summary["otherwise_verified_ids"]
+        ],
         "deferred": [
             {
                 "requirement": rid,
@@ -2196,11 +2421,14 @@ def render_json(matrix: Matrix) -> str:
 def _print_report(matrix: Matrix) -> None:
     s = matrix.summary
     orphans = (
-        s["requirements"] - s["requirements_with_scenario"] - s["exempt"] - s["deferred"]
+        s["requirements"] - s["requirements_with_scenario"] - s["exempt"]
+        - s["otherwise_verified"] - s["deferred"]
     )
     print("Traceability matrix")
     print(f"  requirements       {s['requirements']:4}  "
-          f"({s['requirements_with_scenario']} traced, {s['exempt']} exempt, "
+          f"({s['requirements_with_scenario']} traced, "
+          f"{s['otherwise_verified']} otherwise-verified, "
+          f"{s['exempt']} non-testable, "
           f"{s['deferred']} deferred, {orphans} orphaned)")
     print(f"  scenarios          {s['scenarios']:4}  ({s['scenarios_with_test']} with a test)")
     print(f"  tests collected    {s['tests']:4}")
@@ -2358,6 +2586,9 @@ def main(
     # and the stub is measured against itself, which is a pass by construction.
     base_commit, _ = merge_base(root, DEFAULT_BASELINE_REF)
     corpus_floor = None if base_commit is None else baseline_corpus(root, base_commit, "docs")
+    requirement_baseline = (
+        None if base_commit is None else baseline_requirements(root, base_commit, "docs")
+    )
 
     matrix = build_matrix(
         repo_root=root,
@@ -2371,6 +2602,7 @@ def main(
         regression_gate=True,
         collection_supplied=collection_supplied,
         corpus_floor=corpus_floor,
+        requirement_baseline=requirement_baseline,
     )
 
     if unverified_inputs:

@@ -268,6 +268,116 @@ def test_assertion_citing_a_retired_requirement_is_reported(matrix):
 # --- exemptions -----------------------------------------------------------
 
 
+def test_otherwise_verified_names_a_collected_substitute_check(tmp_path):
+    docs = tmp_path / "docs"
+    tests = tmp_path / "tests"
+    docs.mkdir()
+    tests.mkdir()
+    (docs / "architecture.md").write_text(
+        "\n".join(
+            [
+                "**AC-801** — The dependency boundary is structural.",
+                "",
+                "> **Verification — otherwise-verified.** "
+                "`pytest:tests/test_structure.py::test_structure` — "
+                "The import graph is the authoritative substitute evidence for this rule.",
+            ]
+        ) + "\n",
+        encoding="utf-8",
+    )
+    (tests / "test_structure.py").write_text(
+        "def test_structure():\n    pass\n", encoding="utf-8"
+    )
+    built = build_matrix(
+        repo_root=tmp_path,
+        docs_dir=docs,
+        features_dir=None,
+        node_ids=["tests/test_structure.py::test_structure"],
+        landed_stories=frozenset(),
+    )
+    marker = built.requirements["AC-801"].exemption
+    assert marker is not None
+    assert marker.classification == "otherwise-verified"
+    assert marker.check == "pytest:tests/test_structure.py::test_structure"
+    assert "AC-801" not in subjects(built, "OTHERWISE_VERIFIED_CHECK_MISSING")
+    assert "AC-801" in built.summary["otherwise_verified_ids"]
+
+
+def test_otherwise_verified_missing_check_remains_story_owned_debt(tmp_path):
+    docs = tmp_path / "docs"
+    tests = tmp_path / "tests"
+    docs.mkdir()
+    tests.mkdir()
+    (docs / "architecture.md").write_text(
+        "\n".join(
+            [
+                "**AC-802** — The deployment topology is structural.",
+                "",
+                "> **Verification — otherwise-verified; deferred EV-90.** "
+                "`pytest:tests/test_structure.py::test_missing` — "
+                "The deployment manifest check is the substitute evidence for this rule.",
+            ]
+        ) + "\n",
+        encoding="utf-8",
+    )
+    (docs / "prd.md").write_text(
+        "#### EV-90 — Structural checks\n**Satisfies:** AC-802\n",
+        encoding="utf-8",
+    )
+    (tests / "test_structure.py").write_text(
+        "def test_present():\n    pass\n", encoding="utf-8"
+    )
+    built = build_matrix(
+        repo_root=tmp_path,
+        docs_dir=docs,
+        features_dir=None,
+        node_ids=["tests/test_structure.py::test_present"],
+        landed_stories=frozenset(),
+    )
+    assert "AC-802" in subjects(built, "OTHERWISE_VERIFIED_CHECK_MISSING")
+    assert (
+        severity_of(built, "OTHERWISE_VERIFIED_CHECK_MISSING", "AC-802")
+        is Severity.MEDIUM
+    )
+    assert "AC-802" not in subjects(built, "REQUIREMENT_NO_SCENARIO_CLAIMED")
+
+
+def test_explicit_markers_classify_two_requirements_defined_on_one_line(tmp_path):
+    docs = tmp_path / "docs"
+    tests = tmp_path / "tests"
+    docs.mkdir()
+    tests.mkdir()
+    (docs / "security.md").write_text(
+        "\n".join(
+            [
+                "**SE-801** — First structural rule. **SE-802** — Second structural rule.",
+                "",
+                "> **Verification for SE-801 — non-testable (governance).** "
+                "The first fixture rule is a governance obligation rather than runtime.",
+                "",
+                "> **Verification for SE-802 — non-testable (documentation).** "
+                "The second fixture rule governs documentation rather than runtime.",
+            ]
+        ) + "\n",
+        encoding="utf-8",
+    )
+    (tests / "test_present.py").write_text(
+        "def test_present():\n    pass\n", encoding="utf-8"
+    )
+    built = build_matrix(
+        repo_root=tmp_path,
+        docs_dir=docs,
+        features_dir=None,
+        node_ids=["tests/test_present.py::test_present"],
+        landed_stories=frozenset(),
+    )
+    assert built.requirements["SE-801"].exemption is not None
+    assert built.requirements["SE-801"].exemption.category == "governance"
+    assert built.requirements["SE-802"].exemption is not None
+    assert built.requirements["SE-802"].exemption.category == "documentation"
+    assert not subjects(built, "MALFORMED_EXEMPTION")
+
+
 def test_properly_exempted_requirement_is_not_an_orphan(matrix):
     req = matrix.requirements["CM-902"]
     assert req.exemption is not None

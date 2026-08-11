@@ -247,3 +247,23 @@ Then both are classified "duplicate"
 And neither is silently discarded
 And the counts in the attestation reflect the duplication
 ```
+
+## Verification classifications
+
+> **Verification for TM-004 — scenario-bearing; deferred EV-34.** This is externally observable runtime behaviour; EV-34 owns its missing Gherkin scenario and executable acceptance proof.
+
+> **Verification for TM-005 — scenario-bearing; deferred EV-34.** This is externally observable runtime behaviour; EV-34 owns its missing Gherkin scenario and executable acceptance proof.
+
+> **Verification for TM-007 — scenario-bearing; deferred EV-36.** This is externally observable runtime behaviour; EV-36 owns its missing Gherkin scenario and executable acceptance proof.
+
+> **Verification for TM-008 — scenario-bearing; deferred EV-36.** This is externally observable runtime behaviour; EV-36 owns its missing Gherkin scenario and executable acceptance proof.
+
+> **Verification for TM-011 — scenario-bearing; deferred EV-33.** This is externally observable runtime behaviour; EV-33 owns its missing Gherkin scenario and executable acceptance proof.
+
+> **Verification for TM-012 — scenario-bearing; deferred EV-34.** This is externally observable runtime behaviour; EV-34 owns its missing Gherkin scenario and executable acceptance proof.
+
+> **Verification for TM-015 — scenario-bearing; deferred EV-37.** This is externally observable runtime behaviour; EV-37 owns its missing Gherkin scenario and executable acceptance proof.
+
+> **Verification for TM-016 — otherwise-verified.** `pytest:tests/traceability/test_acceptance.py::test_qa_s_010_new_requirement_without_classification_fails_ci` — This requirement is verified by a structural, database, CI, or artifact check rather than a Gherkin product scenario.
+
+> **Verification for TM-017 — scenario-bearing; deferred EV-37.** This is externally observable runtime behaviour; EV-37 owns its missing Gherkin scenario and executable acceptance proof.

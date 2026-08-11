@@ -170,3 +170,7 @@ ISSUER_SIGNING_KEY_PATH=~/.evidence/dev-issuer.ed25519
 - [ ] Branch protection configured on `main`
 - [ ] Drift check confirmed as a required status
 - [ ] `docs/agent-working-agreement.md` included in both agents' opening context
+
+## Verification classifications
+
+> **Verification (document default) — non-testable (process).** These requirements govern local development, worktree, secret, and review procedure rather than product runtime behaviour.

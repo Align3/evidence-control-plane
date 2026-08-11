@@ -147,3 +147,7 @@ Stop rather than guess if:
 - You are about to add a field to the envelope
 
 The last two are architectural decisions wearing the costume of implementation details.
+
+## Verification classifications
+
+> **Verification (document default) — non-testable (process).** These requirements govern agent authoring and independent review procedure; they do not describe product runtime behaviour.

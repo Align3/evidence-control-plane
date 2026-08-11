@@ -189,3 +189,41 @@ And any superseding attestation covers only the period before T
 | Promote P2 (VPC) from V1 to MVP? | Depends on whether the first design partner is European. P2 eliminates the withholding residual entirely, which is the strongest available answer to the hardest question a reviewer will ask |
 | Penetration test timing | Before the first production deployment, not before the first design partner. Budget ~$8-15K |
 | Bug bounty | Not at MVP. Reconsider once the spec is public |
+
+## Verification classifications
+
+> **Verification for SE-001 — scenario-bearing; deferred EV-37.** This is externally observable runtime behaviour; EV-37 owns its missing Gherkin scenario and executable acceptance proof.
+
+> **Verification for SE-002 — scenario-bearing; deferred EV-35.** This is externally observable runtime behaviour; EV-35 owns its missing Gherkin scenario and executable acceptance proof.
+
+> **Verification for SE-004 — scenario-bearing; deferred EV-37.** This is externally observable runtime behaviour; EV-37 owns its missing Gherkin scenario and executable acceptance proof.
+
+> **Verification for SE-005 — scenario-bearing; deferred EV-37.** This is externally observable runtime behaviour; EV-37 owns its missing Gherkin scenario and executable acceptance proof.
+
+> **Verification for SE-006 — scenario-bearing; deferred EV-37.** This is externally observable runtime behaviour; EV-37 owns its missing Gherkin scenario and executable acceptance proof.
+
+> **Verification for SE-008 — scenario-bearing; deferred EV-37.** This is externally observable runtime behaviour; EV-37 owns its missing Gherkin scenario and executable acceptance proof.
+
+> **Verification for SE-010 — scenario-bearing; deferred EV-37.** This is externally observable runtime behaviour; EV-37 owns its missing Gherkin scenario and executable acceptance proof.
+
+> **Verification for SE-012 — otherwise-verified; deferred EV-38.** `pytest:tests/traceability/test_structural_requirements.py::test_se_012_application_roles_cannot_update_or_delete_evidence` — This requirement is verified by a structural, database, CI, or artifact check rather than a Gherkin product scenario.
+
+> **Verification for SE-013 — scenario-bearing; deferred EV-37.** This is externally observable runtime behaviour; EV-37 owns its missing Gherkin scenario and executable acceptance proof.
+
+> **Verification for SE-014 — scenario-bearing; deferred EV-37.** This is externally observable runtime behaviour; EV-37 owns its missing Gherkin scenario and executable acceptance proof.
+
+> **Verification for SE-016 — scenario-bearing; deferred EV-37.** This is externally observable runtime behaviour; EV-37 owns its missing Gherkin scenario and executable acceptance proof.
+
+> **Verification for SE-019 — otherwise-verified; deferred EV-38.** `pytest:tests/traceability/test_admin_rbac_controls.py::test_se_019_admin_permissions_are_four_distinct_capabilities` — This requirement is verified by a structural, database, CI, or artifact check rather than a Gherkin product scenario.
+
+> **Verification for SE-020 — otherwise-verified; deferred EV-38.** `pytest:tests/traceability/test_admin_rbac_controls.py::test_se_020_engineering_role_cannot_issue_or_revoke` — This requirement is verified by a structural, database, CI, or artifact check rather than a Gherkin product scenario.
+
+> **Verification for SE-021 — scenario-bearing; deferred EV-37.** This is externally observable runtime behaviour; EV-37 owns its missing Gherkin scenario and executable acceptance proof.
+
+> **Verification for SE-022 — scenario-bearing; deferred EV-37.** This is externally observable runtime behaviour; EV-37 owns its missing Gherkin scenario and executable acceptance proof.
+
+> **Verification for SE-023 — otherwise-verified; deferred EV-38.** `pytest:tests/traceability/test_ci_controls.py::test_se_023_secrets_are_environment_scoped_absent_from_repo_and_fail_closed` — This requirement is verified by a structural, database, CI, or artifact check rather than a Gherkin product scenario.
+
+> **Verification for SE-024 — otherwise-verified; deferred EV-38.** `pytest:tests/traceability/test_ci_controls.py::test_se_024_evidence_migrations_require_two_approvals_rationale_and_chain_checks` — This requirement is verified by a structural, database, CI, or artifact check rather than a Gherkin product scenario.
+
+> **Verification for SE-025 — scenario-bearing; deferred EV-35.** This is externally observable runtime behaviour; EV-35 owns its missing Gherkin scenario and executable acceptance proof.

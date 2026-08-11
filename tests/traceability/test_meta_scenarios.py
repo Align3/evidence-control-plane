@@ -120,7 +120,7 @@ def _published_both_ways(generated: dict[str, object]) -> None:
     assert "CM-401" in markdown and "A-01" in markdown
     payload = generated["payload"]
     assert isinstance(payload, dict)
-    assert payload["schema"] == "traceability-matrix/1"
+    assert payload["schema"] == "traceability-matrix/2"
 
 
 # --- QA-S-007: an orphaned requirement fails ------------------------------
