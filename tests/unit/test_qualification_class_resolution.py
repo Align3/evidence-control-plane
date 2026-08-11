@@ -39,6 +39,7 @@ def qualification(
     ref: str,
     assigned_class: DenominatorClass,
     qualified_at: datetime,
+    recorded_at: datetime | None = None,
     enumeration_capable: bool = True,
     confirmation_capable: bool = True,
 ) -> Qualification:
@@ -57,6 +58,7 @@ def qualification(
         source_retention_days=400,
         deletion_traceless_possible=False,
         qualified_at=qualified_at,
+        recorded_at=recorded_at or qualified_at,
         revalidate_after=qualified_at.replace(year=qualified_at.year + 1),
     )
 
@@ -142,9 +144,13 @@ def test_a_backdated_upgrade_does_not_govern_a_window_it_predates() -> None:
             ref="q-c1-backdated",
             assigned_class=DenominatorClass.C1,
             qualified_at=at(2026, 5, 1),
+            recorded_at=at(2026, 7, 1),
         ),
         qualification(
-            ref="q-c4", assigned_class=DenominatorClass.C4, qualified_at=at(2026, 6, 1)
+            ref="q-c4",
+            assigned_class=DenominatorClass.C4,
+            qualified_at=at(2026, 6, 1),
+            recorded_at=at(2026, 6, 1),
         ),
     ]
     assert (
@@ -153,6 +159,34 @@ def test_a_backdated_upgrade_does_not_govern_a_window_it_predates() -> None:
         )
         is DenominatorClass.C4
     )
+
+
+def test_a_backdated_upgrade_does_not_fill_the_gap_before_the_weaker_record() -> None:
+    """The original resolver bug: latest-by-effective-time returned the C1.
+
+    C4 was recorded first with a June effective date.  A C1 inserted later
+    but dated May must not become the apparent baseline for a May window.
+    """
+    history = [
+        qualification(
+            ref="q-c4",
+            assigned_class=DenominatorClass.C4,
+            qualified_at=at(2026, 6, 1),
+            recorded_at=at(2026, 6, 1),
+        ),
+        qualification(
+            ref="q-c1-backdated",
+            assigned_class=DenominatorClass.C1,
+            qualified_at=at(2026, 5, 1),
+            recorded_at=at(2026, 7, 1),
+        ),
+    ]
+    with pytest.raises(UnqualifiedWindowError):
+        class_in_force(
+            history,
+            window_start=at(2026, 5, 15),
+            window_end=at(2026, 5, 20),
+        )
 
 
 def test_no_qualification_in_force_refuses_rather_than_defaulting() -> None:

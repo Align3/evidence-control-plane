@@ -323,7 +323,6 @@ class AdminActor:
             record=record,
             canonical_bytes=canonical,
             signature=signature,
-            public_keys=self.public_keys,
         )
 
     def write_boundary(
@@ -359,7 +358,6 @@ class AdminActor:
             record=record,
             canonical_bytes=canonical,
             signature=signature,
-            public_keys=self.public_keys,
             recorded_at=recorded_at,
         )
 

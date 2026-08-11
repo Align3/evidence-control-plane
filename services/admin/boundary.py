@@ -4,13 +4,18 @@ Owns `evidence-spec.md` §5.1 and ES-009, `coverage-methodology.md` CM-003, and
 `threat-model.md` TM-002. Supplies -- but does not discharge -- the
 interval-coverage half of AR-027; see `interval_coverage` below.
 
-Immutability
-------------
-There is no update function in this module, and there is nothing to call one
-if there were: migration 0012 attaches triggers to `boundaries` that raise on
-`UPDATE`, `DELETE`, and `TRUNCATE` for every role including the owner. A
-change to a boundary is `record_boundary` again with the next version number,
-which creates a row and leaves the previous one exactly as signed.
+Append-only application path
+----------------------------
+There is no update function in this module. Migration 0012 attaches triggers
+to `boundaries` that raise on `UPDATE`, `DELETE`, and `TRUNCATE` while those
+triggers remain enabled. A change through the supported path is
+`record_boundary` again with the next version number.
+
+That is defense in depth, not owner-proof retention. The live migration
+credential is a PostgreSQL superuser and can disable or drop a trigger before
+mutating the table. TM-002 therefore remains dependent on an external,
+independently controlled history; this story does not claim that a database
+owner cannot erase or rewrite its own database.
 
 `data-model.md` §2.4 lists a `superseded_by` column. It is not built, and
 cannot be: writing it means updating the row being superseded, which is the
@@ -28,7 +33,6 @@ from dataclasses import dataclass
 from datetime import datetime
 from typing import Any
 
-from cryptography.hazmat.primitives.asymmetric.ed25519 import Ed25519PublicKey
 from sqlalchemy import Connection, select
 
 from sdk_python.evidence.schema import AssuranceBoundaryRecord
@@ -39,6 +43,7 @@ from sdk_python.evidence.signing import (
 )
 
 from .schema import boundaries, boundary_action_families
+from .trust import registered_evidence_keyring
 
 #: Keys required on every `action_families[]` entry. `evidence-spec.md` §5.1
 #: names the list and ES-009 names `qualification_ref`; the entry shape itself
@@ -281,7 +286,6 @@ def record_boundary(
     record: AssuranceBoundaryRecord,
     canonical_bytes: bytes,
     signature: bytes,
-    public_keys: Mapping[str, Ed25519PublicKey],
     recorded_at: datetime,
 ) -> str:
     """Store a signed `AssuranceBoundary` version. Returns its `boundary_ref`.
@@ -294,6 +298,9 @@ def record_boundary(
 
     There is no `update_boundary`. A change is a new version.
     """
+    public_keys = registered_evidence_keyring(
+        connection, tenant_id=record.tenant_id, signature=record.signature
+    )
     verify_record_signature_bytes(
         record, signing_bytes=canonical_bytes, public_keys=public_keys
     )

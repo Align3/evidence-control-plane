@@ -204,7 +204,6 @@ def default_boundaries(
     refs: dict[str, str] = {}
     with owner_engine.begin() as conn:
         for tenant_id, factory in record_factories.items():
-            public_keys = {factory.key_id: factory.private_key.public_key()}
             qualification, canonical, signature = signed_qualification(
                 tenant_id=tenant_id,
                 collector_id=factory.collector_id,
@@ -223,7 +222,6 @@ def default_boundaries(
                 record=qualification,
                 canonical_bytes=canonical,
                 signature=signature,
-                public_keys=public_keys,
             )
             boundary, canonical, signature = signed_boundary(
                 tenant_id=tenant_id,
@@ -251,7 +249,6 @@ def default_boundaries(
                 record=boundary,
                 canonical_bytes=canonical,
                 signature=signature,
-                public_keys=public_keys,
                 recorded_at=datetime(2026, 1, 1, tzinfo=UTC),
             )
     return refs

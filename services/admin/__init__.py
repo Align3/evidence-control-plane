@@ -50,10 +50,9 @@ TENANT_ISOLATION_POLICY = "tenant_isolation"
 def admin_isolation_status(connection: Connection) -> dict[str, dict[str, object]]:
     """Per table: row isolation and whether both mutation triggers are armed.
 
-    Introspection rather than trust, following `services.ledger.registry`. A
-    table whose immutability trigger was dropped reads exactly like an
-    immutable one until someone issues a refused statement, and the whole of
-    TM-002 rests on `UPDATE`, `DELETE`, and `TRUNCATE` all failing.
+    Introspection rather than trust, following `services.ledger.registry`.
+    This reports whether the defense-in-depth triggers are currently enabled;
+    it does not make them owner-proof or establish TM-002.
     """
     rows = connection.execute(
         text(
@@ -120,7 +119,7 @@ def assert_admin_tables_protected(connection: Connection) -> None:
     if faults:
         raise RuntimeError(
             f"boundary and qualification tables are unprotected: {faults} "
-            f"(TM-002, ES-010, SE-011)"
+            f"(DM-031, ES-010, SE-011)"
         )
 
 

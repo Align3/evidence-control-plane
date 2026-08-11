@@ -11,7 +11,7 @@ Three tables and one deferred foreign key:
 
 ``boundaries``
     `evidence-spec.md` §5.1 / `data-model.md` §2.4. Signed, versioned, and
-    immutable (TM-002).
+    append-only through the supported application path.
 
 ``boundary_action_families``
     A projection of `boundaries.body.action_families[]`, one row per declared
@@ -26,25 +26,15 @@ Three tables and one deferred foreign key:
     "migration 0003"; that reservation was voided and the number is now 0012
     (§3 amendment 1, DM-025).
 
-Why triggers and not only grants
---------------------------------
-AC-012's precedent is that immutability lives in the database as a role
-grant, and grants are used here too. They are not sufficient on their own for
-these two tables, because of *who* the adversary is.
-
-`threat-model.md` §4.2 (boundary gerrymandering) and §4.10 (retroactive
-qualification upgrade) both name the **vendor** as the actor. The vendor holds
-the migrator credential, which owns these relations, and an owner is not
-constrained by its own grants. A grant-only design would leave "the boundary
-was never rewritten" resting on the honesty of the party the attestation is
-about -- which is the one assurance the product cannot ask a relying party to
-take on trust.
-
-So both tables carry a `BEFORE UPDATE OR DELETE` trigger that raises
-unconditionally. A trigger binds the owner. Disabling it requires
-`ALTER TABLE ... DISABLE TRIGGER`, which is DDL through the audited schema
-path (SE-012 §6, SE-024), or a superuser flipping `session_replication_role`
--- both of which are visible acts rather than an ordinary `UPDATE`.
+Why triggers as well as grants
+-------------------------------
+AC-012's grant is retained, and row/statement triggers also refuse accidental
+or application-issued `UPDATE`, `DELETE`, and `TRUNCATE`. They do not provide
+owner-proof immutability: a relation owner can disable user triggers and the
+development migrator is a superuser. No object inside that same PostgreSQL
+trust boundary can prevent that credential from changing it. TM-002 therefore
+requires an independently controlled history outside this migration; these
+triggers are explicitly defense in depth, not evidence against their owner.
 
 Revision ID: 0012
 Revises: 0011
@@ -125,7 +115,7 @@ def _create_refusal_functions() -> None:
         BEGIN
             RAISE EXCEPTION
                 '% on % is refused: the relation is append-only '
-                '(TM-002, ES-010, DM-009)', TG_OP, TG_TABLE_NAME
+                '(DM-031 defense in depth)', TG_OP, TG_TABLE_NAME
                 USING ERRCODE = '{REFUSAL_SQLSTATE}';
         END;
         $fn$;
@@ -253,6 +243,15 @@ def _qualification_records() -> None:
         ),
         sa.Column("signature", sa.LargeBinary(), nullable=False),
         sa.Column("qualified_at", sa.TIMESTAMP(timezone=True), nullable=False),
+        # Hosted observation order. Unlike customer-signed `qualified_at`, this
+        # lets the read guard distinguish a legitimate historical C1→C4
+        # downgrade from a C1 inserted later but dated behind the C4.
+        sa.Column(
+            "recorded_at",
+            sa.TIMESTAMP(timezone=True),
+            nullable=False,
+            server_default=sa.text("clock_timestamp()"),
+        ),
         sa.Column("revalidate_after", sa.TIMESTAMP(timezone=True), nullable=False),
         sa.PrimaryKeyConstraint("qualification_ref", name="pk_qualification_records"),
         sa.ForeignKeyConstraint(
@@ -498,9 +497,9 @@ def _attach_triggers() -> None:
             f" BEFORE UPDATE OR DELETE ON {table}"
             f" FOR EACH ROW EXECUTE FUNCTION {REFUSE_MUTATION_FUNCTION}()"
         )
-        # Row triggers do not run for TRUNCATE. The schema owner is in the
-        # threat model, so revoking TRUNCATE from lesser roles is insufficient:
-        # the owner must meet the same append-only refusal as every caller.
+        # Row triggers do not run for TRUNCATE. This statement trigger catches
+        # ordinary/accidental truncation while enabled. A table owner can
+        # disable it; see the module-level trust-boundary disclosure.
         op.execute(
             f"CREATE TRIGGER {table}_refuse_truncate"
             f" BEFORE TRUNCATE ON {table}"

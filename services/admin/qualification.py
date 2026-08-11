@@ -15,8 +15,8 @@ sufficient alone:
 
 1. **At write time, by the database.** Migration 0012 attaches a `BEFORE
    INSERT` trigger refusing a stronger record backdated behind an existing
-   weaker one. It binds the schema owner, which a grant does not, and the
-   adversary in `threat-model.md` §4.10 is the vendor.
+   weaker one. This is defense in depth for ordinary DML, not an owner-proof
+   control: PostgreSQL superusers and relation owners can disable triggers.
 2. **At read time, here.** `class_in_force` resolves the governing class from
    the history for a given window, and `assert_class_claimable` refuses a
    claim the history does not support.
@@ -52,7 +52,6 @@ from datetime import datetime, timedelta
 from enum import StrEnum
 from typing import Any
 
-from cryptography.hazmat.primitives.asymmetric.ed25519 import Ed25519PublicKey
 from sqlalchemy import Connection, select
 
 from sdk_python.evidence.schema import QualificationRecord
@@ -63,6 +62,7 @@ from sdk_python.evidence.signing import (
 )
 
 from .schema import qualification_records
+from .trust import registered_evidence_keyring
 
 #: The verifier failure string TM-S-005 asserts. Fixed here as a constant so
 #: the Python resolver, the conformance fixtures this story emits, and EV-19's
@@ -202,6 +202,7 @@ class Qualification:
     source_retention_days: int
     deletion_traceless_possible: bool
     qualified_at: datetime
+    recorded_at: datetime
     revalidate_after: datetime
 
     @property
@@ -328,7 +329,6 @@ def record_qualification(
     record: QualificationRecord,
     canonical_bytes: bytes,
     signature: bytes,
-    public_keys: Mapping[str, Ed25519PublicKey],
 ) -> str:
     """Store a signed `QualificationRecord`. Returns its `qualification_ref`.
 
@@ -341,6 +341,9 @@ def record_qualification(
     This function does not pre-check it: a check here that the trigger also
     performs invites the check here being "improved" later into the only one.
     """
+    public_keys = registered_evidence_keyring(
+        connection, tenant_id=record.tenant_id, signature=record.signature
+    )
     verify_record_signature_bytes(
         record, signing_bytes=canonical_bytes, public_keys=public_keys
     )
@@ -405,7 +408,10 @@ def qualification_history(
             qualification_records.c.action_family == action_family,
             qualification_records.c.destination_system == destination_system,
         )
-        .order_by(qualification_records.c.qualified_at)
+        .order_by(
+            qualification_records.c.qualified_at,
+            qualification_records.c.recorded_at,
+        )
     ).mappings()
     return tuple(
         Qualification(
@@ -423,6 +429,7 @@ def qualification_history(
             source_retention_days=row["source_retention_days"],
             deletion_traceless_possible=row["deletion_traceless_possible"],
             qualified_at=row["qualified_at"],
+            recorded_at=row["recorded_at"],
             revalidate_after=row["revalidate_after"],
         )
         for row in rows
@@ -441,7 +448,11 @@ def governing_qualification(
     boundary case the generous way is how a retroactive upgrade gets in one
     microsecond at a time.
     """
-    earlier = [item for item in history if item.qualified_at < window_start]
+    earlier = [
+        item
+        for item in _without_backdated_upgrades(history)
+        if item.qualified_at < window_start
+    ]
     if not earlier:
         raise UnqualifiedWindowError(
             f"no qualification record was in force at {window_start.isoformat()}; "
@@ -480,13 +491,39 @@ def class_in_force(
             f"window_end {window_end.isoformat()} does not follow window_start "
             f"{window_start.isoformat()}"
         )
-    baseline = governing_qualification(history, window_start=window_start)
+    eligible = _without_backdated_upgrades(history)
+    baseline = governing_qualification(eligible, window_start=window_start)
     mid_window = [
         item.assigned_class
-        for item in history
+        for item in eligible
         if window_start <= item.qualified_at < window_end
     ]
     return weakest([baseline.assigned_class, *mid_window])
+
+
+def _without_backdated_upgrades(
+    history: Sequence[Qualification],
+) -> tuple[Qualification, ...]:
+    """Exclude stronger records inserted behind an already-recorded weaker one.
+
+    ``qualified_at`` is customer-signed effective time; ``recorded_at`` is the
+    hosted observation order.  Both are required to distinguish a legitimate
+    C1-then-C4 downgrade from a C4 followed by a newly inserted C1 dated behind
+    it.  The write trigger refuses the latter, while this read guard remains
+    conservative if such a row arrives through restore or disabled triggers.
+    """
+
+    return tuple(
+        candidate
+        for candidate in history
+        if not any(
+            candidate.assigned_class.is_stronger_than(other.assigned_class)
+            and other.qualified_at >= candidate.qualified_at
+            and other.recorded_at < candidate.recorded_at
+            for other in history
+            if other is not candidate
+        )
+    )
 
 
 def assert_class_claimable(
@@ -516,7 +553,9 @@ def assert_class_claimable(
         return
 
     supporting = [
-        item for item in history if not claimed.is_stronger_than(item.assigned_class)
+        item
+        for item in _without_backdated_upgrades(history)
+        if not claimed.is_stronger_than(item.assigned_class)
     ]
     if supporting and all(item.qualified_at >= window_start for item in supporting):
         earliest = min(supporting, key=lambda item: item.qualified_at)

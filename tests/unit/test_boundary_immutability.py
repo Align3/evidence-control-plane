@@ -1,15 +1,15 @@
-"""The database refuses what TM-002 and DM-009 say must be refused.
+"""The active database guards refuse unsupported administrative mutations.
 
 Negative-first, per AG-007. Every test here asks "under what conditions must
 this refuse?" and none of them asserts that a correct boundary can be
 recorded -- that is demonstrated incidentally by every other test in the
 suite, since `default_boundaries` records one through the real entry point.
 
-Asserted against a live Postgres and against the *owner* connection
-specifically. Testing immutability from a role that was never granted `UPDATE`
-proves the grant, not the immutability; the actor in `threat-model.md` §4.2
-and §4.10 is the vendor, who holds the owner credential. If these statements
-succeed for the owner, they succeed for the party the attestation is about.
+Asserted against a live Postgres and against the *owner* connection so the
+tests exercise the triggers rather than merely the grants. This is not an
+owner-proof retention test: an owner can disable user triggers before issuing
+the same DML. The migration and data-model documentation record that trust
+boundary explicitly.
 """
 
 from __future__ import annotations
@@ -20,6 +20,7 @@ from typing import Any
 import pytest
 from sqlalchemy import Engine, text
 
+from sdk_python.evidence.signing import UnknownKeyError
 from services.admin import assert_admin_tables_protected
 from tests.admin_support import AdminActor, boundary_body, signed_boundary
 from tests.ledger_support import CHECK_VIOLATION, TENANT_A, TENANT_B
@@ -104,7 +105,7 @@ def recorded(
         ),
     ],
 )
-def test_the_owner_cannot_mutate_a_recorded_boundary(
+def test_active_triggers_refuse_owner_dml_on_a_recorded_boundary(
     owner_engine: Engine, recorded: str, statement: str
 ) -> None:
     """TM-002. Including the no-op update.
@@ -129,7 +130,7 @@ def test_the_owner_cannot_mutate_a_recorded_boundary(
     "table",
     ["boundaries", "qualification_records", "boundary_action_families"],
 )
-def test_the_owner_cannot_truncate_append_only_admin_history(
+def test_active_triggers_refuse_owner_truncate_of_admin_history(
     owner_engine: Engine, recorded: str, table: str
 ) -> None:
     """A row trigger alone does not protect an append-only table from TRUNCATE."""
@@ -552,7 +553,7 @@ def test_confirmation_without_enumeration_is_a_valid_record(
 # --- SE-011: tenant scoping --------------------------------------------
 
 
-def test_a_boundary_cannot_cite_another_tenants_key(
+def test_a_boundary_cannot_use_another_tenants_key(
     owner_engine: Engine, admin_actors: dict[str, AdminActor], recorded: str
 ) -> None:
     """DM-016's composite-key reasoning, applied to the boundary tables."""
@@ -591,17 +592,14 @@ def test_a_boundary_cannot_cite_another_tenants_key(
             )
             from services.admin import record_boundary
 
-            with pytest.raises(Exception) as caught:  # noqa: B017 -- SQLSTATE asserted
+            with pytest.raises(UnknownKeyError, match="unknown evidence signing key"):
                 record_boundary(
                     conn,
                     record=record,
                     canonical_bytes=canonical,
                     signature=signature,
-                    public_keys={other.key_id: other.private_key.public_key()},
                     recorded_at=datetime(2026, 2, 1, tzinfo=UTC),
                 )
-            assert _sqlstate(caught.value) == "23503"  # foreign_key_violation
-            assert "fk_boundaries_key" in str(caught.value)
         finally:
             transaction.rollback()
 

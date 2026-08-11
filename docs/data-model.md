@@ -115,9 +115,9 @@ Unique on `(tenant_id, name, version)`.
 
 #### §2.4 amendment 1 — as built by migration 0012 (EV-12)
 
-**DM-026 — `superseded_by` is not built, because it cannot be.** Writing it means `UPDATE`ing the row being superseded, which is the single operation an immutable table exists to refuse (TM-002). A column that only ever holds `NULL` is worse than no column: it reads as a supported field and invites a later story to make it work.
+**DM-026 — `superseded_by` is not built.** Writing it means `UPDATE`ing the row being superseded, which the supported append-only path refuses. A column that only ever holds `NULL` is worse than no column: it reads as a supported field and invites a later story to make it work.
 
-Supersession is derived from the version ordering instead. Version *n* is superseded by *n+1* where one exists, and `boundary_versions` in `services/admin/boundary.py` returns the ordered history. This is strictly stronger than the pointer would have been — there is no state in which it is stale, and TM-002's requirement that the change history be *visible* is satisfied by a list of immutable rows rather than by a mutable field pointing between them.
+Supersession is derived from the version ordering instead. Version *n* is superseded by *n+1* where one exists, and `boundary_versions` in `services/admin/boundary.py` returns the ordered history. There is no state in which a pointer is stale. This supplies the supported-path history, but does not by itself satisfy TM-002 against the database owner; DM-035 states that limit.
 
 **DM-027 — the signature is bound to a key.** Two columns are added, `key_id` and `key_namespace`, referencing `keys(tenant_id, key_id, namespace)` by the same composite form migration 0010 uses on `evidence_records`, with `key_namespace` CHECK-pinned to `evidence`. §2.4 as originally written carried a `signature` with nothing identifying what verifies it, which makes the signature decorative: a boundary is what every other record's scope claim rests on, and an unverifiable one is a scope declaration asserted by nobody in particular. The namespace pin is DM-008 — an issuer key may not sign customer evidence.
 
@@ -129,7 +129,7 @@ Supersession is derived from the version ordering instead. Version *n* is supers
 
 ### 2.4.1 `boundary_action_families`
 
-Added by migration 0012. One row per `action_families[]` entry of one boundary version — a projection of the signed body, rebuildable from it, and immutable on the same trigger as its parent.
+Added by migration 0012. One row per `action_families[]` entry of one boundary version — a projection of the signed body, rebuildable from it, and append-only under the same active trigger as its parent.
 
 | Column | Type | Notes |
 |---|---|---|
@@ -167,6 +167,7 @@ A boundary with *no* family rows at all is refused by a deferred constraint trig
 | `deletion_traceless_possible` | boolean | TM-005 |
 | `body` | jsonb | Full record per ES §5.2 |
 | `qualified_at` | timestamptz | |
+| `recorded_at` | timestamptz | Hosted insertion order used by the read guard |
 | `revalidate_after` | timestamptz | |
 | `signature` | bytea | |
 
@@ -174,7 +175,7 @@ A boundary with *no* family rows at all is refused by a deferred constraint trig
 
 #### §2.5 amendment 1 — as built by migration 0012 (EV-12)
 
-**DM-031 — the whole row is immutable, not only `assigned_class`.** DM-009 names one column; the trigger refuses `UPDATE` and `DELETE` on all of them. Every column except `canonical_bytes` is a projection of the signed record, so an edit to any of them puts the row into a state the signature does not cover — and a trigger holding a case that permits `UPDATE` leaves `assigned_class` one predicate away from being editable. `canonical_bytes` and `key_id`/`key_namespace` are added on the same reasoning as DM-027.
+**DM-031 — the active trigger refuses mutation of the whole row, not only `assigned_class`.** DM-009 names one column; while enabled, the trigger refuses `UPDATE` and `DELETE` on all of them. Every column except `canonical_bytes` and hosted `recorded_at` is a projection of the signed record, so an edit to any of them puts the row into a state the signature does not cover. `canonical_bytes` and `key_id`/`key_namespace` are added on the same reasoning as DM-027.
 
 **DM-032 — DM-009's second sentence is enforced at write time, by the database.** A `BEFORE INSERT` trigger refuses a record whose class is *stronger* than an existing record for the same `(tenant_id, action_family, destination_system)` triple and whose `qualified_at` is not strictly later than it. Without this, the ES-010 attack is not amending a record — it is inserting a new, perfectly valid one dated behind the weaker one, so that a resolver taking "the latest record before the window" finds the stronger class and believes it was in force throughout.
 
@@ -193,6 +194,8 @@ The guard is deliberately **directional**. A record assigning a *weaker* class m
 Nothing constrains `confirmation_capable` against `enumeration_capable`, and that is AC-008 rather than an omission: a record carrying confirmation without enumeration is valid, useful for per-action reconciliation, and capped below the ratio-emitting classes by the third row above. The window-level refusal is the coverage engine's (EV-16) and is not represented here.
 
 **DM-034 — three guards, and the third is not in this repository's Python.** The rule DM-009 states is enforced at write time by DM-032's trigger, at read time by `class_in_force` in `services/admin/qualification.py`, and at verification time by the Go verifier (TM-013: "verifier enforces this independently"). The first two run on our infrastructure under our credentials, so a relying party has no reason to trust either; only the third is reproducible by someone who does not trust us. The verifier half is unbuilt — `verifier-go/` is EV-05's and EV-19's — and TM-S-005 is not closed until it lands.
+
+**DM-035 — PostgreSQL triggers are not an owner-proof immutability control.** Migration 0012's row and truncate triggers stop ordinary DML while enabled, including DML issued through the owner connection. PostgreSQL nevertheless permits a relation owner to disable user triggers, and the development migrator credential is a superuser; it can also truncate after disabling the statement trigger. A control stored inside the same database cannot prove history to an adversary holding that credential. TM-002 is therefore not claimed by EV-12 and requires an independently controlled, externally verifiable history. Tests of the triggers demonstrate defense in depth only.
 
 ### 2.6 `evidence_records` — the core table
 

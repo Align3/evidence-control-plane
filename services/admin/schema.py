@@ -84,6 +84,7 @@ qualification_records = Table(
     Column("key_namespace", key_namespace, nullable=False, server_default="evidence"),
     Column("signature", LargeBinary, nullable=False),
     Column("qualified_at", TIMESTAMP(timezone=True), nullable=False),
+    Column("recorded_at", TIMESTAMP(timezone=True), nullable=False),
     Column("revalidate_after", TIMESTAMP(timezone=True), nullable=False),
     ForeignKeyConstraint(
         ["tenant_id", "key_id", "key_namespace"],
