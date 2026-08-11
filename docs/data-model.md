@@ -406,6 +406,7 @@ Claim a number here before writing the migration (DM-001).
 | 0010 | EV-27 | Signed ingestion receipts and receipt-derived clock metadata | applied |
 | 0011 | EV-07 | Collector-key binding, exact received wire retention, tenant-visible ingestion integrity events | applied |
 | 0012 | EV-12 | Boundaries, qualification records, `evidence_records.boundary_ref` FK | claimed |
+| 0013 | EV-40 | Record-type signer-namespace pinning for issuer observations | claimed |
 
 ### §3 amendment 1 — register reconciliation (EV-12)
 
