@@ -467,7 +467,7 @@ Then both records are accepted
 And neither record is rewritten into the other version's canonical form
 ```
 
-### ES-S-019 — Record origin fixes the signer namespace *(ES-033, SE-003, DM-008)*
+### ES-S-019 — Record origin fixes the signer namespace *(ES-033, SE-002, SE-003, DM-008)*
 
 ```gherkin
 Given a PopulationRecord and ExternalConfirmation signed by an evidence-namespace key
