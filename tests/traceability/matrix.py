@@ -102,12 +102,29 @@ from typing import Any
 # how a new document joins the
 # matrix -- a document whose prefix is absent is silently untracked, which is
 # why the generator reports unknown-prefix definitions it finds.
-PREFIXES = ("AC", "AG", "AP", "AR", "CM", "DE", "DM", "DP", "ES", "IN", "QA", "SE", "TM")
+PREFIXES = (
+    "AC",
+    "AG",
+    "AP",
+    "AR",
+    "CM",
+    "DE",
+    "DM",
+    "DP",
+    "ES",
+    "IN",
+    "QA",
+    "RC",
+    "SE",
+    "TM",
+)
 
 # Prefixes whose requirements describe the product. An orphan here is a gap in
 # the specification of the thing we sell. The rest (AG, AP, DE) describe how we
 # work, and an orphan there is worth knowing about but ranks below.
-SPEC_PREFIXES = frozenset({"AC", "AR", "CM", "DM", "DP", "ES", "IN", "QA", "SE", "TM"})
+SPEC_PREFIXES = frozenset(
+    {"AC", "AR", "CM", "DM", "DP", "ES", "IN", "QA", "RC", "SE", "TM"}
+)
 
 CATEGORIES = ("documentation", "external", "governance", "meta", "process")
 MIN_REASON = 40

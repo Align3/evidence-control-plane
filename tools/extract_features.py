@@ -43,6 +43,7 @@ DOMAINS = {
     "SE": ("security", "Security controls"),
     "IN": ("infrastructure", "Infrastructure and operations"),
     "QA": ("meta", "Test-system self-checks"),
+    "RC": ("reconciliation", "Reconciliation classification"),
 }
 
 

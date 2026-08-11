@@ -206,8 +206,8 @@ Scheduled enumeration honouring settlement lag. Emits an issuer-signed `Populati
 Pure function matching evidence to population and confirmations. Closed classification enumeration, no residual bucket. Duplicate and ambiguous handling.
 **Touches:** `services/computation/reconciliation.py`
 **Depends on:** EV-14
-**Satisfies:** AC-002, CM-012, ES-015, TM-010
-**Acceptance:** AC-S-002, TM-S-006
+**Satisfies:** AC-002, CM-012, ES-015, TM-010, RC-001…006
+**Acceptance:** AC-S-002, TM-S-006, RC-S-001, RC-S-002, RC-S-003, RC-S-004, RC-S-005
 
 #### EV-16 — Coverage engine and admissibility lattice
 Applies the lattice: claimed level = min(evidence-supported, class-admissible). Ratio emitted only at C1/C2/C3. Gap conservation. No imputation.

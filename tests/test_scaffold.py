@@ -24,6 +24,7 @@ EXPECTED_FEATURES = {
     "evidence.feature",
     "infrastructure.feature",
     "meta.feature",
+    "reconciliation.feature",
     "security.feature",
 }
 

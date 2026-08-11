@@ -12,6 +12,15 @@ from .population import (
     PopulationServiceError,
     SettlementLagPendingError,
 )
+from .reconciliation import (
+    PopulationIdentifierDigestUnsupportedError,
+    PopulationIntegrityError,
+    ReconciliationError,
+    ReconciliationInvariantError,
+    ReconciliationResult,
+    ReconciliationStatus,
+    reconcile,
+)
 
 __all__ = [
     "ConnectorQualificationMismatchError",
@@ -23,5 +32,12 @@ __all__ = [
     "PopulationRequest",
     "PopulationService",
     "PopulationServiceError",
+    "PopulationIdentifierDigestUnsupportedError",
+    "PopulationIntegrityError",
+    "ReconciliationError",
+    "ReconciliationInvariantError",
+    "ReconciliationResult",
+    "ReconciliationStatus",
     "SettlementLagPendingError",
+    "reconcile",
 ]
