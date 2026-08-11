@@ -62,6 +62,8 @@ REQUIRED_ATTACK_VECTORS = {
     "reject-populationrecord-signed-by-evidence-key",
     "accept-externalconfirmation-signed-by-issuer-key",
     "reject-externalconfirmation-signed-by-evidence-key",
+    "accept-revocationrecord-signed-by-issuer-key",
+    "reject-revocationrecord-signed-by-evidence-key",
     "issuer-observation-stream-uses-issuer-namespace",
     "reject-issuer-stream-rotation-to-evidence-key",
     "reject-non-canonical-customer-record-wire",

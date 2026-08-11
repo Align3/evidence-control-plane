@@ -33,3 +33,19 @@ def test_hosted_connector_observations_are_issuer_primary() -> None:
 
 def test_attestation_retains_evidence_primary_for_counter_signature_model() -> None:
     assert primary_signer_namespace("AttestationWindow") == "evidence"
+
+
+def test_revocation_is_issuer_primary_without_a_customer_proof() -> None:
+    """SE-002's other half, pinned separately from the AttestationWindow form.
+
+    A `RevocationRecord` states an issuer conclusion with no customer-authored
+    conclusion underneath it, so unlike `AttestationWindow` it takes an issuer
+    primary signature rather than a customer primary plus counter-signature.
+    Asserting it here keeps the two conclusion shapes from being conflated if
+    the table is ever edited.
+    """
+
+    assert primary_signer_namespace("RevocationRecord") == "issuer"
+    assert primary_signer_namespace("RevocationRecord") != primary_signer_namespace(
+        "AttestationWindow"
+    )

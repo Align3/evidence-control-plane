@@ -157,14 +157,16 @@ Feature: Agent evidence specification
   Scenario: ES-S-019 Record origin fixes the signer namespace
     Given a PopulationRecord and ExternalConfirmation signed by an evidence-namespace key
     And equivalent records signed by an issuer-namespace key
+    And a RevocationRecord signed by each namespace
     And an AttestationWindow with both required proofs and one with its issuer proof removed
     When Python, Go, and TypeScript verify each complete record under the same registered keyring
     Then both evidence-signed issuer observations fail with "key namespace mismatch"
     And both issuer-signed issuer observations verify
+    And the issuer-signed RevocationRecord verifies and the evidence-signed one fails
     And only the complete two-proof AttestationWindow verifies
 
   @ES-S-020 @ES-011 @ES-012
-  # source: evidence-spec.md:482
+  # source: evidence-spec.md:484
   Scenario: ES-S-020 Truncation is durably recorded without becoming a denominator
     Given a connector observation with result_cap_hit true and pagination_complete false
     When the population service records the enumeration
@@ -172,7 +174,7 @@ Feature: Agent evidence specification
     And the record is durably appended before the task acknowledges it
 
   @ES-S-021 @ES-011 @ES-012
-  # source: evidence-spec.md:491
+  # source: evidence-spec.md:493
   Scenario: ES-S-021 Coverage computation maps truncation to null, not zero
     Given a stored PopulationRecord with result_cap_hit true or pagination_complete false
     When coverage is computed for its window

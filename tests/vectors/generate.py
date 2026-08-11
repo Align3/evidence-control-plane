@@ -151,7 +151,26 @@ def _attestation_record() -> AttestationWindowRecord:
     return record
 
 
-def _issuer_observation(record_type: str, *, sequence: int = 1) -> RecordEnvelope:
+# `len(record_type)` was the original discriminator and collides: PopulationRecord
+# and RevocationRecord are both sixteen characters, so they would share a
+# record_id at the same sequence. The first two values are the lengths they
+# already had, so existing vector bytes are unchanged.
+_ISSUER_PRIMARY_OFFSETS: dict[str, int] = {
+    "PopulationRecord": 16,
+    "ExternalConfirmation": 20,
+    "RevocationRecord": 32,
+}
+
+
+def _issuer_primary_record(record_type: str, *, sequence: int = 1) -> RecordEnvelope:
+    """Build an unsigned record that ES-033 requires an issuer key to sign.
+
+    Covers both issuer categories: the connector observations and the
+    `RevocationRecord` conclusion, which has no customer-authored conclusion to
+    preserve and so carries an issuer primary signature rather than the
+    `AttestationWindow` counter-signature form.
+    """
+
     bodies: dict[str, dict[str, Any]] = {
         "PopulationRecord": {
             "action_family": "ticket.resolve",
@@ -178,10 +197,20 @@ def _issuer_observation(record_type: str, *, sequence: int = 1) -> RecordEnvelop
             "reconciliation_status": "matched",
             "retrieved_at": "2026-08-01T11:00:01.000Z",
         },
+        "RevocationRecord": {
+            "attestation_ref": "attestation-1",
+            "reason": "denominator withdrawn by the destination system",
+            "issuer": "issuer-1",
+            "effective_at": "2026-08-01T11:00:01.000Z",
+            "superseding_ref": None,
+            "relying_party_notification_status": "pending",
+        },
     }
     return validate_record(
         {
-            "record_id": _record_id(0x200 + sequence + len(record_type)),
+            "record_id": _record_id(
+                0x200 + sequence + _ISSUER_PRIMARY_OFFSETS[record_type]
+            ),
             "record_type": record_type,
             "schema_version": "1.0.0",
             "tenant_id": "tenant-1",
@@ -199,8 +228,8 @@ def _issuer_observation(record_type: str, *, sequence: int = 1) -> RecordEnvelop
 
 def _record_origin_vectors() -> list[dict[str, Any]]:
     vectors: list[dict[str, Any]] = []
-    for record_type in ("PopulationRecord", "ExternalConfirmation"):
-        unsigned = _issuer_observation(record_type)
+    for record_type in ("PopulationRecord", "ExternalConfirmation", "RevocationRecord"):
+        unsigned = _issuer_primary_record(record_type)
         for key_id, namespace, accepted in (("ISSUER1", "issuer", True),):
             signed = sign_record(unsigned, key_id=key_id, private_key=_key(key_id))
             vectors.append(
@@ -226,7 +255,7 @@ def _record_origin_vectors() -> list[dict[str, Any]]:
                 }
             )
     population = sign_record(
-        _issuer_observation("PopulationRecord"),
+        _issuer_primary_record("PopulationRecord"),
         key_id="ISSUER1",
         private_key=_key("ISSUER1"),
     )
@@ -245,7 +274,7 @@ def _record_origin_vectors() -> list[dict[str, Any]]:
             },
         }
     )
-    successor = _issuer_observation("PopulationRecord", sequence=2).model_copy(
+    successor = _issuer_primary_record("PopulationRecord", sequence=2).model_copy(
         update={"prev_digest": canonical_digest(population)}, deep=True
     )
     continuity = create_key_continuity(
@@ -283,9 +312,9 @@ def _record_origin_vectors() -> list[dict[str, Any]]:
 
 def _record_origin_adversarial_vectors() -> list[dict[str, Any]]:
     vectors: list[dict[str, Any]] = []
-    for record_type in ("PopulationRecord", "ExternalConfirmation"):
+    for record_type in ("PopulationRecord", "ExternalConfirmation", "RevocationRecord"):
         signed = sign_record(
-            _issuer_observation(record_type), key_id="K1", private_key=_key("K1")
+            _issuer_primary_record(record_type), key_id="K1", private_key=_key("K1")
         )
         vectors.append(
             {

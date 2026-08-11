@@ -29,9 +29,15 @@ ORIGIN_VECTOR_IDS = {
     "reject-populationrecord-signed-by-evidence-key",
     "accept-externalconfirmation-signed-by-issuer-key",
     "reject-externalconfirmation-signed-by-evidence-key",
+    "accept-revocationrecord-signed-by-issuer-key",
+    "reject-revocationrecord-signed-by-evidence-key",
     "verify-customer-and-issuer-signatures",
     "adversarial-reject-attestation-without-issuer-signature",
 }
+# ES-033's two issuer categories are distinct claims and are asserted
+# separately: observations are what the connector retrieved, while a
+# RevocationRecord is a conclusion with no customer-authored form to preserve.
+ISSUER_OBSERVATION_TYPES = {"PopulationRecord", "ExternalConfirmation"}
 
 
 @scenario("evidence.feature", "ES-S-019 Record origin fixes the signer namespace")
@@ -47,6 +53,11 @@ def test_se_s_008() -> None:
 @dataclass(frozen=True)
 class VerificationResult:
     vector_id: str
+    # Selecting by record type rather than by a substring of the vector id: the
+    # id is a label, and a step that reads "issuer observations" must mean the
+    # two ES-033 observation types, not whichever ids happen not to contain
+    # "attestation".
+    record_type: str
     expected_acceptance: bool
     python_accepted: bool
     go_accepted: bool
@@ -113,9 +124,20 @@ def _issuer_controls_present(origin_vectors: list[dict[str, Any]]) -> None:
         vector
         for vector in origin_vectors
         if vector["expected"]["accepted"]
-        and _record(vector)["record_type"] != "AttestationWindow"
+        and _record(vector)["record_type"] in ISSUER_OBSERVATION_TYPES
     ]
     assert len(accepted_observations) == 2
+
+
+@given("a RevocationRecord signed by each namespace")
+def _revocation_controls_present(origin_vectors: list[dict[str, Any]]) -> None:
+    revocations = [
+        vector
+        for vector in origin_vectors
+        if _record(vector)["record_type"] == "RevocationRecord"
+    ]
+    assert len(revocations) == 2
+    assert {vector["expected"]["accepted"] for vector in revocations} == {False, True}
 
 
 @given("an AttestationWindow with both required proofs and one with its issuer proof removed")
@@ -232,6 +254,7 @@ def _verify_all(
         results.append(
             VerificationResult(
                 vector_id=vector["id"],
+                record_type=_record(vector)["record_type"],
                 expected_acceptance=vector["expected"]["accepted"],
                 python_accepted=python_accepted,
                 go_accepted=completed.returncode == 0,
@@ -273,7 +296,8 @@ def _evidence_signed_refused(origin_results: list[VerificationResult]) -> None:
     refused = [
         result
         for result in origin_results
-        if not result.expected_acceptance and "attestation" not in result.vector_id
+        if not result.expected_acceptance
+        and result.record_type in ISSUER_OBSERVATION_TYPES
     ]
     assert len(refused) == 2
     assert all(
@@ -293,8 +317,7 @@ def _issuer_signed_accepted(origin_results: list[VerificationResult]) -> None:
         result
         for result in origin_results
         if result.expected_acceptance
-        and "attestation" not in result.vector_id
-        and "customer-and-issuer" not in result.vector_id
+        and result.record_type in ISSUER_OBSERVATION_TYPES
     ]
     assert len(accepted) == 2
     assert all(
@@ -303,12 +326,36 @@ def _issuer_signed_accepted(origin_results: list[VerificationResult]) -> None:
     )
 
 
+@then("the issuer-signed RevocationRecord verifies and the evidence-signed one fails")
+def _revocation_origin_dispatch(origin_results: list[VerificationResult]) -> None:
+    """SE-002's second half: an issuer conclusion with no customer proof.
+
+    Enforced identically to the observations, but it is a separate assertion
+    because it is a separate claim -- the AttestationWindow keeps a customer
+    primary signature and this one does not.
+    """
+
+    revocations = [
+        result for result in origin_results if result.record_type == "RevocationRecord"
+    ]
+    assert len(revocations) == 2
+    assert {result.expected_acceptance for result in revocations} == {False, True}
+    for result in revocations:
+        assert result.python_accepted is result.expected_acceptance
+        assert result.go_accepted is result.expected_acceptance
+        assert result.typescript_accepted is result.expected_acceptance
+        if not result.expected_acceptance:
+            assert "namespace" in result.python_error
+            assert "key.namespace_mismatch" in result.go_error
+            assert result.typescript_error == "key.namespace_mismatch"
+
+
 @then("only the complete two-proof AttestationWindow verifies")
 def _attestation_origin_proofs(origin_results: list[VerificationResult]) -> None:
     attestations = [
         result
         for result in origin_results
-        if "attestation" in result.vector_id or "customer-and-issuer" in result.vector_id
+        if result.record_type == "AttestationWindow"
     ]
     assert len(attestations) == 2
     assert all(

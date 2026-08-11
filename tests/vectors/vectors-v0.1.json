@@ -169,6 +169,36 @@
           "public_key": "A6EHv_POEL4dcN0Y50vAmWfk1jCbpQ1fHdyGZBJVMbg"
         }
       }
+    },
+    {
+      "expected": {
+        "accepted": false,
+        "error_code": "key.namespace_mismatch"
+      },
+      "id": "reject-revocationrecord-signed-by-evidence-key",
+      "operation": "verify_canonical_evidence_record",
+      "pre_fix": {
+        "implementations": {
+          "go": {
+            "accepted": true,
+            "entry_point": "evidence.VerifyCanonicalEvidenceRecord",
+            "result": "accepted RevocationRecord signed by evidence key K1"
+          },
+          "python": {
+            "accepted": true,
+            "entry_point": "services.ingestion.receipts.verify_canonical_evidence_record",
+            "result": "accepted RevocationRecord signed by evidence key K1"
+          }
+        },
+        "revision": "4fbba6c"
+      },
+      "received_wire_utf8_hex": "7b22626f6479223a7b226174746573746174696f6e5f726566223a226174746573746174696f6e2d31222c226566666563746976655f6174223a22323032362d30382d30315431313a30303a30312e3030305a222c22697373756572223a226973737565722d31222c22726561736f6e223a2264656e6f6d696e61746f722077697468647261776e206279207468652064657374696e6174696f6e2073797374656d222c2272656c79696e675f70617274795f6e6f74696669636174696f6e5f737461747573223a2270656e64696e67222c227375706572736564696e675f726566223a6e756c6c7d2c22626f756e646172795f726566223a22626f756e646172792d31222c22636c6f636b73223a7b22736f757263655f74696d65223a22323032362d30382d30315431313a30303a30312e3030305a227d2c22707265765f646967657374223a6e756c6c2c227265636f72645f6964223a2230313839306634372d326635382d376363302d393863342d303030303030303030323231222c227265636f72645f74797065223a225265766f636174696f6e5265636f7264222c22736368656d615f76657273696f6e223a22312e302e30222c2273657175656e6365223a312c227369676e6174757265223a7b22616c67223a2265643235353139222c226b65795f6964223a224b31222c22736967223a2247694c6147664a375f4b774265397239593374744f53684b616e34447a7974577738426263374d437170454a3645324e76526232343578635276384f76665f612d6f6d76476b36597050305842624632345351334477222c227369676e65645f646967657374223a227368613235363a34636439663266346638343632666564623331396466336637363464316465356166616338613239393133646137386634393866643838393963326136363461227d2c22736f75726365223a7b2273657276696365223a22686f737465642d636f6e6e6563746f72222c2276657273696f6e223a22302e312e30227d2c2273747265616d5f6964223a226973737565723a5265766f636174696f6e5265636f7264222c2274656e616e745f6964223a2274656e616e742d31227d",
+      "verification_keys": {
+        "K1": {
+          "namespace": "evidence",
+          "public_key": "A6EHv_POEL4dcN0Y50vAmWfk1jCbpQ1fHdyGZBJVMbg"
+        }
+      }
     }
   ],
   "encoding": {
@@ -3362,6 +3392,52 @@
           "version": "0.1.0"
         },
         "stream_id": "issuer:ExternalConfirmation",
+        "tenant_id": "tenant-1"
+      },
+      "verification_keys": {
+        "ISSUER1": {
+          "namespace": "issuer",
+          "public_key": "F0VTtFbd38aQjsqxwQH-arIeK6oGF3lbfUOmNIKZP9U"
+        }
+      }
+    },
+    {
+      "expected": {
+        "accepted": true,
+        "key_id": "ISSUER1",
+        "namespace": "issuer"
+      },
+      "id": "accept-revocationrecord-signed-by-issuer-key",
+      "operation": "verify_record_origin_signature",
+      "record": {
+        "body": {
+          "attestation_ref": "attestation-1",
+          "effective_at": "2026-08-01T11:00:01.000Z",
+          "issuer": "issuer-1",
+          "reason": "denominator withdrawn by the destination system",
+          "relying_party_notification_status": "pending",
+          "superseding_ref": null
+        },
+        "boundary_ref": "boundary-1",
+        "clocks": {
+          "source_time": "2026-08-01T11:00:01.000Z"
+        },
+        "prev_digest": null,
+        "record_id": "01890f47-2f58-7cc0-98c4-000000000221",
+        "record_type": "RevocationRecord",
+        "schema_version": "1.0.0",
+        "sequence": 1,
+        "signature": {
+          "alg": "ed25519",
+          "key_id": "ISSUER1",
+          "sig": "ZDYLtOFeR97tfi1Nsugc053uHxsXxXnkvYq7hU-IpavjoKLneLpDSf-LycjnBSBIVjKDltheBpj-jfpQ6VG9Cw",
+          "signed_digest": "sha256:4cd9f2f4f8462fedb319df3f764d1de5afac8a29913da78f498fd8899c2a664a"
+        },
+        "source": {
+          "service": "hosted-connector",
+          "version": "0.1.0"
+        },
+        "stream_id": "issuer:RevocationRecord",
         "tenant_id": "tenant-1"
       },
       "verification_keys": {

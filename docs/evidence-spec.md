@@ -472,10 +472,12 @@ And neither record is rewritten into the other version's canonical form
 ```gherkin
 Given a PopulationRecord and ExternalConfirmation signed by an evidence-namespace key
 And equivalent records signed by an issuer-namespace key
+And a RevocationRecord signed by each namespace
 And an AttestationWindow with both required proofs and one with its issuer proof removed
 When Python, Go, and TypeScript verify each complete record under the same registered keyring
 Then both evidence-signed issuer observations fail with "key namespace mismatch"
 And both issuer-signed issuer observations verify
+And the issuer-signed RevocationRecord verifies and the evidence-signed one fails
 And only the complete two-proof AttestationWindow verifies
 ```
 
