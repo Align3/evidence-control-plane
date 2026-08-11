@@ -24,10 +24,11 @@ import (
 )
 
 type vectorFile struct {
-	Format        string           `json:"format"`
-	FormatVersion string           `json:"format_version"`
-	SpecVersion   string           `json:"spec_version"`
-	Vectors       []map[string]any `json:"vectors"`
+	Format             string           `json:"format"`
+	FormatVersion      string           `json:"format_version"`
+	SpecVersion        string           `json:"spec_version"`
+	Vectors            []map[string]any `json:"vectors"`
+	AdversarialVectors []map[string]any `json:"adversarial_vectors"`
 }
 
 func loadVectors(t *testing.T) vectorFile {
@@ -42,7 +43,10 @@ func loadVectors(t *testing.T) vectorFile {
 		t.Fatalf("parse vectors: %v", err)
 	}
 	if len(vf.Vectors) == 0 {
-		t.Fatal("vector corpus is empty; refusing to report a vacuous pass")
+		t.Fatal("agreement vector corpus is empty; refusing to report a vacuous pass")
+	}
+	if len(vf.AdversarialVectors) == 0 {
+		t.Fatal("adversarial vector corpus is empty; refusing to certify only agreement")
 	}
 	return vf
 }
@@ -175,28 +179,26 @@ func keyring(t *testing.T, raw any) map[string]ed25519.PublicKey {
 	return out
 }
 
-// evidenceKeyring reads a vector's namespace-free public_keys as an evidence
-// keyring. The stream vectors describe customer evidence streams, and the Go
-// verifier has no stream entry point that ignores namespaces, so the namespace
-// is supplied here rather than by a weaker code path existing for the corpus to
-// call.
-func evidenceKeyring(t *testing.T, raw any) map[string]evidence.RegisteredKey {
-	t.Helper()
-	out := map[string]evidence.RegisteredKey{}
-	for id, pub := range keyring(t, raw) {
-		out[id] = evidence.RegisteredKey{Namespace: evidence.NamespaceEvidence, PublicKey: pub}
-	}
-	return out
-}
-
 func registeredKeyring(t *testing.T, raw any) map[string]evidence.RegisteredKey {
 	t.Helper()
 	out := map[string]evidence.RegisteredKey{}
-	m, _ := raw.(map[string]any)
+	m, ok := raw.(map[string]any)
+	if !ok {
+		t.Fatal("vector must state verification_keys with explicit namespaces")
+	}
 	for id, val := range m {
-		entry, _ := val.(map[string]any)
-		ns, _ := entry["namespace"].(string)
-		pk, _ := entry["public_key"].(string)
+		entry, ok := val.(map[string]any)
+		if !ok {
+			t.Fatalf("verification_keys entry %q must be an object", id)
+		}
+		ns, ok := entry["namespace"].(string)
+		if !ok || ns == "" {
+			t.Fatalf("verification_keys entry %q must state namespace", id)
+		}
+		pk, ok := entry["public_key"].(string)
+		if !ok || pk == "" {
+			t.Fatalf("verification_keys entry %q must state public_key", id)
+		}
 		out[id] = evidence.RegisteredKey{
 			Namespace: ns,
 			PublicKey: ed25519.PublicKey(b64(t, pk)),
@@ -210,8 +212,14 @@ func TestVectors(t *testing.T) {
 	if vf.Format != "evidence-control-plane-conformance-vectors" {
 		t.Fatalf("unexpected corpus format %q", vf.Format)
 	}
+	if vf.FormatVersion != "1.1.0" {
+		t.Fatalf("unexpected corpus format version %q", vf.FormatVersion)
+	}
 	seen := map[string]bool{}
-	for _, v := range vf.Vectors {
+	all := make([]map[string]any, 0, len(vf.Vectors)+len(vf.AdversarialVectors))
+	all = append(all, vf.Vectors...)
+	all = append(all, vf.AdversarialVectors...)
+	for _, v := range all {
 		id, _ := v["id"].(string)
 		op, _ := v["operation"].(string)
 		if seen[id] {
@@ -220,7 +228,8 @@ func TestVectors(t *testing.T) {
 		seen[id] = true
 		t.Run(id, func(t *testing.T) { runVector(t, id, op, v) })
 	}
-	t.Logf("executed %d vectors", len(vf.Vectors))
+	t.Logf("executed %d agreement and %d adversarial vectors",
+		len(vf.Vectors), len(vf.AdversarialVectors))
 }
 
 func runVector(t *testing.T, id, op string, v map[string]any) {
@@ -481,7 +490,8 @@ func runVerifyStream(t *testing.T, id string, v map[string]any) {
 		}
 		records = append(records, rec)
 	}
-	res, err := evidence.VerifyEvidenceStream(records, evidenceKeyring(t, v["public_keys"]))
+	keys := registeredKeyring(t, v["verification_keys"])
+	res, err := evidence.VerifyEvidenceStream(records, keys)
 	if !accepted(v) {
 		checkStreamRefusal(t, id, err, v)
 		return

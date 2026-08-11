@@ -1,11 +1,123 @@
 {
+  "adversarial_vectors": [
+    {
+      "expected": {
+        "accepted": false,
+        "error_code": "key.namespace_mismatch"
+      },
+      "id": "adversarial-reject-issuer-key-on-evidence-stream",
+      "operation": "verify_stream",
+      "pre_fix": {
+        "harness_observations": {
+          "go": {
+            "accepted": true,
+            "result": "VALID stream sequences 1..1, last key ISSUER1",
+            "unstated_input": "evidenceKeyring() stamped the evidence namespace onto every namespace-free key"
+          }
+        },
+        "implementations": {
+          "go": {
+            "accepted": false,
+            "entry_point": "evidence.VerifyEvidenceStream",
+            "result": "refused: key \"ISSUER1\" is in the \"issuer\" namespace; evidence streams require evidence keys (SE-003)"
+          },
+          "python": {
+            "accepted": true,
+            "entry_point": "sdk_python.evidence.chain.verify_stream",
+            "result": "accepted sequences 1..1, key ISSUER1"
+          }
+        },
+        "revision": "9e5904b"
+      },
+      "records": [
+        {
+          "body": {
+            "agent_id": "agent-1",
+            "credential_ref": "service_identity",
+            "deployment": "prod",
+            "model_versions": [
+              "model-1"
+            ],
+            "runtime": "python-3.12",
+            "service_identity": "collector@example.invalid",
+            "tenant_scope": "tenant-1",
+            "tool_versions": [
+              "tool-1"
+            ]
+          },
+          "boundary_ref": "boundary-1",
+          "clocks": {
+            "source_time": "2026-08-01T12:00:00.000+01:00"
+          },
+          "prev_digest": null,
+          "record_id": "01890f47-2f58-7cc0-98c4-000000000001",
+          "record_type": "AgentIdentity",
+          "schema_version": "1.0.0",
+          "sequence": 1,
+          "signature": {
+            "alg": "ed25519",
+            "key_id": "ISSUER1",
+            "sig": "PBXxBgmTGx4HnMPcoDu3Wl51Pai2qHgVRoBV47AYAxG4ujUPCCWgXskx4R0f9Z8eShBO-wq4H0UiB7vWoDiZBA",
+            "signed_digest": "sha256:271e3cf3dcee3a4a20933e3fc4d09e1f0ee880ccfbeb31fb46f622fdd377d152"
+          },
+          "source": {
+            "collector": "vector-generator",
+            "version": "0.1.0"
+          },
+          "stream_id": "stream-1",
+          "tenant_id": "tenant-1"
+        }
+      ],
+      "verification_keys": {
+        "ISSUER1": {
+          "namespace": "issuer",
+          "public_key": "F0VTtFbd38aQjsqxwQH-arIeK6oGF3lbfUOmNIKZP9U"
+        }
+      }
+    },
+    {
+      "canonical_control_utf8_hex": "7b22626f6479223a7b22617373657274696f6e73223a5b5d2c22626f756e646172795f726566223a22626f756e646172792d31222c22636f756e7473223a7b7d2c22636f7665726167655f6c6576656c223a226f62736572766564222c22636f7665726167655f726174696f223a22312e30222c2264656e6f6d696e61746f725f636c617373223a224331222c226578636c7573696f6e73223a5b5d2c2267617073223a5b5d2c226973737565645f6174223a22323032362d30382d30315431323a30303a30302e3030302b30313a3030222c22697373756572223a226973737565722d31222c226c696162696c6974795f726566223a227465726d732d31222c226d6574686f646f6c6f67795f76657273696f6e223a22312e302e30222c22706f70756c6174696f6e5f7265636f72645f72656673223a5b5d2c2272656c79696e675f70617274696573223a5b5d2c2276616c69646974795f66726f6d223a22323032362d30382d30315431323a30303a30302e3030302b30313a3030222c2276616c69646974795f756e74696c223a22323032362d30382d30315431323a30303a30302e3030302b30313a3030222c22766572696669636174696f6e5f737461747573223a2273656c665f636f6d7075746564222c2276657269666965725f76657273696f6e223a22302e312e30222c2277696e646f775f656e64223a22323032362d30382d30315431323a30303a30302e3030302b30313a3030222c2277696e646f775f7374617274223a22323032362d30382d30315431323a30303a30302e3030302b30313a3030227d2c22626f756e646172795f726566223a22626f756e646172792d31222c22636c6f636b73223a7b22736f757263655f74696d65223a22323032362d30382d30315431323a30303a30302e3030302b30313a3030227d2c22707265765f646967657374223a6e756c6c2c227265636f72645f6964223a2230313839306634372d326635382d376363302d393863342d303030303030303030303634222c227265636f72645f74797065223a224174746573746174696f6e57696e646f77222c22736368656d615f76657273696f6e223a22312e302e30222c2273657175656e6365223a312c227369676e6174757265223a7b22616c67223a2265643235353139222c22697373756572223a7b22616c67223a2265643235353139222c226b65795f6964223a2249535355455231222c22736967223a22663679782d423137326175356653456964496d5534545067305a42355f67393978395a7438766542694531354d7a5653534a7a73356542544d69396478385241706170704f7351467670764f67507236683571484251222c227369676e65645f646967657374223a227368613235363a38393538316438643839313630343133376338313066313762326363343731363437353961393332323035393962653335613066396335636265353332346233227d2c226b65795f6964223a224b31222c22736967223a22594f774e42315841344c6f7a6d376554673153725f364748397675796c4633524157395a634f7155447339634b3052375567482d7965764a4e2d4a374e327a42537a763879356e31786437685a393266634c4f314267222c227369676e65645f646967657374223a227368613235363a61663331316438663337646238393461646237376338616664393138396162323734353564616338393764656330343937666232313363613631643337363232227d2c22736f75726365223a7b22636f6c6c6563746f72223a22766563746f722d67656e657261746f72222c2276657273696f6e223a22302e312e30227d2c2273747265616d5f6964223a226174746573746174696f6e2d31222c2274656e616e745f6964223a2274656e616e742d31227d",
+      "expected": {
+        "accepted": false,
+        "error_code": "signature.missing_issuer_member"
+      },
+      "id": "adversarial-reject-attestation-without-issuer-signature",
+      "operation": "verify_canonical_evidence_record",
+      "pre_fix": {
+        "implementations": {
+          "go": {
+            "accepted": false,
+            "entry_point": "evidence.VerifyCanonicalEvidenceRecord",
+            "result": "refused: attestation is missing the issuer counter-signature (ES-023)"
+          },
+          "python": {
+            "accepted": true,
+            "entry_point": "services.ingestion.receipts.verify_canonical_evidence_record",
+            "result": "accepted AttestationWindow with signature.issuer absent"
+          }
+        },
+        "revision": "9e5904b"
+      },
+      "received_wire_utf8_hex": "7b22626f6479223a7b22617373657274696f6e73223a5b5d2c22626f756e646172795f726566223a22626f756e646172792d31222c22636f756e7473223a7b7d2c22636f7665726167655f6c6576656c223a226f62736572766564222c22636f7665726167655f726174696f223a22312e30222c2264656e6f6d696e61746f725f636c617373223a224331222c226578636c7573696f6e73223a5b5d2c2267617073223a5b5d2c226973737565645f6174223a22323032362d30382d30315431323a30303a30302e3030302b30313a3030222c22697373756572223a226973737565722d31222c226c696162696c6974795f726566223a227465726d732d31222c226d6574686f646f6c6f67795f76657273696f6e223a22312e302e30222c22706f70756c6174696f6e5f7265636f72645f72656673223a5b5d2c2272656c79696e675f70617274696573223a5b5d2c2276616c69646974795f66726f6d223a22323032362d30382d30315431323a30303a30302e3030302b30313a3030222c2276616c69646974795f756e74696c223a22323032362d30382d30315431323a30303a30302e3030302b30313a3030222c22766572696669636174696f6e5f737461747573223a2273656c665f636f6d7075746564222c2276657269666965725f76657273696f6e223a22302e312e30222c2277696e646f775f656e64223a22323032362d30382d30315431323a30303a30302e3030302b30313a3030222c2277696e646f775f7374617274223a22323032362d30382d30315431323a30303a30302e3030302b30313a3030227d2c22626f756e646172795f726566223a22626f756e646172792d31222c22636c6f636b73223a7b22736f757263655f74696d65223a22323032362d30382d30315431323a30303a30302e3030302b30313a3030227d2c22707265765f646967657374223a6e756c6c2c227265636f72645f6964223a2230313839306634372d326635382d376363302d393863342d303030303030303030303634222c227265636f72645f74797065223a224174746573746174696f6e57696e646f77222c22736368656d615f76657273696f6e223a22312e302e30222c2273657175656e6365223a312c227369676e6174757265223a7b22616c67223a2265643235353139222c226b65795f6964223a224b31222c22736967223a22594f774e42315841344c6f7a6d376554673153725f364748397675796c4633524157395a634f7155447339634b3052375567482d7965764a4e2d4a374e327a42537a763879356e31786437685a393266634c4f314267222c227369676e65645f646967657374223a227368613235363a61663331316438663337646238393461646237376338616664393138396162323734353564616338393764656330343937666232313363613631643337363232227d2c22736f75726365223a7b22636f6c6c6563746f72223a22766563746f722d67656e657261746f72222c2276657273696f6e223a22302e312e30227d2c2273747265616d5f6964223a226174746573746174696f6e2d31222c2274656e616e745f6964223a2274656e616e742d31227d",
+      "verification_keys": {
+        "ISSUER1": {
+          "namespace": "issuer",
+          "public_key": "F0VTtFbd38aQjsqxwQH-arIeK6oGF3lbfUOmNIKZP9U"
+        },
+        "K1": {
+          "namespace": "evidence",
+          "public_key": "A6EHv_POEL4dcN0Y50vAmWfk1jCbpQ1fHdyGZBJVMbg"
+        }
+      }
+    }
+  ],
   "encoding": {
     "binary": "base64url-unpadded",
     "digest": "sha256:<lowercase-hex>",
     "json": "UTF-8"
   },
   "format": "evidence-control-plane-conformance-vectors",
-  "format_version": "1.0.0",
+  "format_version": "1.1.0",
   "spec_version": "0.1",
   "vectors": [
     {
@@ -722,9 +834,6 @@
       },
       "id": "chain-valid-signature-inclusive-prev-digest",
       "operation": "verify_stream",
-      "public_keys": {
-        "K1": "A6EHv_POEL4dcN0Y50vAmWfk1jCbpQ1fHdyGZBJVMbg"
-      },
       "records": [
         {
           "body": {
@@ -800,7 +909,13 @@
           "stream_id": "stream-1",
           "tenant_id": "tenant-1"
         }
-      ]
+      ],
+      "verification_keys": {
+        "K1": {
+          "namespace": "evidence",
+          "public_key": "A6EHv_POEL4dcN0Y50vAmWfk1jCbpQ1fHdyGZBJVMbg"
+        }
+      }
     },
     {
       "expected": {
@@ -811,10 +926,6 @@
       },
       "id": "reject-validly-resigned-predecessor",
       "operation": "verify_stream",
-      "public_keys": {
-        "K1": "A6EHv_POEL4dcN0Y50vAmWfk1jCbpQ1fHdyGZBJVMbg",
-        "KX": "JUO5L_EJVRFHatyDadtt3JM2ZaEZeN2hQE7hBmypVZ0"
-      },
       "records": [
         {
           "body": {
@@ -890,7 +1001,17 @@
           "stream_id": "stream-1",
           "tenant_id": "tenant-1"
         }
-      ]
+      ],
+      "verification_keys": {
+        "K1": {
+          "namespace": "evidence",
+          "public_key": "A6EHv_POEL4dcN0Y50vAmWfk1jCbpQ1fHdyGZBJVMbg"
+        },
+        "KX": {
+          "namespace": "evidence",
+          "public_key": "JUO5L_EJVRFHatyDadtt3JM2ZaEZeN2hQE7hBmypVZ0"
+        }
+      }
     },
     {
       "expected": {
@@ -901,9 +1022,6 @@
       },
       "id": "reject-signature-excluded-prev-digest",
       "operation": "verify_stream",
-      "public_keys": {
-        "K1": "A6EHv_POEL4dcN0Y50vAmWfk1jCbpQ1fHdyGZBJVMbg"
-      },
       "records": [
         {
           "body": {
@@ -979,7 +1097,13 @@
           "stream_id": "stream-1",
           "tenant_id": "tenant-1"
         }
-      ]
+      ],
+      "verification_keys": {
+        "K1": {
+          "namespace": "evidence",
+          "public_key": "A6EHv_POEL4dcN0Y50vAmWfk1jCbpQ1fHdyGZBJVMbg"
+        }
+      }
     },
     {
       "expected": {
@@ -991,10 +1115,6 @@
       },
       "id": "rotation-valid-context-bound",
       "operation": "verify_stream",
-      "public_keys": {
-        "K1": "A6EHv_POEL4dcN0Y50vAmWfk1jCbpQ1fHdyGZBJVMbg",
-        "K2": "Kay64UG8yvCyLhqU000LxzYeUm0L_hLIl5S8kyKWbdc"
-      },
       "records": [
         {
           "body": {
@@ -1079,7 +1199,17 @@
           "stream_id": "stream-1",
           "tenant_id": "tenant-1"
         }
-      ]
+      ],
+      "verification_keys": {
+        "K1": {
+          "namespace": "evidence",
+          "public_key": "A6EHv_POEL4dcN0Y50vAmWfk1jCbpQ1fHdyGZBJVMbg"
+        },
+        "K2": {
+          "namespace": "evidence",
+          "public_key": "Kay64UG8yvCyLhqU000LxzYeUm0L_hLIl5S8kyKWbdc"
+        }
+      }
     },
     {
       "expected": {
@@ -1090,10 +1220,6 @@
       },
       "id": "reject-rotation-without-continuity",
       "operation": "verify_stream",
-      "public_keys": {
-        "K1": "A6EHv_POEL4dcN0Y50vAmWfk1jCbpQ1fHdyGZBJVMbg",
-        "K2": "Kay64UG8yvCyLhqU000LxzYeUm0L_hLIl5S8kyKWbdc"
-      },
       "records": [
         {
           "body": {
@@ -1169,7 +1295,17 @@
           "stream_id": "stream-1",
           "tenant_id": "tenant-1"
         }
-      ]
+      ],
+      "verification_keys": {
+        "K1": {
+          "namespace": "evidence",
+          "public_key": "A6EHv_POEL4dcN0Y50vAmWfk1jCbpQ1fHdyGZBJVMbg"
+        },
+        "K2": {
+          "namespace": "evidence",
+          "public_key": "Kay64UG8yvCyLhqU000LxzYeUm0L_hLIl5S8kyKWbdc"
+        }
+      }
     },
     {
       "expected": {
@@ -1179,10 +1315,6 @@
       },
       "id": "reject-continuity-tenant-replay",
       "operation": "verify_stream",
-      "public_keys": {
-        "K1": "A6EHv_POEL4dcN0Y50vAmWfk1jCbpQ1fHdyGZBJVMbg",
-        "K2": "Kay64UG8yvCyLhqU000LxzYeUm0L_hLIl5S8kyKWbdc"
-      },
       "records": [
         {
           "body": {
@@ -1267,7 +1399,17 @@
           "stream_id": "stream-1",
           "tenant_id": "tenant-2"
         }
-      ]
+      ],
+      "verification_keys": {
+        "K1": {
+          "namespace": "evidence",
+          "public_key": "A6EHv_POEL4dcN0Y50vAmWfk1jCbpQ1fHdyGZBJVMbg"
+        },
+        "K2": {
+          "namespace": "evidence",
+          "public_key": "Kay64UG8yvCyLhqU000LxzYeUm0L_hLIl5S8kyKWbdc"
+        }
+      }
     },
     {
       "expected": {
@@ -1277,10 +1419,6 @@
       },
       "id": "reject-continuity-stream-replay",
       "operation": "verify_stream",
-      "public_keys": {
-        "K1": "A6EHv_POEL4dcN0Y50vAmWfk1jCbpQ1fHdyGZBJVMbg",
-        "K2": "Kay64UG8yvCyLhqU000LxzYeUm0L_hLIl5S8kyKWbdc"
-      },
       "records": [
         {
           "body": {
@@ -1365,7 +1503,17 @@
           "stream_id": "stream-2",
           "tenant_id": "tenant-1"
         }
-      ]
+      ],
+      "verification_keys": {
+        "K1": {
+          "namespace": "evidence",
+          "public_key": "A6EHv_POEL4dcN0Y50vAmWfk1jCbpQ1fHdyGZBJVMbg"
+        },
+        "K2": {
+          "namespace": "evidence",
+          "public_key": "Kay64UG8yvCyLhqU000LxzYeUm0L_hLIl5S8kyKWbdc"
+        }
+      }
     },
     {
       "expected": {
@@ -1376,10 +1524,6 @@
       },
       "id": "reject-forged-continuity-tenant-binding",
       "operation": "verify_stream",
-      "public_keys": {
-        "K1": "A6EHv_POEL4dcN0Y50vAmWfk1jCbpQ1fHdyGZBJVMbg",
-        "K2": "Kay64UG8yvCyLhqU000LxzYeUm0L_hLIl5S8kyKWbdc"
-      },
       "records": [
         {
           "body": {
@@ -1464,7 +1608,17 @@
           "stream_id": "stream-1",
           "tenant_id": "tenant-2"
         }
-      ]
+      ],
+      "verification_keys": {
+        "K1": {
+          "namespace": "evidence",
+          "public_key": "A6EHv_POEL4dcN0Y50vAmWfk1jCbpQ1fHdyGZBJVMbg"
+        },
+        "K2": {
+          "namespace": "evidence",
+          "public_key": "Kay64UG8yvCyLhqU000LxzYeUm0L_hLIl5S8kyKWbdc"
+        }
+      }
     },
     {
       "expected": {
@@ -1475,10 +1629,6 @@
       },
       "id": "reject-forged-continuity-stream-binding",
       "operation": "verify_stream",
-      "public_keys": {
-        "K1": "A6EHv_POEL4dcN0Y50vAmWfk1jCbpQ1fHdyGZBJVMbg",
-        "K2": "Kay64UG8yvCyLhqU000LxzYeUm0L_hLIl5S8kyKWbdc"
-      },
       "records": [
         {
           "body": {
@@ -1563,7 +1713,17 @@
           "stream_id": "stream-2",
           "tenant_id": "tenant-1"
         }
-      ]
+      ],
+      "verification_keys": {
+        "K1": {
+          "namespace": "evidence",
+          "public_key": "A6EHv_POEL4dcN0Y50vAmWfk1jCbpQ1fHdyGZBJVMbg"
+        },
+        "K2": {
+          "namespace": "evidence",
+          "public_key": "Kay64UG8yvCyLhqU000LxzYeUm0L_hLIl5S8kyKWbdc"
+        }
+      }
     },
     {
       "expected": {
@@ -1573,10 +1733,6 @@
       },
       "id": "reject-unknown-continuity-member",
       "operation": "verify_stream",
-      "public_keys": {
-        "K1": "A6EHv_POEL4dcN0Y50vAmWfk1jCbpQ1fHdyGZBJVMbg",
-        "K2": "Kay64UG8yvCyLhqU000LxzYeUm0L_hLIl5S8kyKWbdc"
-      },
       "records": [
         {
           "body": {
@@ -1662,7 +1818,17 @@
           "stream_id": "stream-1",
           "tenant_id": "tenant-1"
         }
-      ]
+      ],
+      "verification_keys": {
+        "K1": {
+          "namespace": "evidence",
+          "public_key": "A6EHv_POEL4dcN0Y50vAmWfk1jCbpQ1fHdyGZBJVMbg"
+        },
+        "K2": {
+          "namespace": "evidence",
+          "public_key": "Kay64UG8yvCyLhqU000LxzYeUm0L_hLIl5S8kyKWbdc"
+        }
+      }
     },
     {
       "expected": {
@@ -1672,10 +1838,6 @@
       },
       "id": "reject-missing-continuity-member",
       "operation": "verify_stream",
-      "public_keys": {
-        "K1": "A6EHv_POEL4dcN0Y50vAmWfk1jCbpQ1fHdyGZBJVMbg",
-        "K2": "Kay64UG8yvCyLhqU000LxzYeUm0L_hLIl5S8kyKWbdc"
-      },
       "records": [
         {
           "body": {
@@ -1759,7 +1921,17 @@
           "stream_id": "stream-1",
           "tenant_id": "tenant-1"
         }
-      ]
+      ],
+      "verification_keys": {
+        "K1": {
+          "namespace": "evidence",
+          "public_key": "A6EHv_POEL4dcN0Y50vAmWfk1jCbpQ1fHdyGZBJVMbg"
+        },
+        "K2": {
+          "namespace": "evidence",
+          "public_key": "Kay64UG8yvCyLhqU000LxzYeUm0L_hLIl5S8kyKWbdc"
+        }
+      }
     },
     {
       "expected": {
@@ -1771,9 +1943,6 @@
       },
       "id": "new-stream-starts-from-trusted-keyring-anchor",
       "operation": "verify_stream",
-      "public_keys": {
-        "K2": "Kay64UG8yvCyLhqU000LxzYeUm0L_hLIl5S8kyKWbdc"
-      },
       "records": [
         {
           "body": {
@@ -1812,7 +1981,13 @@
           "stream_id": "stream-after-rotation",
           "tenant_id": "tenant-1"
         }
-      ]
+      ],
+      "verification_keys": {
+        "K2": {
+          "namespace": "evidence",
+          "public_key": "Kay64UG8yvCyLhqU000LxzYeUm0L_hLIl5S8kyKWbdc"
+        }
+      }
     },
     {
       "expected": {
@@ -1822,10 +1997,6 @@
       },
       "id": "reject-continuity-on-first-stream-record",
       "operation": "verify_stream",
-      "public_keys": {
-        "K1": "A6EHv_POEL4dcN0Y50vAmWfk1jCbpQ1fHdyGZBJVMbg",
-        "K2": "Kay64UG8yvCyLhqU000LxzYeUm0L_hLIl5S8kyKWbdc"
-      },
       "records": [
         {
           "body": {
@@ -1873,7 +2044,17 @@
           "stream_id": "stream-after-rotation",
           "tenant_id": "tenant-1"
         }
-      ]
+      ],
+      "verification_keys": {
+        "K1": {
+          "namespace": "evidence",
+          "public_key": "A6EHv_POEL4dcN0Y50vAmWfk1jCbpQ1fHdyGZBJVMbg"
+        },
+        "K2": {
+          "namespace": "evidence",
+          "public_key": "Kay64UG8yvCyLhqU000LxzYeUm0L_hLIl5S8kyKWbdc"
+        }
+      }
     },
     {
       "expected": {
@@ -1884,10 +2065,6 @@
       },
       "id": "reject-continuity-without-key-change",
       "operation": "verify_stream",
-      "public_keys": {
-        "K1": "A6EHv_POEL4dcN0Y50vAmWfk1jCbpQ1fHdyGZBJVMbg",
-        "K2": "Kay64UG8yvCyLhqU000LxzYeUm0L_hLIl5S8kyKWbdc"
-      },
       "records": [
         {
           "body": {
@@ -1972,7 +2149,17 @@
           "stream_id": "stream-1",
           "tenant_id": "tenant-1"
         }
-      ]
+      ],
+      "verification_keys": {
+        "K1": {
+          "namespace": "evidence",
+          "public_key": "A6EHv_POEL4dcN0Y50vAmWfk1jCbpQ1fHdyGZBJVMbg"
+        },
+        "K2": {
+          "namespace": "evidence",
+          "public_key": "Kay64UG8yvCyLhqU000LxzYeUm0L_hLIl5S8kyKWbdc"
+        }
+      }
     },
     {
       "expected": {
@@ -1983,9 +2170,6 @@
       },
       "id": "reject-authenticated-stream-fork",
       "operation": "verify_stream",
-      "public_keys": {
-        "K1": "A6EHv_POEL4dcN0Y50vAmWfk1jCbpQ1fHdyGZBJVMbg"
-      },
       "records": [
         {
           "body": {
@@ -2061,7 +2245,13 @@
           "stream_id": "stream-1",
           "tenant_id": "tenant-1"
         }
-      ]
+      ],
+      "verification_keys": {
+        "K1": {
+          "namespace": "evidence",
+          "public_key": "A6EHv_POEL4dcN0Y50vAmWfk1jCbpQ1fHdyGZBJVMbg"
+        }
+      }
     },
     {
       "expected": {
@@ -2072,9 +2262,6 @@
       },
       "id": "reject-sequence-gap",
       "operation": "verify_stream",
-      "public_keys": {
-        "K1": "A6EHv_POEL4dcN0Y50vAmWfk1jCbpQ1fHdyGZBJVMbg"
-      },
       "records": [
         {
           "body": {
@@ -2150,7 +2337,13 @@
           "stream_id": "stream-1",
           "tenant_id": "tenant-1"
         }
-      ]
+      ],
+      "verification_keys": {
+        "K1": {
+          "namespace": "evidence",
+          "public_key": "A6EHv_POEL4dcN0Y50vAmWfk1jCbpQ1fHdyGZBJVMbg"
+        }
+      }
     },
     {
       "expected": {
@@ -2159,9 +2352,6 @@
       },
       "id": "reject-mixed-stream-ids",
       "operation": "verify_stream",
-      "public_keys": {
-        "K1": "A6EHv_POEL4dcN0Y50vAmWfk1jCbpQ1fHdyGZBJVMbg"
-      },
       "records": [
         {
           "body": {
@@ -2237,7 +2427,13 @@
           "stream_id": "stream-2",
           "tenant_id": "tenant-1"
         }
-      ]
+      ],
+      "verification_keys": {
+        "K1": {
+          "namespace": "evidence",
+          "public_key": "A6EHv_POEL4dcN0Y50vAmWfk1jCbpQ1fHdyGZBJVMbg"
+        }
+      }
     },
     {
       "expected": {
@@ -2247,9 +2443,6 @@
       },
       "id": "reject-stream-not-anchored-at-sequence-one",
       "operation": "verify_stream",
-      "public_keys": {
-        "K1": "A6EHv_POEL4dcN0Y50vAmWfk1jCbpQ1fHdyGZBJVMbg"
-      },
       "records": [
         {
           "body": {
@@ -2288,7 +2481,13 @@
           "stream_id": "stream-1",
           "tenant_id": "tenant-1"
         }
-      ]
+      ],
+      "verification_keys": {
+        "K1": {
+          "namespace": "evidence",
+          "public_key": "A6EHv_POEL4dcN0Y50vAmWfk1jCbpQ1fHdyGZBJVMbg"
+        }
+      }
     },
     {
       "expected": {

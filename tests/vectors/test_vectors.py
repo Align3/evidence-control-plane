@@ -28,8 +28,9 @@ from sdk_python.evidence.chain import (
     KeyContinuityError,
     SequenceGapError,
     StreamForkError,
-    verify_stream,
+    verify_evidence_stream,
 )
+from sdk_python.evidence.chain import KeyNamespaceError as StreamKeyNamespaceError
 from sdk_python.evidence.schema import AttestationWindowRecord, RecordEnvelope, validate_record
 from sdk_python.evidence.signing import (
     SignatureError,
@@ -42,7 +43,9 @@ from services.ingestion.receipts import IngestionReceipt, RegisteredPublicKey
 from tests.vectors.generate import VECTOR_PATH, render_vectors
 
 DOCUMENT: dict[str, Any] = json.loads(VECTOR_PATH.read_text(encoding="utf-8"))
-VECTORS: list[dict[str, Any]] = DOCUMENT["vectors"]
+AGREEMENT_VECTORS: list[dict[str, Any]] = DOCUMENT["vectors"]
+ADVERSARIAL_VECTORS: list[dict[str, Any]] = DOCUMENT["adversarial_vectors"]
+VECTORS = [*AGREEMENT_VECTORS, *ADVERSARIAL_VECTORS]
 
 REQUIRED_ATTACK_VECTORS = {
     "canonical-utf16-order",
@@ -76,6 +79,10 @@ REQUIRED_ATTACK_VECTORS = {
     "reject-missing-issuer-signature-member",
     "reject-missing-continuity-member",
 }
+REQUIRED_ADVERSARIAL_VECTORS = {
+    "adversarial-reject-issuer-key-on-evidence-stream",
+    "adversarial-reject-attestation-without-issuer-signature",
+}
 JCS_REFERENCE = Path(__file__).parents[1] / "property" / "jcs_reference.js"
 
 
@@ -100,6 +107,30 @@ def _registered_public_keys(
         )
         for key_id, value in encoded.items()
     }
+
+
+def _stream_keyring(vector: dict[str, Any]) -> dict[str, RegisteredPublicKey]:
+    """Read every stream trust fact from the vector, without defaults."""
+
+    return _registered_public_keys(vector["verification_keys"])
+
+
+def _assert_adversarial_provenance(vector: dict[str, Any]) -> None:
+    """Require measured, implementation-neutral evidence of a prior acceptance."""
+
+    pre_fix = vector["pre_fix"]
+    assert isinstance(pre_fix["revision"], str) and pre_fix["revision"]
+    implementations = pre_fix["implementations"]
+    assert {"python", "go"} <= implementations.keys()
+    assert all(
+        isinstance(result["accepted"], bool)
+        and isinstance(result["entry_point"], str)
+        and bool(result["entry_point"])
+        and isinstance(result["result"], str)
+        and bool(result["result"])
+        for result in implementations.values()
+    )
+    assert any(result["accepted"] for result in implementations.values())
 
 
 def _record(value: dict[str, Any]) -> RecordEnvelope:
@@ -153,6 +184,8 @@ def _error_code(error: Exception) -> str:
         if "without a key rotation" in message:
             return "continuity.no_key_change"
     if isinstance(error, ChainVerificationError):
+        if isinstance(error, StreamKeyNamespaceError):
+            return "key.namespace_mismatch"
         if "accepts exactly one stream_id" in message:
             return "chain.stream_id_mismatch"
         if "continuity tenant_id does not match" in message:
@@ -170,7 +203,10 @@ def _error_code(error: Exception) -> str:
             return "signature.encoding_invalid"
         if "unknown issuer signature member" in message:
             return "signature.unknown_issuer_member"
-        if "missing issuer signature member" in message:
+        if (
+            "missing issuer signature member" in message
+            or "no issuer counter-signature" in message
+        ):
             return "signature.missing_issuer_member"
         if "unknown signature member" in message:
             return "signature.unknown_customer_member"
@@ -286,7 +322,9 @@ def _run_verify_stream(vector: dict[str, Any]) -> None:
     records = [_record(value) for value in vector["records"]]
     expected = vector["expected"]
     try:
-        result = verify_stream(records, public_keys=_public_keys(vector["public_keys"]))
+        result = verify_evidence_stream(
+            records, verification_keys=_stream_keyring(vector)
+        )
     except ChainVerificationError as error:
         assert not expected["accepted"]
         _assert_expected_error(expected, error)
@@ -414,15 +452,58 @@ RUNNERS = {
 
 def test_es_029_vector_manifest_is_closed_and_attack_complete() -> None:
     assert DOCUMENT["format"] == "evidence-control-plane-conformance-vectors"
-    assert DOCUMENT["format_version"] == "1.0.0"
+    assert DOCUMENT["format_version"] == "1.1.0"
     assert DOCUMENT["spec_version"] == "0.1"
     ids = [vector["id"] for vector in VECTORS]
     assert len(ids) == len(set(ids))
     assert {vector["operation"] for vector in VECTORS} == set(RUNNERS)
     assert REQUIRED_ATTACK_VECTORS <= set(ids)
+    assert REQUIRED_ADVERSARIAL_VECTORS <= {
+        vector["id"] for vector in ADVERSARIAL_VECTORS
+    }
+    assert all(not vector["expected"]["accepted"] for vector in ADVERSARIAL_VECTORS)
+    stream_vectors = [vector for vector in VECTORS if vector["operation"] == "verify_stream"]
+    assert all(
+        "verification_keys" in vector and "public_keys" not in vector
+        for vector in stream_vectors
+    )
+    # Every adversarial vector must record that some shipping entry point
+    # accepted its subject before the fix, so a refusal vector cannot be added
+    # for behavior that was already correct. The revision must be the branch
+    # base the measurement was actually taken against. What each implementation
+    # did is recorded per implementation and deliberately not asserted to be
+    # acceptance: one verifier refusing while another accepts is the normal
+    # case, and requiring both to have accepted would pressure the record
+    # toward a tidier claim than the measurement supports.
+    for vector in ADVERSARIAL_VECTORS:
+        _assert_adversarial_provenance(vector)
+    assert all(
+        vector["pre_fix"]["revision"] == "9e5904b"
+        for vector in ADVERSARIAL_VECTORS
+        if vector["id"] in REQUIRED_ADVERSARIAL_VECTORS
+    )
+    assert {vector["operation"] for vector in ADVERSARIAL_VECTORS} <= {
+        "verify_stream",
+        "verify_canonical_evidence_record",
+    }
     assert sum(not vector["expected"]["accepted"] for vector in VECTORS) > sum(
         vector["expected"]["accepted"] for vector in VECTORS
     )
+
+
+def test_adversarial_provenance_acceptance_is_implementation_neutral() -> None:
+    probe = deepcopy(ADVERSARIAL_VECTORS[0])
+    probe["pre_fix"]["implementations"]["python"]["accepted"] = False
+    probe["pre_fix"]["implementations"]["python"]["result"] = "refused"
+    probe["pre_fix"]["implementations"]["go"]["accepted"] = True
+    probe["pre_fix"]["implementations"]["go"]["result"] = "accepted"
+
+    _assert_adversarial_provenance(probe)
+
+
+def test_stream_vector_keyring_refuses_to_invent_a_namespace() -> None:
+    with pytest.raises(KeyError, match="verification_keys"):
+        _stream_keyring({"public_keys": {}})
 
 
 def test_es_029_stored_vectors_match_deterministic_generation() -> None:

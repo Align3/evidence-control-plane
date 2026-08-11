@@ -3,21 +3,36 @@
 from __future__ import annotations
 
 import pytest
-from cryptography.hazmat.primitives.asymmetric.ed25519 import Ed25519PrivateKey
+from cryptography.hazmat.primitives.asymmetric.ed25519 import (
+    Ed25519PrivateKey,
+    Ed25519PublicKey,
+)
 
 from sdk_python.evidence.canonical import canonical_digest
 from sdk_python.evidence.chain import (
     ChainVerificationError,
     DigestLinkError,
     KeyContinuityError,
+    KeyNamespaceError,
     SequenceGapError,
     StreamForkError,
     create_key_continuity,
-    verify_stream,
-    verify_streams,
+    verify_evidence_stream,
+    verify_evidence_streams,
 )
 from sdk_python.evidence.schema import validate_record
 from sdk_python.evidence.signing import sign_record
+from services.ingestion.receipts import RegisteredPublicKey
+
+
+def _evidence_keyring(**public_keys: Ed25519PublicKey) -> dict[str, RegisteredPublicKey]:
+    """Register every key in the evidence namespace: these are customer streams."""
+
+    return {
+        key_id: RegisteredPublicKey(namespace="evidence", public_key=public_key)
+        for key_id, public_key in public_keys.items()
+    }
+
 
 TS = "2026-07-31T12:00:00.000+01:00"
 
@@ -73,8 +88,9 @@ def _signed_chain(length: int):
 def test_out_of_order_complete_stream_is_reconstructed_and_verified() -> None:
     key, records = _signed_chain(3)
 
-    result = verify_stream(
-        [records[2], records[0], records[1]], public_keys={"K1": key.public_key()}
+    result = verify_evidence_stream(
+        [records[2], records[0], records[1]],
+        verification_keys=_evidence_keyring(K1=key.public_key()),
     )
 
     assert result.start_sequence == 1
@@ -94,7 +110,10 @@ def test_multiple_streams_are_verified_without_cross_stream_sequence_order() -> 
     )
     other = sign_record(other_unsigned, key_id="K1", private_key=key)
 
-    results = verify_streams([other, first], public_keys={"K1": key.public_key()})
+    results = verify_evidence_streams(
+     [other, first],
+     verification_keys=_evidence_keyring(K1=key.public_key()),
+ )
 
     assert set(results) == {"collector-1", "collector-2"}
     assert all(result.end_sequence == 1 for result in results.values())
@@ -107,7 +126,10 @@ def test_sequence_gap_terminates_at_last_valid_record() -> None:
     )
 
     with pytest.raises(SequenceGapError) as caught:
-        verify_stream([records[0], third], public_keys={"K1": key.public_key()})
+        verify_evidence_stream(
+            [records[0], third],
+            verification_keys=_evidence_keyring(K1=key.public_key()),
+        )
 
     assert caught.value.break_sequence == 3
     assert caught.value.valid_through_sequence == 1
@@ -119,7 +141,10 @@ def test_unanchored_mid_stream_input_is_not_reported_as_verified() -> None:
     second = sign_record(_record(2), key_id="K1", private_key=key)
 
     with pytest.raises(SequenceGapError, match="without a verified anchor"):
-        verify_stream([second], public_keys={"K1": key.public_key()})
+        verify_evidence_stream(
+            [second],
+            verification_keys=_evidence_keyring(K1=key.public_key()),
+        )
 
 
 def test_unauthenticated_conflict_cannot_poison_a_stream_as_a_fork() -> None:
@@ -131,7 +156,10 @@ def test_unauthenticated_conflict_cannot_poison_a_stream_as_a_fork() -> None:
     conflicting = conflicting.model_copy(update={"signature": broken_signature}, deep=True)
 
     with pytest.raises(ChainVerificationError) as caught:
-        verify_stream([first, conflicting], public_keys={"K1": key.public_key()})
+        verify_evidence_stream(
+            [first, conflicting],
+            verification_keys=_evidence_keyring(K1=key.public_key()),
+        )
 
     assert not isinstance(caught.value, StreamForkError)
 
@@ -143,7 +171,10 @@ def test_wrong_prev_digest_is_a_chain_break() -> None:
     )
 
     with pytest.raises(DigestLinkError, match="prev_digest"):
-        verify_stream([records[0], second], public_keys={"K1": key.public_key()})
+        verify_evidence_stream(
+            [records[0], second],
+            verification_keys=_evidence_keyring(K1=key.public_key()),
+        )
 
 
 def test_prev_digest_commits_the_previous_signature_member() -> None:
@@ -160,9 +191,12 @@ def test_prev_digest_commits_the_previous_signature_member() -> None:
     )
 
     with pytest.raises(DigestLinkError, match="prev_digest mismatch"):
-        verify_stream(
+        verify_evidence_stream(
             [resigned_first, second],
-            public_keys={"KX": replacement_key.public_key(), "K1": original_key.public_key()},
+            verification_keys=_evidence_keyring(
+                KX=replacement_key.public_key(),
+                K1=original_key.public_key(),
+            ),
         )
 
 
@@ -184,9 +218,12 @@ def test_valid_key_continuity_allows_rotation() -> None:
         key_continuity=continuity,
     )
 
-    result = verify_stream(
+    result = verify_evidence_stream(
         [records[0], second],
-        public_keys={"K1": k1.public_key(), "K2": k2.public_key()},
+        verification_keys=_evidence_keyring(
+            K1=k1.public_key(),
+            K2=k2.public_key(),
+        ),
     )
 
     assert result.end_sequence == 2
@@ -213,9 +250,12 @@ def test_continuity_for_a_different_new_key_is_refused() -> None:
     )
 
     with pytest.raises(KeyContinuityError, match="new public key"):
-        verify_stream(
+        verify_evidence_stream(
             [records[0], second],
-            public_keys={"K1": k1.public_key(), "K2": k2.public_key()},
+            verification_keys=_evidence_keyring(
+                K1=k1.public_key(),
+                K2=k2.public_key(),
+            ),
         )
 
 
@@ -261,9 +301,12 @@ def test_continuity_proof_cannot_be_replayed_across_context(
     )
 
     with pytest.raises(ChainVerificationError, match=message):
-        verify_stream(
+        verify_evidence_stream(
             [first, replayed],
-            public_keys={"K1": k1.public_key(), "K2": k2.public_key()},
+            verification_keys=_evidence_keyring(
+                K1=k1.public_key(),
+                K2=k2.public_key(),
+            ),
         )
 
 
@@ -298,9 +341,12 @@ def test_continuity_context_is_covered_by_the_predecessor_signature() -> None:
     # coverage of the tenant binding can reject this forgery.
     assert second.signature["key_continuity"]["tenant_id"] == second.tenant_id
     with pytest.raises(KeyContinuityError, match="signed by the predecessor"):
-        verify_stream(
+        verify_evidence_stream(
             [first, second],
-            public_keys={"K1": k1.public_key(), "K2": k2.public_key()},
+            verification_keys=_evidence_keyring(
+                K1=k1.public_key(),
+                K2=k2.public_key(),
+            ),
         )
 
 
@@ -326,9 +372,12 @@ def test_continuity_assertion_with_unknown_member_is_refused() -> None:
     replayed = second.model_copy(update={"signature": replayed_signature}, deep=True)
 
     with pytest.raises(ChainVerificationError, match="unknown.*member"):
-        verify_stream(
+        verify_evidence_stream(
             [records[0], replayed],
-            public_keys={"K1": k1.public_key(), "K2": k2.public_key()},
+            verification_keys=_evidence_keyring(
+                K1=k1.public_key(),
+                K2=k2.public_key(),
+            ),
         )
 
 
@@ -351,9 +400,12 @@ def test_continuity_assertion_is_refused_on_first_record() -> None:
     )
 
     with pytest.raises(KeyContinuityError, match="forbidden on the first"):
-        verify_stream(
+        verify_evidence_stream(
             [first],
-            public_keys={"K0": predecessor.public_key(), "K1": current.public_key()},
+            verification_keys=_evidence_keyring(
+                K0=predecessor.public_key(),
+                K1=current.public_key(),
+            ),
         )
 
 
@@ -377,7 +429,76 @@ def test_continuity_assertion_is_refused_without_key_rotation() -> None:
     )
 
     with pytest.raises(KeyContinuityError, match="without a key rotation"):
-        verify_stream(
+        verify_evidence_stream(
             [first, second],
-            public_keys={"K0": predecessor.public_key(), "K1": current.public_key()},
+            verification_keys=_evidence_keyring(
+                K0=predecessor.public_key(),
+                K1=current.public_key(),
+            ),
+        )
+
+
+def test_no_namespace_free_stream_entry_point_is_exported() -> None:
+    """SE-003 must not be bypassable by reaching for a weaker primitive.
+
+    The Go verifier states the same rule in internal/evidence/chain.go. A
+    namespace-free entry point cannot establish SE-003, because bare Ed25519
+    keys carry no custody namespace; re-exporting one would let any caller
+    opt out of the check by calling it instead.
+    """
+
+    import sdk_python.evidence.chain as chain
+
+    assert not hasattr(chain, "verify_stream")
+    assert not hasattr(chain, "verify_streams")
+
+
+def test_an_issuer_key_cannot_authenticate_an_evidence_stream() -> None:
+    key = Ed25519PrivateKey.generate()
+    record = sign_record(_record(1), key_id="ISSUER1", private_key=key)
+
+    with pytest.raises(KeyNamespaceError, match="require an evidence key"):
+        verify_evidence_stream(
+            [record],
+            verification_keys={
+                "ISSUER1": RegisteredPublicKey(
+                    namespace="issuer", public_key=key.public_key()
+                )
+            },
+        )
+
+
+def test_rotation_onto_an_issuer_namespace_successor_is_refused() -> None:
+    k1 = Ed25519PrivateKey.generate()
+    issuer = Ed25519PrivateKey.generate()
+    first = sign_record(_record(1), key_id="K1", private_key=k1)
+    continuity = create_key_continuity(
+        predecessor_key_id="K1",
+        predecessor_private_key=k1,
+        new_key_id="ISSUER1",
+        new_public_key=issuer.public_key(),
+        tenant_id="tenant-1",
+        stream_id="collector-1",
+    )
+    second = sign_record(
+        _record(2, prev_digest=canonical_digest(first)),
+        key_id="ISSUER1",
+        private_key=issuer,
+        key_continuity=continuity,
+    )
+
+    # An authenticated rotation cannot confer a custody namespace: the
+    # successor's namespace is a fact stated by the keyring, not by the key
+    # it replaces.
+    with pytest.raises(KeyNamespaceError, match="require an evidence key"):
+        verify_evidence_stream(
+            [first, second],
+            verification_keys={
+                "K1": RegisteredPublicKey(
+                    namespace="evidence", public_key=k1.public_key()
+                ),
+                "ISSUER1": RegisteredPublicKey(
+                    namespace="issuer", public_key=issuer.public_key()
+                ),
+            },
         )

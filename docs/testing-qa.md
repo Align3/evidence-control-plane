@@ -281,6 +281,49 @@ And no scenario is reported as having no Acceptance owner
 And untested scenarios owned by unlanded stories remain reported as roadmap debt
 ```
 
+### Agreement is not correctness: adversarial conformance vectors
+
+The published conformance corpus has two distinct categories because they
+detect different failures. Agreement vectors (`vectors`) ask independent
+implementations for the same exact result and expose divergence. Adversarial
+vectors (`adversarial_vectors`) are refusal-only probes written by trying to
+produce acceptance at a public verifier entry point. They are held separately,
+and every adversarial vector records what each implementation did before the
+fix, at the named branch base; otherwise a newly added refusal vector may
+merely confirm behavior that was already correct. At least one shipping entry
+point must have accepted, and the record states per implementation which did—a
+vector whose subject one verifier already refused is still worth publishing,
+but it must not be described as a shared defect.
+
+ES-S-007 cross-implementation agreement is therefore a divergence check, not a
+correctness oracle. Shared defects remain a real risk when implementations are
+built from the same specification, because an omitted composition rule can be
+implemented identically on both sides.
+
+What EV-30 actually found, measured against the branch base `9e5904b`, was not
+a shared defect. Python's ingestion entry point accepted an `AttestationWindow`
+after its issuer proof was removed, and Python's stream entry point allowed an
+issuer key to authenticate an evidence stream. Go refused both. The two
+implementations had genuinely diverged, and ES-S-007 did not report it—because
+the conformance harness built its Go keyring with `evidenceKeyring()`, which
+stamped the evidence namespace onto every key in the vector. The custody fact
+the Go verifier checks was never presented to it, so the harness could not
+observe a namespace refusal from either side.
+
+The transferable lesson is therefore about the harness, not the verifiers: a
+conformance harness that synthesizes an input the corpus does not state will
+agree with itself. Any field a verifier makes a trust decision on must come
+from the vector, never from a default the harness supplies. Where a harness
+must supply one, both implementations have to supply the identical value, and
+the corpus should say so.
+
+The adversarial category concentrates on composition paths. Its first question
+is whether the complete record, stream, receipt, or future bundle entry point
+can bypass a stricter primitive that already exists. EV-19 adds mostly
+composition behavior, so its bundle, coverage, lattice, and revocation entry
+points are reviewed with acceptance-seeking mutations in this category rather
+than relying on primitive tests plus cross-implementation agreement.
+
 ---
 
 ## 11. Input needed
