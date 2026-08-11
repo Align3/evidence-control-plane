@@ -50,8 +50,10 @@ class VerificationResult:
     expected_acceptance: bool
     python_accepted: bool
     go_accepted: bool
+    typescript_accepted: bool
     python_error: str
     go_error: str
+    typescript_error: str
 
 
 @pytest.fixture(scope="module")
@@ -70,6 +72,14 @@ def origin_go_verifier() -> Path:
     if built.returncode != 0:
         raise AssertionError(f"Go verifier build failed:\n{built.stdout}\n{built.stderr}")
     return output
+
+
+@pytest.fixture(scope="module")
+def origin_typescript_runtime() -> str:
+    node = shutil.which("node")
+    if node is None:
+        pytest.skip("no Node runtime; TypeScript origin agreement cannot be demonstrated")
+    return node
 
 
 def _vectors(*, accepted: bool | None = None) -> list[dict[str, Any]]:
@@ -147,7 +157,7 @@ def _registered_keys(raw: dict[str, dict[str, str]]) -> dict[str, RegisteredPubl
 
 
 def _verify_all(
-    vectors: list[dict[str, Any]], binary: Path
+    vectors: list[dict[str, Any]], binary: Path, node: str
 ) -> list[VerificationResult]:
     results: list[VerificationResult] = []
     for vector in vectors:
@@ -187,27 +197,63 @@ def _verify_all(
                 text=True,
                 check=False,
             )
+        typescript = subprocess.run(  # noqa: S603
+            [
+                node,
+                "--experimental-strip-types",
+                "--input-type=module",
+                "-e",
+                (
+                    'import { verifyCanonicalEvidenceRecordWire } from '
+                    '"./sdk_typescript/src/index.ts";'
+                    'import { readFileSync } from "node:fs";'
+                    'const input=JSON.parse(readFileSync(0,"utf8"));'
+                    'try { verifyCanonicalEvidenceRecordWire('
+                    'Buffer.from(input.wire,"hex"),input.keyring);'
+                    'console.log(JSON.stringify({accepted:true})); }'
+                    'catch (error) { console.log(JSON.stringify({accepted:false,'
+                    'error_code:error.code,message:error.message})); }'
+                ),
+            ],
+            cwd=REPO,
+            input=json.dumps(
+                {"wire": wire.hex(), "keyring": vector["verification_keys"]}
+            ),
+            capture_output=True,
+            text=True,
+            check=False,
+        )
+        if typescript.returncode != 0:
+            raise AssertionError(
+                "TypeScript verifier failed to run:\n"
+                f"{typescript.stdout}\n{typescript.stderr}"
+            )
+        typescript_result = json.loads(typescript.stdout)
         results.append(
             VerificationResult(
                 vector_id=vector["id"],
                 expected_acceptance=vector["expected"]["accepted"],
                 python_accepted=python_accepted,
                 go_accepted=completed.returncode == 0,
+                typescript_accepted=typescript_result["accepted"],
                 python_error=python_error,
                 go_error=completed.stderr,
+                typescript_error=typescript_result.get("error_code", ""),
             )
         )
     return results
 
 
 @when(
-    "Python and Go verify each complete record under the same registered keyring",
+    "Python, Go, and TypeScript verify each complete record under the same registered keyring",
     target_fixture="origin_results",
 )
 def _verify_origin_vectors(
-    origin_vectors: list[dict[str, Any]], origin_go_verifier: Path
+    origin_vectors: list[dict[str, Any]],
+    origin_go_verifier: Path,
+    origin_typescript_runtime: str,
 ) -> list[VerificationResult]:
-    return _verify_all(origin_vectors, origin_go_verifier)
+    return _verify_all(origin_vectors, origin_go_verifier, origin_typescript_runtime)
 
 
 @when(
@@ -215,9 +261,11 @@ def _verify_origin_vectors(
     target_fixture="fallback_results",
 )
 def _attempt_evidence_fallback(
-    fallback_vectors: list[dict[str, Any]], origin_go_verifier: Path
+    fallback_vectors: list[dict[str, Any]],
+    origin_go_verifier: Path,
+    origin_typescript_runtime: str,
 ) -> list[VerificationResult]:
-    return _verify_all(fallback_vectors, origin_go_verifier)
+    return _verify_all(fallback_vectors, origin_go_verifier, origin_typescript_runtime)
 
 
 @then('both evidence-signed issuer observations fail with "key namespace mismatch"')
@@ -228,9 +276,15 @@ def _evidence_signed_refused(origin_results: list[VerificationResult]) -> None:
         if not result.expected_acceptance and "attestation" not in result.vector_id
     ]
     assert len(refused) == 2
-    assert all(not result.python_accepted and not result.go_accepted for result in refused)
+    assert all(
+        not result.python_accepted
+        and not result.go_accepted
+        and not result.typescript_accepted
+        for result in refused
+    )
     assert all("namespace" in result.python_error for result in refused)
     assert all("key.namespace_mismatch" in result.go_error for result in refused)
+    assert all(result.typescript_error == "key.namespace_mismatch" for result in refused)
 
 
 @then("both issuer-signed issuer observations verify")
@@ -243,7 +297,10 @@ def _issuer_signed_accepted(origin_results: list[VerificationResult]) -> None:
         and "customer-and-issuer" not in result.vector_id
     ]
     assert len(accepted) == 2
-    assert all(result.python_accepted and result.go_accepted for result in accepted)
+    assert all(
+        result.python_accepted and result.go_accepted and result.typescript_accepted
+        for result in accepted
+    )
 
 
 @then("only the complete two-proof AttestationWindow verifies")
@@ -257,6 +314,7 @@ def _attestation_origin_proofs(origin_results: list[VerificationResult]) -> None
     assert all(
         result.python_accepted == result.expected_acceptance
         and result.go_accepted == result.expected_acceptance
+        and result.typescript_accepted == result.expected_acceptance
         for result in attestations
     )
 
@@ -264,10 +322,19 @@ def _attestation_origin_proofs(origin_results: list[VerificationResult]) -> None
 @then("no issuer observation is emitted")
 def _no_fallback_output(fallback_results: list[VerificationResult]) -> None:
     assert fallback_results
-    assert all(not result.python_accepted and not result.go_accepted for result in fallback_results)
+    assert all(
+        not result.python_accepted
+        and not result.go_accepted
+        and not result.typescript_accepted
+        for result in fallback_results
+    )
 
 
 @then("the evidence key is not accepted as a fallback signer")
 def _no_evidence_fallback(fallback_results: list[VerificationResult]) -> None:
     assert all("namespace" in result.python_error for result in fallback_results)
     assert all("key.namespace_mismatch" in result.go_error for result in fallback_results)
+    assert all(
+        result.typescript_error == "key.namespace_mismatch"
+        for result in fallback_results
+    )

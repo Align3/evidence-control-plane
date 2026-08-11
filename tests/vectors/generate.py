@@ -291,7 +291,7 @@ def _record_origin_adversarial_vectors() -> list[dict[str, Any]]:
             {
                 "id": f"reject-{record_type.lower()}-signed-by-evidence-key",
                 "operation": "verify_canonical_evidence_record",
-                "record": _dump(signed),
+                "received_wire_utf8_hex": canonicalize(_dump(signed)).hex(),
                 "verification_keys": _registered_keyring(K1="evidence"),
                 "pre_fix": {
                     "revision": "4fbba6c",

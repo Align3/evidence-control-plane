@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
-import { EvidenceEmitter, RECORD_TYPES, decodeBase64Url, verifyStream, type JsonObject, type RecordBodyMap, type RecordType } from "../src/index.ts";
+import { EvidenceEmitter, EvidenceError, RECORD_TYPES, decodeBase64Url, primarySignerNamespace, verifyStream, type JsonObject, type RecordBodyMap, type RecordType } from "../src/index.ts";
 
 const timestamp = "2026-08-01T12:00:00.000+01:00";
 const digest = `sha256:${"0".repeat(64)}` as const;
@@ -24,7 +24,7 @@ const bodies: Record<RecordType, JsonObject> = {
   RevocationRecord: { attestation_ref: "attestation-1", reason: "superseded", issuer: "issuer-1", effective_at: timestamp, superseding_ref: null, relying_party_notification_status: "pending" },
 };
 
-test("the SDK emits and locally signs every section-5 record type", () => {
+test("the customer SDK emits only evidence-primary section-5 record types", () => {
   const emitter = new EvidenceEmitter({
     tenantId: "tenant-1",
     boundaryRef: "boundary-1",
@@ -34,12 +34,20 @@ test("the SDK emits and locally signs every section-5 record type", () => {
     privateKeySeed: seed,
     now: () => timestamp,
   });
-  const records = RECORD_TYPES.map((type) => emitter.emit(type, bodies[type] as RecordBodyMap[typeof type]));
-  assert.deepEqual(records.map((record) => record.record_type), RECORD_TYPES);
-  assert.deepEqual(records.map((record) => record.sequence), RECORD_TYPES.map((_, index) => index + 1));
+  const customerTypes = RECORD_TYPES.filter((type) => primarySignerNamespace(type) === "evidence");
+  const records = customerTypes.map((type) => emitter.emit(type, bodies[type] as RecordBodyMap[typeof type]));
+  assert.deepEqual(records.map((record) => record.record_type), customerTypes);
+  assert.deepEqual(records.map((record) => record.sequence), customerTypes.map((_, index) => index + 1));
   assert.ok(records.every((record) => record.signature.alg === "ed25519"));
   const result = verifyStream(records as unknown as JsonObject[], { K1: { namespace: "evidence", public_key: publicKey } });
-  assert.equal(result.endSequence, RECORD_TYPES.length);
+  assert.equal(result.endSequence, customerTypes.length);
+
+  for (const type of RECORD_TYPES.filter((value) => primarySignerNamespace(value) === "issuer")) {
+    assert.throws(
+      () => emitter.emit(type, bodies[type] as RecordBodyMap[typeof type]),
+      (error: unknown) => error instanceof EvidenceError && error.code === "key.namespace_mismatch",
+    );
+  }
 });
 
 test("CoverageGap emission is entirely local", () => {

@@ -1,6 +1,7 @@
 import { decodeBase64Url, digestBytes, sha256Bytes, verifyEd25519 } from "./crypto.ts";
 import { EvidenceError, refuse } from "./errors.ts";
 import { canonicalize, canonicalStringify, parseCanonicalJson, type JsonObject, type JsonValue } from "./json.ts";
+import { primarySignerNamespace, type PrimarySignerNamespace } from "./origin.ts";
 import { isObject, validateRecord } from "./schema.ts";
 import { verifyAttestationSignatures, verifyCustomerSignature } from "./signing.ts";
 import type { VerificationKeyring } from "./types.ts";
@@ -9,13 +10,21 @@ const CONTINUITY_REQUIRED = ["alg", "predecessor_key_id", "new_key_id", "new_pub
 const CONTINUITY_ALLOWED: ReadonlySet<string> = new Set(CONTINUITY_REQUIRED);
 
 export function verifyEvidenceRecordSignature(record: JsonObject, keyring: VerificationKeyring): string {
+  return verifyRecordOriginSignature(record, keyring);
+}
+
+/** Verify a primary proof under the namespace fixed by record_type (ES-033). */
+export function verifyRecordOriginSignature(record: JsonObject, keyring: VerificationKeyring): string {
   if (!isObject(record.signature) || typeof record.signature.key_id !== "string") {
     refuse("signature.missing_customer_member", "record signature is missing key_id");
   }
   const keyId = record.signature.key_id;
   const key = keyring[keyId];
-  if (key === undefined) refuse("signature.key_unknown", `unknown evidence key ${keyId}`);
-  if (key.namespace !== "evidence") refuse("key.namespace_mismatch", `${keyId} is not an evidence key`);
+  if (key === undefined) refuse("signature.key_unknown", `unknown signing key ${keyId}`);
+  const expected = primarySignerNamespace(record.record_type);
+  if (key.namespace !== expected) {
+    refuse("key.namespace_mismatch", `${record.record_type as string} requires a ${expected} primary signer`);
+  }
   return verifyCustomerSignature(record, { [keyId]: key.public_key });
 }
 
@@ -45,7 +54,7 @@ export function verifyCanonicalEvidenceRecordWire(wire: Uint8Array, keyring: Ver
     }
     verifyAttestationSignatures(parsed, evidenceKeys, issuerKeys);
   } else {
-    verifyEvidenceRecordSignature(parsed, keyring);
+    verifyRecordOriginSignature(parsed, keyring);
   }
   return { recordDigest: digestBytes(canonical) };
 }
@@ -62,11 +71,19 @@ export function verifyStream(records: JsonObject[], keyring: VerificationKeyring
   const streamId = records[0]!.stream_id;
   if (typeof streamId !== "string") refuse("chain.stream_id_mismatch", "stream_id is missing");
   if (records.some((record) => record.stream_id !== streamId)) refuse("chain.stream_id_mismatch", "records have mixed stream_id values");
+  const streamNamespace = primarySignerNamespace(records[0]!.record_type);
 
   const seen = new Map<number, string>();
   for (const record of records) {
     if (!Number.isSafeInteger(record.sequence)) refuse("chain.sequence_gap", "record sequence is invalid");
     const sequence = record.sequence as number;
+    const recordNamespace = primarySignerNamespace(record.record_type);
+    if (recordNamespace !== streamNamespace) {
+      const details = sequence > 1
+        ? { break_sequence: sequence, valid_through_sequence: sequence - 1 }
+        : {};
+      refuse("key.namespace_mismatch", "a stream cannot change primary signer namespace", details);
+    }
     const priorId = seen.get(sequence);
     if (priorId !== undefined && priorId !== record.record_id) {
       refuse("chain.fork", `authenticated fork at sequence ${sequence}`, { break_sequence: sequence, attestation_permitted: false });
@@ -98,7 +115,12 @@ export function verifyStream(records: JsonObject[], keyring: VerificationKeyring
     }
     const registered = keyring[keyId];
     if (registered === undefined) refuse("signature.key_unknown", `unknown key ${keyId}`);
-    if (registered.namespace !== "evidence") refuse("key.namespace_mismatch", `${keyId} is not an evidence key`);
+    if (registered.namespace !== streamNamespace) {
+      const details = sequence > 1
+        ? { break_sequence: sequence, valid_through_sequence: sequence - 1 }
+        : {};
+      refuse("key.namespace_mismatch", `${keyId} is not a ${streamNamespace} key`, details);
+    }
 
     if (priorRecord !== undefined) {
       if (record.prev_digest !== priorDigest) {
@@ -112,7 +134,7 @@ export function verifyStream(records: JsonObject[], keyring: VerificationKeyring
       }
       if (continuity !== undefined) {
         try {
-          verifyContinuity(continuity, record, priorKeyId!, keyId, keyring);
+          verifyContinuity(continuity, record, priorKeyId!, keyId, keyring, streamNamespace);
         } catch (error) {
           if (!(error instanceof EvidenceError)) throw error;
           const details: Record<string, unknown> = { break_sequence: sequence };
@@ -138,7 +160,7 @@ export function verifyStream(records: JsonObject[], keyring: VerificationKeyring
   };
 }
 
-function verifyContinuity(value: JsonValue, record: JsonObject, predecessorKeyId: string, newKeyId: string, keyring: VerificationKeyring): void {
+function verifyContinuity(value: JsonValue, record: JsonObject, predecessorKeyId: string, newKeyId: string, keyring: VerificationKeyring, namespace: PrimarySignerNamespace): void {
   if (!isObject(value)) refuse("continuity.missing_member", "continuity must be an object");
   for (const key of Object.keys(value)) {
     if (!CONTINUITY_ALLOWED.has(key)) refuse("continuity.unknown_member", `unknown continuity member: ${key}`);
@@ -158,7 +180,7 @@ function verifyContinuity(value: JsonValue, record: JsonObject, predecessorKeyId
   const newKey = keyring[newKeyId];
   const predecessorKey = keyring[predecessorKeyId];
   if (newKey === undefined || predecessorKey === undefined) refuse("signature.key_unknown", "continuity key is not registered");
-  if (newKey.namespace !== "evidence" || predecessorKey.namespace !== "evidence") refuse("key.namespace_mismatch", "continuity keys must be evidence keys");
+  if (newKey.namespace !== namespace || predecessorKey.namespace !== namespace) refuse("key.namespace_mismatch", `continuity keys must be ${namespace} keys`);
   if (value.new_public_key !== newKey.public_key) refuse("continuity.new_public_key_mismatch", "continuity public key does not match keyring");
   const signed = { ...value };
   delete signed.sig;

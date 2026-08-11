@@ -3,7 +3,8 @@ import { EvidenceError, refuse } from "./errors.ts";
 import { canonicalize, canonicalizeJson, canonicalStringify, type JsonObject } from "./json.ts";
 import { validateRecord } from "./schema.ts";
 import { signRecord, verifyAttestationSignatures, verifyCustomerSignature } from "./signing.ts";
-import { verifyCanonicalEvidenceRecordWire, verifyEvidenceRecordSignature, verifyIngestionReceipt, verifyStream } from "./verification.ts";
+import { primarySignerNamespace } from "./origin.ts";
+import { verifyCanonicalEvidenceRecordWire, verifyEvidenceRecordSignature, verifyIngestionReceipt, verifyRecordOriginSignature, verifyStream } from "./verification.ts";
 
 export interface ConformanceVector extends JsonObject {
   id: string;
@@ -69,6 +70,11 @@ export function runConformanceVector(vector: ConformanceVector): JsonObject {
         const record = requiredObject(vector, "record");
         const keyId = verifyEvidenceRecordSignature(record, requiredObject(vector, "verification_keys") as never);
         return { accepted: true, key_id: keyId, record_digest: digestBytes(canonicalize(record)) };
+      }
+      case "verify_record_origin_signature": {
+        const record = requiredObject(vector, "record");
+        const keyId = verifyRecordOriginSignature(record, requiredObject(vector, "verification_keys") as never);
+        return { accepted: true, key_id: keyId, namespace: primarySignerNamespace(record.record_type) };
       }
       case "verify_canonical_evidence_record": {
         const result = verifyCanonicalEvidenceRecordWire(Buffer.from(requiredString(vector, "received_wire_utf8_hex"), "hex"), requiredObject(vector, "verification_keys") as never);

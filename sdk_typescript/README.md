@@ -14,8 +14,11 @@ npm run test:vectors
 
 ## Emission
 
-`EvidenceEmitter` exposes one method for every record type in specification
-section 5. It signs locally with a client-held 32-byte Ed25519 seed, advances a
+`EvidenceEmitter` exposes the section-5 method surface but emits only types that
+ES-033 assigns to a customer `evidence` key. Calls for `PopulationRecord`,
+`ExternalConfirmation`, or `RevocationRecord` fail closed; those are issuer
+claims and cannot be authored with the client's seed. For customer-origin
+types it signs locally with a client-held 32-byte Ed25519 seed, advances a
 per-stream sequence, and derives each `prev_digest` from the complete preceding
 record including its signature. `emitCoverageGap()` performs no network I/O.
 

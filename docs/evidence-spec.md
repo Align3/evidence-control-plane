@@ -241,7 +241,7 @@ Body: `attestation_ref`, `reason`, `issuer`, `effective_at`, `superseding_ref`, 
 | Issuer observations | `PopulationRecord`, `ExternalConfirmation` | Primary `issuer`-namespace signature |
 | Issuer conclusions | `AttestationWindow`, `RevocationRecord` | `AttestationWindow`: primary `evidence` proof plus mandatory nested `issuer` counter-signature under ES-023. `RevocationRecord`: primary `issuer`-namespace signature. |
 
-`IngestionReceipt` is not a §5 record envelope but is an issuer observation in the same category: its detached signature requires the `issuer` namespace under ES-030. No §5 type falls through to a default category. Adding a record type therefore requires amending this table, both verifiers, and the normative vectors.
+`IngestionReceipt` is not a §5 record envelope but is an issuer observation in the same category: its detached signature requires the `issuer` namespace under ES-030. No §5 type falls through to a default category. Adding a record type therefore requires amending this table, every shipped verifier, and the normative vectors.
 
 A stream contains one primary-signer namespace. Key continuity may rotate custody within that namespace but MUST NOT bridge `evidence` and `issuer`; a namespace change is a different stream, not a rotation. Connector interfaces return unsigned destination observations. The hosted producer constructs the governed envelope and applies the issuer signature; accepting a customer-signed connector result would authenticate that the customer supplied a denominator or confirmation, not that the issuer retrieved it.
 
@@ -473,7 +473,7 @@ And neither record is rewritten into the other version's canonical form
 Given a PopulationRecord and ExternalConfirmation signed by an evidence-namespace key
 And equivalent records signed by an issuer-namespace key
 And an AttestationWindow with both required proofs and one with its issuer proof removed
-When Python and Go verify each complete record under the same registered keyring
+When Python, Go, and TypeScript verify each complete record under the same registered keyring
 Then both evidence-signed issuer observations fail with "key namespace mismatch"
 And both issuer-signed issuer observations verify
 And only the complete two-proof AttestationWindow verifies
@@ -509,7 +509,7 @@ And coverage_ratio is not zero
 
 > **Verification for ES-004 — scenario-bearing; deferred EV-33.** This is externally observable runtime behaviour; EV-33 owns its missing Gherkin scenario and executable acceptance proof.
 
-> **Verification for ES-033 — scenario-bearing; ES-S-019.** Python and Go verify the same normative origin-dispatch vectors, including both directions of the namespace substitution.
+> **Verification for ES-033 — scenario-bearing; ES-S-019.** Python, Go, and TypeScript verify the same normative origin-dispatch vectors, including both directions of the namespace substitution.
 
 > **Verification for ES-007 — scenario-bearing; deferred EV-33.** This is externally observable runtime behaviour; EV-33 owns its missing Gherkin scenario and executable acceptance proof.
 

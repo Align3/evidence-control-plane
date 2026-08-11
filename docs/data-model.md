@@ -91,7 +91,7 @@ Registered collection sources. Records from unregistered collectors are rejected
 | `predecessor_key_id` | text null | |
 | `compromised_from` | timestamptz null | SE-009 |
 
-**DM-008** — A key may authenticate only the record-origin role assigned by ES-033. Customer-origin primary signatures require `evidence`; `PopulationRecord`, `ExternalConfirmation`, and `RevocationRecord` primary signatures require `issuer`; an `AttestationWindow` requires an `evidence` primary proof and an `issuer` counter-signature. `IngestionReceipt` also requires `issuer`. The database pins these discriminators to record type, and both verifiers dispatch from the record type rather than from caller-selected mode.
+**DM-008** — A key may authenticate only the record-origin role assigned by ES-033. Customer-origin primary signatures require `evidence`; `PopulationRecord`, `ExternalConfirmation`, and `RevocationRecord` primary signatures require `issuer`; an `AttestationWindow` requires an `evidence` primary proof and an `issuer` counter-signature. `IngestionReceipt` also requires `issuer`. The database pins these discriminators to record type, and every shipped verifier dispatches from the record type rather than from caller-selected mode.
 
 For SE-018, every `evidence` key is bound to exactly one registered collector by the composite foreign key `(tenant_id, collector_id)`; an `issuer` key is bound to none. Key rotation may create multiple evidence keys for one collector, but one evidence key cannot authenticate two collector identities. The database refuses both an unbound evidence key and an issuer key carrying a collector binding. Ingestion requires the record's declared `source.collector_id` to equal the signing key's binding.
 

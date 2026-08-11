@@ -437,7 +437,7 @@ Provide an independently controlled and externally verifiable history of signed 
 
 #### EV-40 — Record-origin signing categories
 Replace the false two-category assumption that every evidence record is customer-authored except for an issuer counter-signature with an explicit three-category model: customer observations are customer-signed; hosted issuer observations (`IngestionReceipt`, `PopulationRecord`, and `ExternalConfirmation`) are issuer-signed; issuer conclusions are issuer-authenticated (`AttestationWindow` retains its two-proof counter-signature form, while `RevocationRecord` carries an issuer primary signature). Namespace dispatch is closed by record type in Python, Go, and the database. Correct EV-13 so connectors return destination observations and the hosted service, not the connector caller or customer, authors issuer observations. State the deployment consequence explicitly: P2/P3 placement does not change whose claim an observation is, so issuer signing remains mandatory and issuer-key custody must be available without silently converting the record to customer evidence.
-**Touches:** evidence, security, architecture, data-model, and QA documentation; `sdk_python/evidence/`, `services/ingestion/`, `services/connectors/`, `services/ledger/`, Go verifier, migrations, normative vectors, and signing/namespace acceptance tests
+**Touches:** evidence, security, architecture, data-model, and QA documentation; `sdk_python/evidence/`, `sdk_typescript/`, `services/ingestion/`, `services/connectors/`, `services/ledger/`, Go verifier, migrations, normative vectors, and signing/namespace acceptance tests
 **Depends on:** EV-05, EV-13, EV-27, EV-30
 **Satisfies:** ES-033, SE-001, SE-002, SE-003, DM-008
 **Acceptance:** ES-S-019, SE-S-008
