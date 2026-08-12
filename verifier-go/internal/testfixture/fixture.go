@@ -172,28 +172,18 @@ func (e Envelope) SignAttestation(keys Keys) ([]byte, error) {
 	return canonical(withCustomer)
 }
 
-// Bundle assembles a canonical bundle container from complete signed records.
-// The container is built by sorting member names, which is JCS order for these
-// ASCII names, so the records inside keep the exact bytes they were signed as.
-func Bundle(members map[string][]byte, lists map[string][][]byte) ([]byte, error) {
-	container := map[string]any{}
-	for k, v := range members {
-		if v == nil {
+// Bundle assembles an ES-034 container: a JSON array of complete signed
+// records, in the order given. The records keep the exact bytes they were
+// signed as, so the array is canonical whenever its elements are.
+func Bundle(records ...[]byte) ([]byte, error) {
+	raws := make([]json.RawMessage, 0, len(records))
+	for _, r := range records {
+		if r == nil {
 			continue
 		}
-		container[k] = json.RawMessage(v)
+		raws = append(raws, json.RawMessage(r))
 	}
-	for k, vs := range lists {
-		if vs == nil {
-			continue
-		}
-		raws := make([]json.RawMessage, 0, len(vs))
-		for _, v := range vs {
-			raws = append(raws, json.RawMessage(v))
-		}
-		container[k] = raws
-	}
-	return canonical(container)
+	return canonical(raws)
 }
 
 // AttestationBody returns a §5.13 AttestationWindow body with every mandatory

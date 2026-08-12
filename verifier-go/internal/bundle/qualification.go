@@ -60,15 +60,14 @@ func checkQualification(b *Bundle) []Finding {
 	)
 
 	for i, rec := range b.Qualifications {
-		if got := rec.Parsed.RecordType(); got != "QualificationRecord" {
-			out = append(out, finding(CodeWrongRecordType,
-				"qualification_records[%d] is a %s", i, got))
-			continue
-		}
+		// No type check is needed: ES-034 routes by the record's own
+		// record_type, so a record reaching this slice is a
+		// QualificationRecord by construction. Under a keyed container it
+		// would not have been, which is why that container was rejected.
 		assigned, ok := rec.BodyString("assigned_class")
 		if !ok {
 			out = append(out, finding(CodeQualificationUnparsed,
-				"qualification_records[%d] has no assigned_class", i))
+				"bundle qualification %d has no assigned_class", i))
 			continue
 		}
 		if assigned != claimed {
@@ -83,13 +82,13 @@ func checkQualification(b *Bundle) []Finding {
 		qualifiedAtStr, ok := rec.BodyString("qualified_at")
 		if !ok {
 			out = append(out, finding(CodeQualificationUnparsed,
-				"qualification_records[%d] has no qualified_at, so TM-013 cannot be checked", i))
+				"bundle qualification %d has no qualified_at, so TM-013 cannot be checked", i))
 			continue
 		}
 		qualifiedAt, err := time.Parse(time.RFC3339, qualifiedAtStr)
 		if err != nil {
 			out = append(out, finding(CodeQualificationUnparsed,
-				"qualification_records[%d] qualified_at %q is not RFC 3339: %v",
+				"bundle qualification %d qualified_at %q is not RFC 3339: %v",
 				i, qualifiedAtStr, err))
 			continue
 		}

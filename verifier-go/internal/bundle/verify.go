@@ -315,37 +315,27 @@ func verifySupporting(b *Bundle, keys map[string]evidence.RegisteredKey) []Findi
 	var out []Finding
 	tenant := b.Attestation.Parsed.TenantID()
 
-	groups := []struct {
-		label   string
-		records []*Record
-	}{
-		{"qualification_records", b.Qualifications},
-		{"population_records", b.Populations},
-		{"gap_records", b.Gaps},
-	}
-	if b.Boundary != nil {
-		groups = append(groups, struct {
-			label   string
-			records []*Record
-		}{"boundary", []*Record{b.Boundary}})
-	}
-
-	for _, g := range groups {
-		for i, rec := range g.records {
-			if _, err := evidence.VerifyCanonicalEvidenceRecord(rec.Wire, keys); err != nil {
-				out = append(out, finding(CodeSignatureInvalid,
-					"%s[%d] does not verify: %v", g.label, i, err))
-				continue
-			}
-			// SE-011 at bundle level: a record from another tenant is another
-			// customer's evidence, and assembling it into this bundle is how a
-			// weak tenant's qualification would come to support a strong
-			// tenant's claim.
-			if got := rec.Parsed.TenantID(); got != tenant {
-				out = append(out, finding(CodeTenantMismatch,
-					"%s[%d] belongs to tenant %q, but the attestation is for %q",
-					g.label, i, got, tenant))
-			}
+	// Every record, whatever its type — including the ones this package does
+	// not route. A record carried but never authenticated is a record the
+	// relying party believes was checked.
+	for _, rec := range b.Records {
+		if rec == b.Attestation {
+			continue // already verified, with its ES-023 counter-signature
+		}
+		if _, err := evidence.VerifyCanonicalEvidenceRecord(rec.Wire, keys); err != nil {
+			out = append(out, finding(CodeSignatureInvalid,
+				"bundle[%d] (%s) does not verify: %v",
+				rec.Index, rec.Parsed.RecordType(), err))
+			continue
+		}
+		// SE-011 at bundle level: a record from another tenant is another
+		// customer's evidence, and assembling it into this bundle is how a
+		// weak tenant's qualification would come to support a strong
+		// tenant's claim.
+		if got := rec.Parsed.TenantID(); got != tenant {
+			out = append(out, finding(CodeTenantMismatch,
+				"bundle[%d] (%s) belongs to tenant %q, but the attestation is for %q",
+				rec.Index, rec.Parsed.RecordType(), got, tenant))
 		}
 	}
 	return out

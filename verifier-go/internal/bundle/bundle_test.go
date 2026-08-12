@@ -74,7 +74,7 @@ func qualificationID(i int) string {
 	return "01890f47-2f58-7cc0-98c4-00000000010" + string(rune('0'+i))
 }
 
-// build assembles and returns the canonical bundle bytes.
+// build assembles and returns the canonical ES-034 bundle bytes.
 func (b *builder) build() []byte {
 	b.t.Helper()
 	b.envelope["body"] = b.attestation
@@ -82,7 +82,7 @@ func (b *builder) build() []byte {
 	if err != nil {
 		b.t.Fatalf("sign attestation: %v", err)
 	}
-	quals := make([][]byte, 0, len(b.qualification))
+	records := [][]byte{attWire}
 	refs := make([]string, 0, len(b.qualification))
 	for i, qb := range b.qualification {
 		refs = append(refs, qualificationID(i))
@@ -100,9 +100,8 @@ func (b *builder) build() []byte {
 		if err != nil {
 			b.t.Fatalf("sign qualification: %v", err)
 		}
-		quals = append(quals, wire)
+		records = append(records, wire)
 	}
-	members := map[string][]byte{"attestation": attWire}
 	if b.withBoundary {
 		declared := refs
 		if !b.declareQualifications {
@@ -115,12 +114,9 @@ func (b *builder) build() []byte {
 		if err != nil {
 			b.t.Fatalf("sign boundary: %v", err)
 		}
-		members["boundary"] = boundaryWire
+		records = append(records, boundaryWire)
 	}
-	out, err := testfixture.Bundle(
-		members,
-		map[string][][]byte{"qualification_records": quals},
-	)
+	out, err := testfixture.Bundle(records...)
 	if err != nil {
 		b.t.Fatalf("assemble bundle: %v", err)
 	}
@@ -180,19 +176,79 @@ func TestNonCanonicalBundleIsRefused(t *testing.T) {
 	}
 }
 
-func TestUnknownContainerMemberIsRefused(t *testing.T) {
-	// A bundle carrying a summary of its own coverage is exactly the input a
-	// verifier must not quietly ignore: ignoring it means the relying party
-	// reads a field the verifier never checked.
+// TestKeyedContainerIsRefused: ES-034 is an array. A keyed object is the shape
+// this verifier used to accept, and accepting both would reintroduce the
+// role-stated-separately-from-the-record failure that disqualified it.
+func TestKeyedContainerIsRefused(t *testing.T) {
 	raw := []byte(`{"attestation":{},"coverage_summary":{"ratio":1}}`)
 	if _, err := Parse(raw); err == nil {
-		t.Fatal("bundle with an unrecognised member parsed")
+		t.Fatal("a keyed container parsed; ES-034 defines an array")
 	}
 }
 
 func TestBundleWithoutAttestationIsRefused(t *testing.T) {
-	if _, err := Parse([]byte(`{"qualification_records":[]}`)); err == nil {
-		t.Fatal("a bundle with no attestation parsed")
+	if _, err := Parse([]byte(`[]`)); err == nil {
+		t.Fatal("an empty bundle parsed")
+	}
+}
+
+// TestTwoAttestationsRefused: a bundle carrying two conclusions has no single
+// status to report, and choosing one would make the verdict depend on
+// container order.
+func TestTwoAttestationsRefused(t *testing.T) {
+	b := newBuilder(t)
+	b.envelope["body"] = b.attestation
+	wire, err := b.envelope.SignAttestation(b.keys)
+	if err != nil {
+		t.Fatalf("sign: %v", err)
+	}
+	container, err := testfixture.Bundle(wire, wire)
+	if err != nil {
+		t.Fatalf("assemble: %v", err)
+	}
+	if _, err := Parse(container); err == nil {
+		t.Fatal("a bundle with two AttestationWindows parsed")
+	}
+}
+
+// TestRecordsCannotBeMisfiled is the property the array container exists for.
+// Under the keyed container a signed CoverageGap placed in population_records
+// reached the coverage engine as a population, vanishing from the gap set
+// CM-014 conservation is checked against — a gap-hiding path built entirely
+// out of validly signed records. Routing from the record's own record_type
+// makes that unexpressible, and this pins it.
+func TestRecordsCannotBeMisfiled(t *testing.T) {
+	b := newBuilder(t)
+	b.envelope["body"] = b.attestation
+	attWire, err := b.envelope.SignAttestation(b.keys)
+	if err != nil {
+		t.Fatalf("sign attestation: %v", err)
+	}
+	gapWire, err := testfixture.NewEnvelope("CoverageGap",
+		"01890f47-2f58-7cc0-98c4-000000000301", tenant, "gaps-1",
+		map[string]any{
+			"gap_start": "2026-08-05T00:00:00Z", "gap_end": "2026-08-06T00:00:00Z",
+			"affected_scope": map[string]any{}, "cause": "collector_unreachable",
+			"detection_source": "collector", "exposure": "known",
+			"actions_during_gap": nil,
+		}).Sign(testfixture.EvidenceKeyID, b.keys.Evidence)
+	if err != nil {
+		t.Fatalf("sign gap: %v", err)
+	}
+	container, err := testfixture.Bundle(attWire, gapWire)
+	if err != nil {
+		t.Fatalf("assemble: %v", err)
+	}
+	parsed, err := Parse(container)
+	if err != nil {
+		t.Fatalf("parse: %v", err)
+	}
+	if len(parsed.Gaps) != 1 {
+		t.Fatalf("the gap was not routed to Gaps: %d", len(parsed.Gaps))
+	}
+	if len(parsed.Populations) != 0 {
+		t.Fatalf("a CoverageGap reached the population bucket: %d",
+			len(parsed.Populations))
 	}
 }
 
@@ -210,7 +266,7 @@ func TestAttestationWithoutIssuerCounterSignature(t *testing.T) {
 	if err != nil {
 		t.Fatalf("sign: %v", err)
 	}
-	container, err := testfixture.Bundle(map[string][]byte{"attestation": wire}, nil)
+	container, err := testfixture.Bundle(wire)
 	if err != nil {
 		t.Fatalf("bundle: %v", err)
 	}

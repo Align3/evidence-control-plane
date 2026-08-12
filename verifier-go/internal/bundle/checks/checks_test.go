@@ -42,10 +42,7 @@ func build(t *testing.T, overrides map[string]any) (*bundle.Bundle, testfixture.
 	if err != nil {
 		t.Fatalf("sign qualification: %v", err)
 	}
-	container, err := testfixture.Bundle(
-		map[string][]byte{"attestation": attWire},
-		map[string][][]byte{"qualification_records": {qualWire}},
-	)
+	container, err := testfixture.Bundle(attWire, qualWire)
 	if err != nil {
 		t.Fatalf("assemble: %v", err)
 	}
@@ -179,10 +176,7 @@ func TestSupportingRecordsCrossTheSeam(t *testing.T) {
 	if err != nil {
 		t.Fatalf("sign attestation: %v", err)
 	}
-	container, err := testfixture.Bundle(
-		map[string][]byte{"attestation": attWire},
-		map[string][][]byte{"gap_records": {gapWire}},
-	)
+	container, err := testfixture.Bundle(attWire, gapWire)
 	if err != nil {
 		t.Fatalf("assemble: %v", err)
 	}
@@ -210,16 +204,16 @@ func TestSupportingRecordsCrossTheSeam(t *testing.T) {
 	}
 }
 
-// TestTheTwoContainersClassifyRecordsIdentically pins the one thing that can go
+// TestBothPackagesClassifyRecordsIdentically guards the one thing that can go
 // wrong while both halves stay individually correct.
 //
-// internal/coverage still carries ParseBundle, a flat array container that
-// predates the shipped keyed one and is reachable only from that package's own
-// tests. The risk is drift: the coverage suite keeps passing against a
-// container the verifier no longer accepts, so its evidence stops being
-// evidence about the shipped path. This asserts that the same records, routed
-// through both containers, land in the same buckets.
-func TestTheTwoContainersClassifyRecordsIdentically(t *testing.T) {
+// ES-034 settled the container on the array, and both packages now parse it —
+// internal/bundle for the shipped path, coverage.ParseBundle for that
+// package's own fixtures. Two parsers of one format can still drift, and if
+// they do, the coverage suite stops being evidence about the shipped path.
+// This asserts the same bytes land in the same buckets and reach the same
+// conclusion either way.
+func TestBothPackagesClassifyRecordsIdentically(t *testing.T) {
 	keys, err := testfixture.NewKeys()
 	if err != nil {
 		t.Fatalf("keys: %v", err)
@@ -250,66 +244,53 @@ func TestTheTwoContainersClassifyRecordsIdentically(t *testing.T) {
 		t.Fatalf("sign qualification: %v", err)
 	}
 
-	// Route 1: the shipped keyed container, through internal/bundle.
-	container, err := testfixture.Bundle(
-		map[string][]byte{"attestation": attWire},
-		map[string][][]byte{
-			"gap_records":           {gapWire},
-			"qualification_records": {qualWire},
-		},
-	)
+	container, err := testfixture.Bundle(attWire, gapWire, qualWire)
 	if err != nil {
 		t.Fatalf("assemble: %v", err)
 	}
+
 	parsed, err := bundle.Parse(container)
 	if err != nil {
-		t.Fatalf("parse keyed container: %v", err)
+		t.Fatalf("internal/bundle refused the container: %v", err)
 	}
-	viaKeyed := toCoverageBundle(parsed)
+	viaBundle := toCoverageBundle(parsed)
 
-	// Route 2: the flat array container, through coverage.ParseBundle.
-	array := append([]byte("["), attWire...)
-	array = append(array, ',')
-	array = append(array, gapWire...)
-	array = append(array, ',')
-	array = append(array, qualWire...)
-	array = append(array, ']')
-	viaArray, err := coverage.ParseBundle(array)
+	viaCoverage, err := coverage.ParseBundle(container)
 	if err != nil {
-		t.Fatalf("parse array container: %v", err)
+		t.Fatalf("coverage.ParseBundle refused the same bytes: %v", err)
 	}
 
-	if viaKeyed.Window.RecordID() != viaArray.Window.RecordID() {
+	if viaBundle.Window.RecordID() != viaCoverage.Window.RecordID() {
 		t.Fatalf("attestation differs: %s vs %s",
-			viaKeyed.Window.RecordID(), viaArray.Window.RecordID())
+			viaBundle.Window.RecordID(), viaCoverage.Window.RecordID())
 	}
-	if len(viaKeyed.Gaps) != len(viaArray.Gaps) {
-		t.Fatalf("gap counts differ: keyed %d, array %d",
-			len(viaKeyed.Gaps), len(viaArray.Gaps))
+	if len(viaBundle.Gaps) != len(viaCoverage.Gaps) {
+		t.Fatalf("gap counts differ: %d vs %d",
+			len(viaBundle.Gaps), len(viaCoverage.Gaps))
 	}
-	if len(viaKeyed.Populations) != len(viaArray.Populations) {
-		t.Fatalf("population counts differ: keyed %d, array %d",
-			len(viaKeyed.Populations), len(viaArray.Populations))
+	if len(viaBundle.Populations) != len(viaCoverage.Populations) {
+		t.Fatalf("population counts differ: %d vs %d",
+			len(viaBundle.Populations), len(viaCoverage.Populations))
 	}
-	if len(viaKeyed.Other) != len(viaArray.Other) {
-		t.Fatalf("other counts differ: keyed %d, array %d",
-			len(viaKeyed.Other), len(viaArray.Other))
+	if len(viaBundle.Other) != len(viaCoverage.Other) {
+		t.Fatalf("other counts differ: %d vs %d",
+			len(viaBundle.Other), len(viaCoverage.Other))
 	}
 
-	// And the recomputation must reach the same conclusion either way.
-	fromKeyed, err := coverage.Recompute(viaKeyed)
+	fromBundle, err := coverage.Recompute(viaBundle)
 	if err != nil {
-		t.Fatalf("recompute keyed: %v", err)
+		t.Fatalf("recompute via bundle: %v", err)
 	}
-	fromArray, err := coverage.Recompute(viaArray)
+	fromCoverage, err := coverage.Recompute(viaCoverage)
 	if err != nil {
-		t.Fatalf("recompute array: %v", err)
+		t.Fatalf("recompute via coverage: %v", err)
 	}
-	if len(fromKeyed.Findings) != len(fromArray.Findings) ||
-		len(fromKeyed.Unresolved) != len(fromArray.Unresolved) {
-		t.Fatalf("the two containers reach different conclusions:\n"+
-			"  keyed  %d findings, %d unresolved\n  array  %d findings, %d unresolved",
-			len(fromKeyed.Findings), len(fromKeyed.Unresolved),
-			len(fromArray.Findings), len(fromArray.Unresolved))
+	if len(fromBundle.Findings) != len(fromCoverage.Findings) ||
+		len(fromBundle.Unresolved) != len(fromCoverage.Unresolved) {
+		t.Fatalf("the two parses reach different conclusions:\n"+
+			"  bundle    %d findings, %d unresolved\n"+
+			"  coverage  %d findings, %d unresolved",
+			len(fromBundle.Findings), len(fromBundle.Unresolved),
+			len(fromCoverage.Findings), len(fromCoverage.Unresolved))
 	}
 }

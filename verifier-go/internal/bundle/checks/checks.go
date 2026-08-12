@@ -33,21 +33,15 @@ func All() []bundle.Check {
 // Coverage runs CM-008 lattice re-checking, the ES-017 null-ratio rule, CM-014
 // gap conservation and the AR-003 assertion catalogue over the bundle.
 //
-// INTEGRATION NOTE — two bundle containers, recorded rather than reconciled.
-//
-// internal/coverage defines its own Bundle: a flat JSON array of complete
-// records, classified by record_type. internal/bundle defines a keyed object
-// container. Both were invented to fill the same hole — no document in the
-// corpus defines a bundle container, and data-model.md:261 explicitly leaves
-// the reconstruction to EV-19 — and the two builders, working from the
-// specification without seeing each other's code, produced different shapes.
-//
-// That is not a defect in either. It is the AG-017 detector firing exactly as
-// designed: two independent readings of the same corpus diverged because the
-// corpus does not decide, and the divergence is visible only because neither
-// side read the other. This adapter converts between them so the verifier
-// works today. It does not pick a winner, because picking one here is the
-// decision that belongs in the specification.
+// INTEGRATION NOTE. The two halves of EV-19 were built independently and
+// invented different bundle containers for the same undefined slot: a flat
+// record array here in internal/coverage, a keyed object in internal/bundle.
+// ES-034 settled it on the array, so this adapter no longer converts between
+// two shapes — both sides now classify records the same way, from each
+// record's own record_type, and the conversion below is a field mapping that
+// cannot misfile anything. The keyed container's ability to state a role that
+// disagreed with the record it held is what disqualified it; see the note in
+// internal/bundle.
 type Coverage struct{}
 
 // Name identifies the check in verifier output.
@@ -94,11 +88,12 @@ func codeOf(err error) string {
 	return "coverage.recomputation_failed"
 }
 
-// toCoverageBundle converts the keyed container into the flat one.
+// toCoverageBundle maps one already-classified bundle onto the other's struct.
 //
-// Only records that were already authenticated by internal/bundle reach here,
-// so this conversion cannot introduce an unverified input: bundle.Verify runs
-// every signature check before it calls any Check.
+// Both sides route from record_type, so this is a field mapping and not a
+// reclassification: no record can land in a different bucket here than the one
+// it was parsed into. Only records already authenticated by bundle.Verify reach
+// this function, which runs every signature check before it calls any Check.
 func toCoverageBundle(b *bundle.Bundle) *coverage.Bundle {
 	out := &coverage.Bundle{Window: b.Attestation.Parsed}
 	for _, rec := range b.Populations {
@@ -107,8 +102,12 @@ func toCoverageBundle(b *bundle.Bundle) *coverage.Bundle {
 	for _, rec := range b.Gaps {
 		out.Gaps = append(out.Gaps, rec.Parsed)
 	}
-	other := make([]*evidence.Record, 0, len(b.Qualifications)+1)
+	other := make([]*evidence.Record, 0,
+		len(b.Qualifications)+len(b.Other)+1)
 	for _, rec := range b.Qualifications {
+		other = append(other, rec.Parsed)
+	}
+	for _, rec := range b.Other {
 		other = append(other, rec.Parsed)
 	}
 	if b.Boundary != nil {

@@ -60,12 +60,6 @@ func checkBoundaryBinding(b *Bundle) ([]Finding, []string, []string) {
 		return out, unresolved, notes
 	}
 
-	if got := b.Boundary.Parsed.RecordType(); got != "AssuranceBoundary" {
-		out = append(out, finding(CodeWrongRecordType,
-			"bundle boundary is a %s, not an AssuranceBoundary", got))
-		return out, unresolved, notes
-	}
-
 	// The attestation's boundary_ref must name the boundary supplied. ES-031
 	// makes a boundary constitutive and self-referencing, so the reference is
 	// matched against the boundary's own record_id as well as its envelope
@@ -100,7 +94,7 @@ func checkBoundaryBinding(b *Bundle) ([]Finding, []string, []string) {
 		id := rec.Parsed.RecordID()
 		if !declaredSet[id] {
 			out = append(out, finding(CodeQualificationUndeclared,
-				"qualification_records[%d] (%s) is not among the boundary's "+
+				"bundle qualification %d (%s) is not among the boundary's "+
 					"qualification_refs; ES-009 makes the boundary the place a "+
 					"family's qualification is declared, so a record it does not "+
 					"declare cannot entitle a class under it", i, id))

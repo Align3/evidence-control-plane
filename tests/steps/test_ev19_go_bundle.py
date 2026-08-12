@@ -246,12 +246,15 @@ def build_bundle(
     keys: dict[str, Any],
     *,
     attestation_overrides: dict[str, Any] | None = None,
+    envelope_overrides: dict[str, Any] | None = None,
     qualification: tuple[str, str] = ("C1", "2026-06-01T00:00:00.000+00:00"),
+    extra_records: list[Any] | None = None,
+    extra_first: bool = False,
 ) -> bytes:
-    """Assemble a canonical bundle: a counter-signed attestation and its qualification."""
-    attestation = AttestationWindowRecord.model_validate(
-        _attestation_envelope(_attestation_body(**(attestation_overrides or {})))
-    )
+    """Assemble a canonical ES-034 bundle: an array of complete signed records."""
+    envelope = _attestation_envelope(_attestation_body(**(attestation_overrides or {})))
+    envelope.update(envelope_overrides or {})
+    attestation = AttestationWindowRecord.model_validate(envelope)
     attestation = sign_record(
         attestation, key_id=EVIDENCE_KEY_ID, private_key=keys["evidence"]
     )
@@ -276,22 +279,22 @@ def build_bundle(
     # sdk_python/evidence/signing.py). A plain model_dump would serialize
     # defaults the signature never covered, and the bundle would then be
     # refused for a defect in the fixture rather than in the subject.
-    container = {
-        "attestation": json.loads(
-            canonicalize(attestation.model_dump(mode="json", exclude_unset=True))
-        ),
-        "boundary": json.loads(
-            canonicalize(boundary.model_dump(mode="json", exclude_unset=True))
-        ),
-        "qualification_records": [
-            json.loads(
-                canonicalize(
-                    qualification_record.model_dump(mode="json", exclude_unset=True)
-                )
-            )
-        ],
-    }
-    return canonicalize(container)
+    # ES-034: a JSON array of complete signed records, classified by each
+    # record's own record_type. exclude_unset matches what the SDK actually
+    # signs (see _record_mapping in sdk_python/evidence/signing.py); a plain
+    # model_dump would serialize defaults the signature never covered, and the
+    # bundle would then be refused for a defect in the fixture rather than in
+    # the subject.
+    def wire(record: Any) -> Any:
+        return json.loads(canonicalize(record.model_dump(mode="json", exclude_unset=True)))
+
+    records = [wire(attestation), wire(boundary), wire(qualification_record)]
+    extras = [wire(r) for r in (extra_records or [])]
+    if extra_first:
+        records = extras + records
+    else:
+        records = records + extras
+    return canonicalize(records)
 
 
 def run_verifier(
@@ -358,12 +361,6 @@ def _signatures_succeed(offline_result: subprocess.CompletedProcess[str]) -> Non
     assert f"issuer key       {ISSUER_KEY_ID}" in output, output
 
 
-@then('revocation_status is reported as "unchecked"')
-def _revocation_unchecked(offline_result: subprocess.CompletedProcess[str]) -> None:
-    output = output_of(offline_result)
-    assert "revocation       unchecked" in output, output
-
-
 @then("the output does not state that the attestation is valid")
 def _not_valid(offline_result: subprocess.CompletedProcess[str]) -> None:
     import re
@@ -423,12 +420,16 @@ def _validate(
     # Shared by TM-S-005 and AR-S-004; each supplies whichever fixtures its own
     # Given steps defined.
     overrides = _optional(request, "attestation_overrides") or {}
+    envelope = _optional(request, "envelope_overrides") or {}
     qualification = _optional(request, "qualification") or (
         "C1",
         "2026-06-01T00:00:00.000+00:00",
     )
     bundle_bytes = build_bundle(
-        keys, attestation_overrides=overrides, qualification=qualification
+        keys,
+        attestation_overrides=overrides,
+        envelope_overrides=envelope,
+        qualification=qualification,
     )
     return run_verifier(go_verifier, keyring_file, bundle_bytes, "-offline")
 
@@ -491,4 +492,422 @@ def _result_not_valid(verify_result: subprocess.CompletedProcess[str]) -> None:
     assert verify_result.returncode != 0, (
         f"exit {verify_result.returncode}; an expired attestation must not "
         f"exit successfully\n{output}"
+    )
+
+
+# ---------------------------------------------------------------------------
+# ES-034 / ES-035 -- the bundle container and the schema registry
+# ---------------------------------------------------------------------------
+
+
+@scenario("evidence.feature", "ES-S-022 A record's role in a bundle comes from the record")
+def test_es_s_022() -> None:
+    """Bound by pytest-bdd."""
+
+
+def _coverage_gap_record(keys: dict[str, Any]) -> Any:
+    from sdk_python.evidence.schema import CoverageGapRecord
+
+    record = CoverageGapRecord.model_validate(
+        {
+            "record_id": "01890f47-2f58-7cc0-98c4-000000000301",
+            "record_type": "CoverageGap",
+            "schema_version": "1.0.0",
+            "tenant_id": "tenant-1",
+            "boundary_ref": "boundary-1",
+            "stream_id": "gaps-1",
+            "sequence": 1,
+            "prev_digest": None,
+            "source": {"collector": "ev19-acceptance", "version": "0.1.0"},
+            "clocks": {"source_time": "2026-07-05T00:00:00.000+00:00"},
+            "body": {
+                "gap_start": "2026-07-05T00:00:00.000+00:00",
+                "gap_end": "2026-07-06T00:00:00.000+00:00",
+                "affected_scope": {"families": ["refund.issue"]},
+                "cause": "collector_unreachable",
+                "detection_source": "collector",
+                "exposure": "known",
+                "actions_during_gap": None,
+            },
+            "signature": {},
+        }
+    )
+    return sign_record(record, key_id=EVIDENCE_KEY_ID, private_key=keys["evidence"])
+
+
+@given(
+    "a bundle carrying an attestation and a validly signed CoverageGap",
+    target_fixture="gap_bundles",
+)
+def _bundle_with_gap(keys: dict[str, Any]) -> list[bytes]:
+    # The same records in two different orders. If any classification depended
+    # on position, these would not agree -- which is the property an array
+    # container has and a keyed one does not.
+    gap = _coverage_gap_record(keys)
+    return [
+        build_bundle(keys, extra_records=[gap], extra_first=False),
+        build_bundle(keys, extra_records=[gap], extra_first=True),
+    ]
+
+
+@when("the verifier parses the bundle", target_fixture="gap_results")
+def _parse_gap_bundles(
+    go_verifier: Path, keyring_file: Path, gap_bundles: list[bytes]
+) -> list[subprocess.CompletedProcess[str]]:
+    return [run_verifier(go_verifier, keyring_file, b, "-offline") for b in gap_bundles]
+
+
+@then("the CoverageGap is classified as a gap")
+def _classified_as_gap(gap_results: list[subprocess.CompletedProcess[str]]) -> None:
+    # Observable through the verifier, not by reaching inside it (QA-003): a
+    # signed gap the attestation omits from gaps[] is caught by CM-014 gap
+    # conservation, and that check only sees records routed to the gap set.
+    output = output_of(gap_results[0])
+    assert "gap" in output.lower(), output
+    assert gap_results[0].returncode != 0, output
+
+
+@then("it is not classified as a population record")
+def _not_classified_as_population(
+    gap_results: list[subprocess.CompletedProcess[str]],
+) -> None:
+    output = output_of(gap_results[0])
+    # A gap routed into the population set would go missing from conservation
+    # and the bundle would stop being refused for it.
+    assert "REFUSED" in output, (
+        f"the unlisted signed gap was not caught, which is what happens when a "
+        f"CoverageGap is counted as a population:\n{output}"
+    )
+
+
+@then("no position in the container can override its record_type")
+def _position_independent(gap_results: list[subprocess.CompletedProcess[str]]) -> None:
+    first, last = gap_results
+    assert first.returncode == last.returncode, (
+        f"the verdict depended on where the gap sat in the container: "
+        f"{first.returncode} vs {last.returncode}"
+    )
+    assert _verdict_line(first) == _verdict_line(last), (
+        f"{_verdict_line(first)!r} vs {_verdict_line(last)!r}"
+    )
+
+
+def _verdict_line(result: subprocess.CompletedProcess[str]) -> str:
+    for line in output_of(result).splitlines():
+        if line.startswith("VERDICT "):
+            return line
+    return ""
+
+
+@scenario("evidence.feature", "ES-S-023 A non-canonical bundle is refused")
+def test_es_s_023() -> None:
+    """Bound by pytest-bdd."""
+
+
+@given("an attestation bundle that is not RFC 8785 canonical", target_fixture="bad_bundle")
+def _non_canonical_bundle(keys: dict[str, Any]) -> bytes:
+    return json.dumps(json.loads(build_bundle(keys)), indent=2).encode()
+
+
+@when("the verifier parses it", target_fixture="parse_result")
+def _parse_bad(
+    go_verifier: Path, keyring_file: Path, bad_bundle: bytes
+) -> subprocess.CompletedProcess[str]:
+    return run_verifier(go_verifier, keyring_file, bad_bundle, "-offline")
+
+
+@then("parsing fails")
+def _parse_fails(parse_result: subprocess.CompletedProcess[str]) -> None:
+    assert parse_result.returncode == 1, output_of(parse_result)
+
+
+@then("the failure names the canonical form rather than a signature")
+def _names_canonical(parse_result: subprocess.CompletedProcess[str]) -> None:
+    output = output_of(parse_result)
+    assert "non_canonical" in output, output
+    # ES-001's whole point: a producer conformance bug must not be reported as
+    # a cryptographic complaint.
+    assert "signature.invalid" not in output, output
+
+
+@scenario("evidence.feature", "ES-S-024 An unpublished schema version is refused")
+def test_es_s_024() -> None:
+    """Bound by pytest-bdd."""
+
+
+@given(
+    "an attestation whose schema_version is not in the ES-035 registry",
+    target_fixture="envelope_overrides",
+)
+def _unpublished_schema_version() -> dict[str, Any]:
+    return {"schema_version": "9.9.9"}
+
+
+@then("verification fails")
+def _verification_fails(verify_result: subprocess.CompletedProcess[str]) -> None:
+    assert verify_result.returncode == 1, output_of(verify_result)
+    assert "VERDICT invalid" in output_of(verify_result), output_of(verify_result)
+
+
+@then("the attestation is not verified under another version's rules")
+def _not_verified_under_other_rules(
+    verify_result: subprocess.CompletedProcess[str],
+) -> None:
+    assert "schema.version_unsupported" in output_of(verify_result), output_of(
+        verify_result
+    )
+
+
+@scenario("coverage.feature", "CM-S-011 An unimplemented methodology version is refused")
+def test_cm_s_011() -> None:
+    """Bound by pytest-bdd."""
+
+
+@given(
+    "an attestation whose methodology_version is not in the CM-025 registry",
+    target_fixture="attestation_overrides",
+)
+def _unpublished_methodology_version() -> dict[str, Any]:
+    return {"methodology_version": "9.9.9"}
+
+
+@then("the attestation is not recomputed under a different methodology version")
+def _not_recomputed(verify_result: subprocess.CompletedProcess[str]) -> None:
+    assert "methodology.version_unsupported" in output_of(verify_result), output_of(
+        verify_result
+    )
+
+
+# ---------------------------------------------------------------------------
+# AR-029 / AR-030 / AR-031 -- the revocation endpoint protocol
+# ---------------------------------------------------------------------------
+
+
+class _Endpoint:
+    """A stub issuer revocation endpoint.
+
+    A real HTTP server rather than a fake: AR-029 is a statement about what
+    happens on the wire, and a verifier that only ever meets an in-process stub
+    has never demonstrated that it can reach an endpoint at all.
+    """
+
+    def __init__(self, handler: Any) -> None:
+        import http.server
+        import threading
+
+        outer = self
+
+        class Handler(http.server.BaseHTTPRequestHandler):
+            def do_GET(self) -> None:  # noqa: N802
+                status, body = outer.handler(self.path)
+                self.send_response(status)
+                self.send_header("Content-Type", "application/json")
+                self.send_header("Content-Length", str(len(body)))
+                self.end_headers()
+                self.wfile.write(body)
+
+            def log_message(self, *args: Any) -> None:
+                pass
+
+        self.handler = handler
+        self.server = http.server.HTTPServer(("127.0.0.1", 0), Handler)
+        self.url = f"http://127.0.0.1:{self.server.server_port}"
+        self.thread = threading.Thread(target=self.server.serve_forever, daemon=True)
+        self.thread.start()
+
+    def close(self) -> None:
+        self.server.shutdown()
+        self.server.server_close()
+
+
+def _revocation_record(
+    keys: dict[str, Any], *, effective_at: str, superseding_ref: str | None
+) -> bytes:
+    """A signed RevocationRecord, in the issuer namespace ES-033 requires."""
+    from sdk_python.evidence.schema import RevocationRecord
+
+    record = RevocationRecord.model_validate(
+        {
+            "record_id": "01890f47-2f58-7cc0-98c4-0000000000aa",
+            "record_type": "RevocationRecord",
+            "schema_version": "1.0.0",
+            "tenant_id": "tenant-1",
+            "boundary_ref": "boundary-1",
+            "stream_id": "revocations-1",
+            "sequence": 1,
+            "prev_digest": None,
+            "source": {"collector": "ev19-acceptance", "version": "0.1.0"},
+            "clocks": {"source_time": "2026-09-15T00:00:00.000+00:00"},
+            "body": {
+                "attestation_ref": "01890f47-2f58-7cc0-98c4-000000000064",
+                "reason": "discovered computation defect",
+                "issuer": "issuer-1",
+                "effective_at": effective_at,
+                "superseding_ref": superseding_ref,
+                "relying_party_notification_status": "sent",
+            },
+            "signature": {},
+        }
+    )
+    record = sign_record(record, key_id=ISSUER_KEY_ID, private_key=keys["issuer"])
+    return canonicalize(record.model_dump(mode="json", exclude_unset=True))
+
+
+def _check_revocation(
+    go_verifier: Path, keyring_file: Path, keys: dict[str, Any], endpoint: _Endpoint
+) -> subprocess.CompletedProcess[str]:
+    try:
+        return run_verifier(
+            go_verifier,
+            keyring_file,
+            build_bundle(keys),
+            "-revocation-endpoint",
+            endpoint.url,
+        )
+    finally:
+        endpoint.close()
+
+
+@scenario(
+    "attestation.feature",
+    "AR-S-009 An answer the verifier cannot authenticate establishes nothing",
+)
+def test_ar_s_009() -> None:
+    """Bound by pytest-bdd."""
+
+
+@given(
+    "a revocation endpoint that does not answer with an authenticated RevocationRecord",
+    target_fixture="endpoint",
+)
+def _unauthenticated_endpoint() -> _Endpoint:
+    # A captive portal is the realistic shape of this: HTTP 200, plausible
+    # body, nothing the verifier can authenticate.
+    return _Endpoint(lambda path: (200, b"<html>sign in to continue</html>"))
+
+
+@when("the verifier checks revocation for an attestation", target_fixture="revocation_result")
+def _check_unauthenticated(
+    go_verifier: Path, keyring_file: Path, keys: dict[str, Any], endpoint: _Endpoint
+) -> subprocess.CompletedProcess[str]:
+    return _check_revocation(go_verifier, keyring_file, keys, endpoint)
+
+
+@then('revocation_status is reported as "unchecked"')
+def _status_unchecked(request: pytest.FixtureRequest) -> None:
+    # TM-S-004 and AR-S-009 assert the same sentence about different runs: one
+    # offline, one against an endpoint that answers unintelligibly. They share
+    # a step definition because they are the same claim -- the verifier learned
+    # nothing -- and pytest-bdd matches steps by text, so defining it twice
+    # silently shadows the first.
+    output = output_of(_result_of(request))
+    assert "revocation       unchecked" in output, output
+
+
+def _result_of(request: pytest.FixtureRequest) -> subprocess.CompletedProcess[str]:
+    """Whichever run the current scenario produced."""
+    for name in ("revocation_result", "offline_result", "verify_result"):
+        result = _optional(request, name)
+        if result is not None:
+            return result
+    raise AssertionError("no verifier run is in scope for this step")
+
+
+@then('it is not reported as "valid"')
+def _status_not_valid(request: pytest.FixtureRequest) -> None:
+    output = output_of(_result_of(request))
+    assert "revocation       valid" not in output, output
+
+
+@then('it is not reported as "revoked"')
+def _status_not_revoked(request: pytest.FixtureRequest) -> None:
+    output = output_of(_result_of(request))
+    assert "revocation       revoked" not in output, output
+
+
+@scenario("attestation.feature", "AR-S-010 Supersession is distinguished from revocation")
+def test_ar_s_010() -> None:
+    """Bound by pytest-bdd."""
+
+
+@given(
+    "an authenticated RevocationRecord naming a superseding attestation",
+    target_fixture="endpoint",
+)
+def _superseding_endpoint(keys: dict[str, Any]) -> _Endpoint:
+    body = _revocation_record(
+        keys, effective_at="2026-09-15T00:00:00.000+00:00", superseding_ref="attestation-2"
+    )
+    return _Endpoint(lambda path: (200, body))
+
+
+@when("the verifier checks revocation", target_fixture="revocation_result")
+def _check_authenticated(
+    go_verifier: Path, keyring_file: Path, keys: dict[str, Any], endpoint: _Endpoint
+) -> subprocess.CompletedProcess[str]:
+    return _check_revocation(go_verifier, keyring_file, keys, endpoint)
+
+
+@then('revocation_status is reported as "superseded"')
+def _status_superseded(revocation_result: subprocess.CompletedProcess[str]) -> None:
+    assert "revocation       superseded" in output_of(revocation_result), output_of(
+        revocation_result
+    )
+
+
+@then("the superseding attestation is identified")
+def _superseding_identified(revocation_result: subprocess.CompletedProcess[str]) -> None:
+    assert "attestation-2" in output_of(revocation_result), output_of(revocation_result)
+
+
+@then('an otherwise identical record with no superseding_ref reports "revoked"')
+def _without_superseding_ref_is_revoked(
+    go_verifier: Path, keyring_file: Path, keys: dict[str, Any]
+) -> None:
+    body = _revocation_record(
+        keys, effective_at="2026-09-15T00:00:00.000+00:00", superseding_ref=None
+    )
+    endpoint = _Endpoint(lambda path: (200, body))
+    result = _check_revocation(go_verifier, keyring_file, keys, endpoint)
+    assert "revocation       revoked" in output_of(result), output_of(result)
+
+
+@scenario(
+    "attestation.feature",
+    "AR-S-011 A revocation before its effective date does not revoke",
+)
+def test_ar_s_011() -> None:
+    """Bound by pytest-bdd."""
+
+
+@given(
+    "an authenticated RevocationRecord whose effective_at is later than the evaluation instant",
+    target_fixture="endpoint",
+)
+def _pending_endpoint(keys: dict[str, Any]) -> _Endpoint:
+    # AS_OF is 2026-10-01; this takes effect two months later.
+    body = _revocation_record(
+        keys, effective_at="2026-12-01T00:00:00.000+00:00", superseding_ref=None
+    )
+    return _Endpoint(lambda path: (200, body))
+
+
+@then('revocation_status is reported as "valid"')
+def _status_valid(revocation_result: subprocess.CompletedProcess[str]) -> None:
+    assert "revocation       valid" in output_of(revocation_result), output_of(
+        revocation_result
+    )
+
+
+@then("the pending revocation and its effective_at are surfaced")
+def _pending_surfaced(revocation_result: subprocess.CompletedProcess[str]) -> None:
+    output = output_of(revocation_result)
+    assert "not_yet_effective" in output, output
+    assert "2026-12-01" in output, output
+
+
+@then("the evaluation instant appears in the output")
+def _instant_surfaced(revocation_result: subprocess.CompletedProcess[str]) -> None:
+    assert f"evaluated at     {AS_OF}" in output_of(revocation_result), output_of(
+        revocation_result
     )
