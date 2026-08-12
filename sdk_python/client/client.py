@@ -42,17 +42,28 @@ class FailClosedError(RuntimeError):
 
 @dataclass(frozen=True, slots=True)
 class EmissionResult:
-    """What happened to one emitted record."""
+    """What happened to one emitted record.
+
+    `sequence` is `None` when the record was refused at the buffer bound. It
+    consumed no sequence number, because a refused record is rolled back off
+    the stream rather than left as a hole (see `EvidenceClient._buffer_or_gap`).
+    """
 
     record_id: str
     record_type: str
-    sequence: int
+    sequence: int | None
     submitted: bool
     buffered: bool
 
     @property
     def accepted(self) -> bool:
         return self.submitted
+
+    @property
+    def captured(self) -> bool:
+        """Whether this record's evidence exists anywhere the client can send."""
+
+        return self.submitted or self.buffered
 
 
 @dataclass(frozen=True, slots=True)
@@ -92,7 +103,14 @@ class EvidenceClient:
         self._sequence = 0
         self._prev_digest: str | None = None
         self._stream_id = f"{config.tenant_id}:{config.collector_id}:1"
+        #: First moment ingestion was found absent. Not a gap boundary: records
+        #: are still captured while the buffer has room. EV-09 reads this for
+        #: the silence-threshold trigger.
         self._unreachable_since: datetime | None = None
+        #: First moment the bound was reached. This *is* a gap boundary: from
+        #: here forward the client is refusing records.
+        self._exhausted_since: datetime | None = None
+        self._uncaptured = 0
 
     @property
     def key_id(self) -> str:
@@ -105,8 +123,10 @@ class EvidenceClient:
     def buffered_count(self) -> int:
         return len(self._buffer)
 
-    def dropped_count(self) -> int:
-        return self._buffer.dropped
+    def refused_count(self) -> int:
+        """New records lost to the bound without the caller being told."""
+
+        return self._buffer.refused
 
     def gap_records(self) -> list[BufferedRecord]:
         return list(self._gaps)
@@ -133,8 +153,13 @@ class EvidenceClient:
         # Resolve the policy first: an unconfigured family is a configuration
         # error and must surface before a record is authored, not after.
         policy = self._config.policy_for(action_family)
-        buffered, digest = self._author(record_type, body)
-        return self._deliver(buffered, digest, policy=policy, action_family=action_family)
+        # Where the stream stood before this record took a sequence number, so
+        # a refusal can put it back exactly there.
+        anchor = (self._sequence, self._prev_digest)
+        buffered, _ = self._author(record_type, body)
+        return self._deliver(
+            buffered, policy=policy, action_family=action_family, anchor=anchor
+        )
 
     def _author(
         self, record_type: str, body: Mapping[str, Any]
@@ -159,17 +184,17 @@ class EvidenceClient:
     def _deliver(
         self,
         buffered: BufferedRecord,
-        digest: str,
         *,
         policy: FamilyPolicy,
         action_family: str,
+        anchor: tuple[int, str | None],
     ) -> EmissionResult:
         try:
             self._transport.submit(buffered.canonical_bytes)
         except TransportUnavailableError:
             self._note_unreachable()
             return self._buffer_or_gap(
-                buffered, policy=policy, action_family=action_family
+                buffered, policy=policy, action_family=action_family, anchor=anchor
             )
         except RecordRejectedError:
             # Seen and refused: buffering would retry something already judged.
@@ -184,7 +209,12 @@ class EvidenceClient:
         )
 
     def _buffer_or_gap(
-        self, buffered: BufferedRecord, *, policy: FamilyPolicy, action_family: str
+        self,
+        buffered: BufferedRecord,
+        *,
+        policy: FamilyPolicy,
+        action_family: str,
+        anchor: tuple[int, str | None],
     ) -> EmissionResult:
         if not self._buffer.is_full():
             self._buffer.append(buffered)
@@ -196,37 +226,55 @@ class EvidenceClient:
                 buffered=True,
             )
 
-        # IN-011: the bound is reached. Mark the gap *before* anything is
-        # discarded, so the evidence that records were lost is authored while
-        # the records still exist.
+        # IN-010/IN-011: the bound is reached, so this record is refused. What
+        # is already buffered is never touched — the anchor at sequence 1 and
+        # every link after it stay exactly as authored.
+        #
+        # The refused record must also give back the sequence number it took.
+        # Leaving it consumed would put a permanent hole in the stream and make
+        # the gap below chain from a record that will never be transmitted,
+        # which is precisely the unverifiable stream this design exists to
+        # avoid. Nothing was submitted or buffered, so the rollback is total.
+        self._sequence, self._prev_digest = anchor
+        self._uncaptured += 1
+
         self._emit_gap(
             cause="collector_unreachable",
             action_family=action_family,
-            actions_during_gap=len(self._buffer) + 1,
+            actions_during_gap=self._uncaptured,
         )
 
         if policy.behaviour == "fail_closed":
             # IN-013: the gap is recorded, then the action is refused. The
             # customer chose this trade-off explicitly at configuration time.
+            # No refusal is counted: the caller is being told, so this is not
+            # evidence lost behind its back.
             raise FailClosedError(
                 f"action family {action_family!r} is fail_closed and evidence "
                 "could not be recorded; a CoverageGap has been signed locally"
             )
 
-        self._buffer.discard_oldest()
-        self._buffer.append(buffered)
+        # IN-011 fail-open: the action proceeds without evidence. The gap above
+        # is the only account of it, which is why it is authored first.
+        self._buffer.record_refusal()
         return EmissionResult(
             record_id=buffered.record_id,
             record_type=buffered.record_type,
-            sequence=buffered.sequence,
+            sequence=None,
             submitted=False,
-            buffered=True,
+            buffered=False,
         )
 
     def _emit_gap(
         self, *, cause: str, action_family: str, actions_during_gap: int | None
     ) -> BufferedRecord:
         now = self._clock()
+        # The gap runs from the moment capture stopped, not from the moment
+        # ingestion went absent: while the buffer had room the records were
+        # still being kept, and claiming that interval as uncovered would
+        # understate the evidence the client actually holds.
+        if self._exhausted_since is None:
+            self._exhausted_since = now
         self._sequence += 1
         gap, digest = build_coverage_gap(
             identity=self._identity,
@@ -237,7 +285,7 @@ class EvidenceClient:
             stream_id=self._stream_id,
             sequence=self._sequence,
             prev_digest=self._prev_digest,
-            gap_start=self._unreachable_since or now,
+            gap_start=self._exhausted_since,
             gap_end=now,
             affected_scope={
                 "action_family": action_family,
@@ -299,6 +347,12 @@ class EvidenceClient:
         ]
         if not unsent:
             self._unreachable_since = None
+        if not self._buffer.is_full():
+            # Capacity is back, so the uncovered interval has ended. A later
+            # exhaustion is a new episode with its own start and its own count;
+            # carrying the old count forward would overstate the next gap.
+            self._exhausted_since = None
+            self._uncaptured = 0
         return results
 
     # ------------------------------------------------- typed emission helpers

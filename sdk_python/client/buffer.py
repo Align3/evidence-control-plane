@@ -5,10 +5,16 @@ record object that gets re-serialized on flush, because re-serializing invites
 a later change to canonicalisation or field ordering to alter bytes a signature
 already covers. What was signed is what is sent.
 
-The bound is enforced by refusing to accept, never by evicting. IN-011 requires
-a gap marker *before* records are dropped, and a buffer that silently drops its
-oldest entry to make room would have already destroyed the evidence by the time
-anyone could mark the gap.
+The bound is enforced by refusing the *new* record, never by evicting an old
+one. This is not a preference between two workable designs. Evicting the oldest
+entry destroys the record at sequence 1, and with it the anchor every later
+record's `prev_digest` chains back to: what survives the outage is then a
+stream that starts mid-chain and cannot be verified at all. Refusing the new
+record instead costs exactly one un-captured action, which a `CoverageGap`
+accounts for honestly, and leaves everything already anchored intact.
+
+So the bound applies to admission, and the loss it causes is always at the
+newest edge of the stream where a gap marker can describe it.
 """
 
 from __future__ import annotations
@@ -19,7 +25,7 @@ from dataclasses import dataclass
 
 
 class BufferFullError(RuntimeError):
-    """The bound is reached. The caller must mark the gap before discarding."""
+    """The bound is reached. The new record cannot be admitted."""
 
 
 @dataclass(frozen=True, slots=True)
@@ -53,17 +59,23 @@ class BoundedBuffer:
             raise ValueError("buffer bound must be at least 1")
         self._bound = bound
         self._items: deque[BufferedRecord] = deque()
-        self._dropped = 0
+        self._refused = 0
 
     @property
     def bound(self) -> int:
         return self._bound
 
     @property
-    def dropped(self) -> int:
-        """Records discarded because the bound was reached."""
+    def refused(self) -> int:
+        """New records the client could not capture because the bound was reached.
 
-        return self._dropped
+        Counts silent loss only: emissions the caller was *not* told about,
+        which under IN-013 means fail-open families. A fail-closed refusal
+        raises, so the caller already knows the action has no evidence and
+        nothing was lost behind its back.
+        """
+
+        return self._refused
 
     def is_full(self) -> bool:
         return len(self._items) >= self._bound
@@ -74,22 +86,15 @@ class BoundedBuffer:
         if self.is_full():
             raise BufferFullError(
                 f"local buffer bound of {self._bound} reached; "
-                "a CoverageGap must be emitted before any record is discarded"
+                "the new record cannot be admitted and a CoverageGap must "
+                "account for it"
             )
         self._items.append(record)
 
-    def discard_oldest(self) -> BufferedRecord:
-        """Drop one record, counting it.
+    def record_refusal(self) -> None:
+        """Count one new record lost to the bound without the caller knowing."""
 
-        Only reachable after a gap has been marked: `EvidenceClient` calls this
-        after `gaps.emit`, never before, and the counter is what the acceptance
-        test reads to prove the ordering.
-        """
-
-        if not self._items:
-            raise BufferFullError("nothing to discard")
-        self._dropped += 1
-        return self._items.popleft()
+        self._refused += 1
 
     def drain(self) -> list[BufferedRecord]:
         """Remove and return everything, oldest first."""

@@ -49,7 +49,9 @@ class GapScenario:
     app: FastAPI
     dead_port: int
     emitted: list[Any] = field(default_factory=list)
-    dropped_at_gap: int | None = None
+    #: What the buffer held before exhaustion, so the Then step can prove none
+    #: of it moved when the bound was reached.
+    held_before_exhaustion: list[tuple[str, int, bytes]] = field(default_factory=list)
 
 
 @pytest.fixture
@@ -72,6 +74,10 @@ def _ingestion_unreachable(
     closed_port: int,
     tenant_engines: TenantEngines,
     record_factories: dict[str, RecordFactory],
+    # DM-017's foreign key from migration 0012: a record naming a boundary that
+    # was never declared cannot be inserted, so the replay on reconnection needs
+    # the scope declaration to exist before it can prove anything about gaps.
+    default_boundaries: dict[str, str],
 ) -> GapScenario:
     factory = record_factories[TENANT_A]
     service = IngestionService(
@@ -87,7 +93,7 @@ def _ingestion_unreachable(
     client = EvidenceClient(
         config=ClientConfig(
             tenant_id=factory.tenant_id,
-            boundary_ref="acme:default:1",
+            boundary_ref=default_boundaries[TENANT_A],
             collector_id=factory.collector_id,
             deployment="prod",
             buffer_bound=BOUND,
@@ -116,6 +122,10 @@ def _buffer_reaches_bound(gap_scenario: GapScenario) -> None:
         )
     assert gap_scenario.client.buffered_count() == BOUND
     assert gap_scenario.client.gap_records() == []
+    gap_scenario.held_before_exhaustion = [
+        (item.record_id, item.sequence, item.canonical_bytes)
+        for item in gap_scenario.client.pending()
+    ]
 
 
 @when("further actions occur")
@@ -125,7 +135,6 @@ def _further_actions(gap_scenario: GapScenario) -> None:
             _receipt_body(BOUND), action_family=FAMILY
         )
     )
-    gap_scenario.dropped_at_gap = gap_scenario.client.dropped_count()
 
 
 @then("a locally signed CoverageGap is emitted")
@@ -136,8 +145,22 @@ def _gap_is_locally_signed(gap_scenario: GapScenario) -> None:
     assert gap.record_type == "CoverageGap"
     assert gap.body.cause == "collector_unreachable"
     assert gap.signature["key_id"] == gap_scenario.client.key_id
-    # IN-011: emitted before anything was discarded, not as a post-hoc note.
-    assert gap_scenario.dropped_at_gap == 0
+
+    # The gap accounts for the interval that went uncaptured: the one action
+    # the bound refused, and no more than that.
+    assert gap.body.actions_during_gap == 1
+    assert gap.body.exposure == "known"
+    assert not gap_scenario.emitted[-1].captured
+
+    # IN-010: the bound refused the new record rather than making room, so
+    # everything buffered before exhaustion is still held, byte for byte.
+    held_after = [
+        (item.record_id, item.sequence, item.canonical_bytes)
+        for item in gap_scenario.client.pending()
+        if item.record_type != "CoverageGap"
+    ]
+    assert held_after == gap_scenario.held_before_exhaustion
+    assert gap_scenario.client.buffered_count() == BOUND
 
 
 @then("it is accepted on reconnection with its original signature")

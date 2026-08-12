@@ -6,9 +6,9 @@ survives our unavailability. Any hosted dependency on this path, including a
 "just to fetch the current sequence" call, reintroduces the failure the
 requirement exists to prevent: our outage erasing the record of our outage.
 
-`tests/unit/test_client_gaps.py` asserts the import closure of this module
-contains nothing that can open a socket, so the property is enforced rather
-than merely intended.
+`tests/unit/test_client_emission.py::test_gaps_module_cannot_reach_a_socket`
+asserts the import closure of this module contains nothing that can open a
+socket, so the property is enforced rather than merely intended.
 """
 
 from __future__ import annotations

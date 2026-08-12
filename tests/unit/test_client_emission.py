@@ -198,14 +198,18 @@ def test_fail_closed_family_refuses_the_action_after_recording_the_gap(
         client.emit_execution_receipt(_receipt(3), action_family=FAMILY)
 
     assert len(client.gap_records()) == 1, "the gap must survive the refusal"
-    assert client.dropped_count() == 0, "fail-closed must not discard buffered evidence"
+    assert client.buffered_count() == 3, "fail-closed must not discard buffered evidence"
+    # Nothing was lost behind the caller's back: it was told, by exception.
+    assert client.refused_count() == 0
 
 
 # --------------------------------------------------------------- IN-010 / IN-011
 
 
-def test_gap_is_emitted_before_any_record_is_dropped(identity: SigningIdentity) -> None:
-    """The ordering IN-011 requires, asserted at the moment of exhaustion."""
+def test_exhaustion_refuses_the_new_record_and_leaves_the_buffer_intact(
+    identity: SigningIdentity,
+) -> None:
+    """IN-010/IN-011: the bound refuses admission, it never makes room."""
 
     client = _client(identity, DeadTransport())
     for index in range(3):
@@ -213,17 +217,39 @@ def test_gap_is_emitted_before_any_record_is_dropped(identity: SigningIdentity) 
 
     assert client.buffered_count() == 3
     assert client.gap_records() == []
-    assert client.dropped_count() == 0
+    assert client.refused_count() == 0
+    # Byte-for-byte, exactly what is held before exhaustion.
+    held_before = [
+        (item.record_id, item.sequence, item.canonical_bytes)
+        for item in client.pending()
+    ]
 
-    client.emit_execution_receipt(_receipt(3), action_family=FAMILY)
+    result = client.emit_execution_receipt(_receipt(3), action_family=FAMILY)
 
+    # The new record is what gives way, and it takes no sequence with it.
+    assert not result.captured
+    assert result.sequence is None
+    assert client.refused_count() == 1
+
+    # Nothing already buffered was touched: same records, same order, same bytes.
+    held_after = [
+        (item.record_id, item.sequence, item.canonical_bytes)
+        for item in client.pending()
+        if item.record_type != "CoverageGap"
+    ]
+    assert held_after == held_before
+    assert client.buffered_count() == 3
+
+    # A locally signed gap accounts for the interval that went uncaptured.
     gaps = client.gap_records()
     assert len(gaps) == 1
     gap = parse_record(json.loads(gaps[0].canonical_bytes))
-    # The gap's sequence precedes the drop: it was authored while the record
-    # it accounts for was still held.
-    assert gap.sequence < client.pending()[-1].sequence
-    assert client.dropped_count() == 1
+    assert gap.record_type == "CoverageGap"
+    assert gap.body.cause == "collector_unreachable"
+    assert gap.body.actions_during_gap == 1
+    # The gap takes the sequence the refused record gave back, so the chain
+    # continues from the last record still held instead of skipping one.
+    assert gap.sequence == held_before[-1][1] + 1
 
 
 def test_gap_body_states_what_the_client_actually_knows(identity: SigningIdentity) -> None:
@@ -234,7 +260,9 @@ def test_gap_body_states_what_the_client_actually_knows(identity: SigningIdentit
     gap = parse_record(json.loads(client.gap_records()[0].canonical_bytes))
     assert gap.body.cause == "collector_unreachable"
     assert gap.body.exposure == "known"
-    assert gap.body.actions_during_gap == 4
+    # One emission was refused, so exactly one action went uncaptured. The
+    # three still in the buffer are held evidence, not gap contents.
+    assert gap.body.actions_during_gap == 1
     assert gap.body.affected_scope["action_family"] == FAMILY
 
 
@@ -243,6 +271,34 @@ def test_buffer_refuses_to_exceed_its_bound(identity: SigningIdentity) -> None:
     for index in range(6):
         client.emit_execution_receipt(_receipt(index), action_family=FAMILY)
     assert client.buffered_count() == 2
+    assert client.refused_count() == 4
+
+
+def test_a_continuing_outage_accumulates_the_uncaptured_count(
+    identity: SigningIdentity,
+) -> None:
+    """Each gap states the episode's running total, not just its own refusal.
+
+    The count cannot be revised later: a signed gap is immutable. So each new
+    gap supersedes the previous one for the same episode, and the last is the
+    complete account of it.
+    """
+
+    client = _client(identity, DeadTransport(), buffer_bound=2)
+    for index in range(5):
+        client.emit_execution_receipt(_receipt(index), action_family=FAMILY)
+
+    counts = [
+        parse_record(json.loads(item.canonical_bytes)).body.actions_during_gap
+        for item in client.gap_records()
+    ]
+    assert counts == [1, 2, 3]
+
+    starts = {
+        parse_record(json.loads(item.canonical_bytes)).body.gap_start
+        for item in client.gap_records()
+    }
+    assert len(starts) == 1, "one episode has one start, however many gaps mark it"
 
 
 def test_gap_emission_reaches_no_network(identity: SigningIdentity) -> None:

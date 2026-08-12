@@ -21,7 +21,11 @@ from sdk_python.evidence.schema import serialize_record, validate_record
 from sdk_python.evidence.signing import sign_record
 
 SCHEMA_VERSION = "0.1.0"
-SDK_NAME = "python-sdk-client"
+#: EV-07 checks this against the collector's registration row, so it names the
+#: SDK as the rest of the repository already registers it. A separate identifier
+#: for the client package would make every record this SDK emits fail collector
+#: authentication against a collector registered by any other part of the system.
+SDK_NAME = "sdk-python"
 SDK_VERSION = "0.1.0"
 
 
@@ -75,8 +79,13 @@ def build_envelope(
         "stream_id": stream_id,
         "sequence": sequence,
         "prev_digest": prev_digest,
+        # `collector_id`, not `collector`: EV-07 authenticates the collector from
+        # this member (`services/ingestion/service.py`), and a record naming it
+        # anything else is refused at ingestion with a 401 no matter how well it
+        # is signed. Some EV-02 schema fixtures still say `collector` because the
+        # schema layer never reads it; the wire contract is what binds here.
         "source": {
-            "collector": collector_id,
+            "collector_id": collector_id,
             "implementation": SDK_NAME,
             "version": SDK_VERSION,
             "deployment": deployment,

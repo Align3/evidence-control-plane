@@ -148,19 +148,21 @@ FastAPI. Validate schema, verify signature, check collector registration, check 
 
 ### Collection
 
-#### EV-08 — Python SDK: emission and buffering
-Public API for emitting each record type. Local signing with client-held keys. Bounded local buffer when ingestion is unreachable. Configurable per-family fail behaviour.
+#### EV-08 — Python SDK: emission, buffering, and buffer-exhaustion gaps
+Public API for emitting each record type. Local signing with client-held keys. Bounded local buffer when ingestion is unreachable, admission-controlled: the bound refuses the new record and never evicts a held one. Locally signed `CoverageGap` authored when the bound is reached. Configurable per-family fail behaviour.
 **Touches:** `sdk_python/client/`
 **Depends on:** EV-03, EV-07
-**Satisfies:** IN-009, IN-010, SE-005, SE-006
-**Acceptance:** IN-S-002 (buffer portion)
+**Satisfies:** IN-009, IN-010, IN-011 (buffer-exhaustion trigger — see note), SE-005, SE-006
+**Acceptance:** IN-S-002
 
-#### EV-09 — Offline gap markers
-Locally signed `CoverageGap` emission requiring no hosted connectivity. Buffer-exhaustion and silence-threshold triggers. Accepted on reconnection with original signature.
+#### EV-09 — Offline gap markers: silence threshold and replay
+Locally signed `CoverageGap` emission on the silence-threshold trigger, which fires on elapsed unreachability whether or not the buffer ever fills. Reconnection and replay behaviour for locally authored gaps crossing the ingestion boundary.
 **Touches:** `sdk_python/client/gaps.py`, `services/ingestion/`
 **Depends on:** EV-08
-**Satisfies:** ES-016, IN-011, TM-007
-**Acceptance:** ES-S-004, IN-S-002
+**Satisfies:** ES-016, IN-011 (silence-threshold trigger — see note), TM-007
+**Acceptance:** ES-S-004
+
+**Note on IN-011 and IN-S-002.** The original split gave EV-08 the buffer and EV-09 every gap trigger. That boundary did not survive implementation. The buffer-exhaustion gap is not a consumer of the buffer; it is part of what the bound *does*. Deciding what happens when the bound is reached is the same decision as deciding whether to evict, and the answer — refuse the new record, never evict a held one — is what makes the gap necessary and fixes what it can honestly say. A record already buffered is anchored: evicting the oldest destroys sequence 1 and leaves a stream that cannot be verified at all, so the loss is taken at the newest edge instead, where exactly one un-captured action can be described. A story owning the buffer but not the gap would have had to either leave the bound's behaviour undefined or define it and hand EV-09 a gap whose contents were already determined. The silence-threshold trigger is genuinely separable: it fires on elapsed time against a buffer that may never fill, it needs a timer EV-08 has no reason to own, and it can be built and tested without touching admission control. IN-011 is therefore split by trigger rather than assigned whole, and IN-S-002 — whose `Given` is the bound being reached — belongs to the story that owns the bound. This is the same treatment the AR-027 / AR-028 note above records: the requirement moves to where its deciding condition actually lives, which is not scope growth but a correction to a split that mislocated it.
 
 #### EV-10 — TypeScript SDK
 Server-side emission parity with Python. Review-surface instrumentation capturing what was **rendered client-side**, not server-reconstructed.
