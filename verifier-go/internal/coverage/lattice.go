@@ -17,6 +17,8 @@ const (
 	CodeRatioMustBeNull        = "coverage.ratio_must_be_null"
 	CodeRatioNotString         = "coverage.ratio_not_string"
 	CodeRatioMalformed         = "coverage.ratio_malformed"
+	// CodeRatioMismatch is the recomputed ratio disagreeing with the claim.
+	CodeRatioMismatch          = "coverage.ratio_mismatch"
 	CodeCountsInvalid          = "coverage.counts_invalid"
 	CodeCountsExceedPopulation = "coverage.counts_exceed_population"
 	CodeWindowInvalid          = "coverage.window_interval_invalid"

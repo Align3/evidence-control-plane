@@ -452,3 +452,83 @@ func buildComplete(
 	}
 	return parsed, keys
 }
+
+// TestValidIsReachableWithANumericRatio closes the last of the three gaps.
+//
+// The earlier TestValidIsReachable had to use C4, where ES-017 makes a null
+// ratio mandatory and there is therefore nothing to recompute. A ratio-eligible
+// class with an actual number is the case that was blocked: until ES-017 stated
+// the formula, no verifier could reproduce the value, so any bundle carrying
+// one reported indeterminate however correct it was.
+//
+// 2 matched over an in-scope denominator of 3 — population 4 less one
+// out-of-scope — is 0.6666, truncated rather than rounded.
+func TestValidIsReachableWithANumericRatio(t *testing.T) {
+	b, keys := buildComplete(t, map[string]any{
+		"denominator_class": "C1",
+		"coverage_level":    "observed", // below C1's reconciled ceiling
+		"capped_by_class":   false,
+		"coverage_ratio":    "0.6666",
+		"counts":            testfixture.CountsBody(2, 1, 0, 0, 0, 1),
+	}, 4)
+	res := verify(t, b, keys)
+	if res.Verdict != bundle.Valid {
+		t.Fatalf("verdict = %s, want valid\n  findings   %v\n  unresolved %v",
+			res.Verdict, res.Findings, res.Unresolved)
+	}
+	if len(res.Unresolved) != 0 {
+		t.Fatalf("valid was reached with unresolved items: %v", res.Unresolved)
+	}
+}
+
+// TestOverstatedRatioIsRefused is the overclaim direction, which is the whole
+// reason the formula had to be stated. The bundle below is internally
+// consistent and correctly signed; only the number is wrong.
+func TestOverstatedRatioIsRefused(t *testing.T) {
+	b, keys := buildComplete(t, map[string]any{
+		"denominator_class": "C1",
+		"coverage_level":    "observed",
+		"capped_by_class":   false,
+		"coverage_ratio":    "1.0000", // 2 of 3 in-scope actions were matched
+		"counts":            testfixture.CountsBody(2, 1, 0, 0, 0, 1),
+	}, 4)
+	res := verify(t, b, keys)
+	if res.Verdict != bundle.Invalid {
+		t.Fatalf("verdict = %s; a claimed 1.0000 over 2 matched of 3 must refuse",
+			res.Verdict)
+	}
+}
+
+// TestRatioRoundedUpIsRefused: 0.6667 is what half-up rounding produces, and
+// it reports more coverage than was measured.
+func TestRatioRoundedUpIsRefused(t *testing.T) {
+	b, keys := buildComplete(t, map[string]any{
+		"denominator_class": "C1",
+		"coverage_level":    "observed",
+		"capped_by_class":   false,
+		"coverage_ratio":    "0.6667",
+		"counts":            testfixture.CountsBody(2, 1, 0, 0, 0, 1),
+	}, 4)
+	res := verify(t, b, keys)
+	if res.Verdict != bundle.Invalid {
+		t.Fatalf("verdict = %s; ES-017 truncates toward zero", res.Verdict)
+	}
+}
+
+// TestUnmatchedWithEvidenceIsNotPartialCredit: CM-011's no-imputation rule
+// applies to the ratio exactly as it does elsewhere. Counting
+// unmatched_with_evidence toward the numerator would give 3/3 here.
+func TestUnmatchedWithEvidenceIsNotPartialCredit(t *testing.T) {
+	b, keys := buildComplete(t, map[string]any{
+		"denominator_class": "C1",
+		"coverage_level":    "observed",
+		"capped_by_class":   false,
+		"coverage_ratio":    "1.0000",
+		"counts":            testfixture.CountsBody(2, 1, 0, 0, 0, 1),
+	}, 4)
+	res := verify(t, b, keys)
+	if res.Verdict != bundle.Invalid {
+		t.Fatalf("verdict = %s; unmatched_with_evidence is evidence of a gap, "+
+			"not partial coverage (CM-011)", res.Verdict)
+	}
+}

@@ -2,7 +2,6 @@ package coverage
 
 import (
 	"encoding/json"
-	"strings"
 	"testing"
 
 	"github.com/Align3/evidence-control-plane/verifier-go/internal/attestation"
@@ -227,7 +226,15 @@ func TestRatioEncoding(t *testing.T) {
 	if !hasFinding(r, CodeRatioNotString) {
 		t.Fatalf("a numeric ratio was accepted: %v", findingCodes(r))
 	}
-	for _, bad := range []string{"", "1.5", "2.0", "-0.5", ".5", "1.", "0,5", "abc", "1e0"} {
+	// ES-017 fixes the scale at exactly four decimal places with no
+	// trailing-zero stripping, so "1", "1.0" and "1.000" are refused spellings
+	// of a conformant value rather than alternative encodings of it. A free
+	// scale would let two implementations compute the same ratio and serialize
+	// it differently, and QA-008 compares golden bundles byte-for-byte.
+	for _, bad := range []string{
+		"", "1.5", "2.0", "-0.5", ".5", "1.", "0,5", "abc", "1e0",
+		"0", "1", "0.0", "1.0", "0.875", "1.000", "0.50000",
+	} {
 		r := recompute(t, attestationWindow(t, obj{
 			"denominator_class": "C1",
 			"coverage_ratio":    bad,
@@ -236,7 +243,7 @@ func TestRatioEncoding(t *testing.T) {
 			t.Fatalf("ratio %q was accepted: %v", bad, findingCodes(r))
 		}
 	}
-	for _, good := range []string{"0", "1", "0.0", "1.0", "0.875", "1.000"} {
+	for _, good := range []string{"0.0000", "1.0000", "0.8750", "0.3333", "0.6666"} {
 		r := recompute(t, attestationWindow(t, obj{
 			"denominator_class": "C1",
 			"coverage_ratio":    good,
@@ -497,42 +504,39 @@ func digestsOf(t *testing.T, b *Bundle) []string {
 // asking what a bundle assembler who benefits from a favourable number would
 // send (CM-021), and each failed against an earlier revision of this package.
 
-// A ratio whose value nothing in the corpus defines must not reproduce
-// cleanly. Before this was recorded, a bundle claiming "1.0" over a population
-// it had matched nothing in verified as fully reproduced: every rule that
-// exists was satisfied, and the number itself was never checked because no
-// requirement says what it means.
+// A claimed ratio the evidence does not support must be refused.
+//
+// This case has been strengthened by ES-017. When the ratio had no definition
+// anywhere in the corpus, a bundle claiming "1.0" over a population it had
+// matched nothing in verified as fully reproduced — every rule that existed
+// was satisfied, and the number itself was never checked because no
+// requirement said what it meant. The best this package could then do was
+// decline to report it as reproduced. ES-017 now states the formula, so the
+// same bundle is a determinate refusal rather than an unresolved one, which is
+// the difference between "I could not check this" and "this is false".
 func TestRatioValueIsNotReportedAsReproduced(t *testing.T) {
 	window := attestationWindow(t, obj{
 		"denominator_class":      "C1",
 		"coverage_level":         "reconciled",
-		"coverage_ratio":         "1.0",
+		"coverage_ratio":         "1.0000",
 		"population_record_refs": []any{"01890f47-2f58-7cc0-98c4-000000000211"},
-		"counts":                 obj{"matched": 0, "unmatched_without_evidence": 40},
+		"counts": obj{
+			"matched": 0, "unmatched_without_evidence": 40, "out_of_scope": 0,
+		},
 	})
 	pop := populationRecord(t, "01890f47-2f58-7cc0-98c4-000000000211", obj{"count": 40})
 	r := recompute(t, window, pop)
-	if !r.Valid() {
-		t.Fatalf("no determinate rule is broken here: %v", findingCodes(r))
+	if r.Valid() {
+		t.Fatal("a ratio of 1.0000 over 0 matched actions was not refused")
+	}
+	if !hasFinding(r, CodeRatioMismatch) {
+		t.Fatalf("codes = %v, want %s", findingCodes(r), CodeRatioMismatch)
 	}
 	if r.Reproduced() {
-		t.Fatal("a ratio of 1.0 over 0 matched actions was reported as reproduced")
-	}
-	var found bool
-	for _, u := range r.Unresolved {
-		if strings.Contains(u, "coverage_ratio") && strings.Contains(u, "numerator") {
-			found = true
-		}
-	}
-	if !found {
-		t.Fatalf("the ratio's undefined derivation was not recorded: %v", r.Unresolved)
+		t.Fatal("a ratio of 1.0000 over 0 matched actions was reported as reproduced")
 	}
 }
 
-// ES-005 keeps body open. An unrecognised counts member must not be folded
-// into the CM-012 total, or an attacker can trip a spurious refusal — and,
-// read the other way, a verifier that sums whatever it finds is not checking
-// the buckets CM-012 names.
 func TestUnrecognisedCountsMemberIsNotSummed(t *testing.T) {
 	window := attestationWindow(t, obj{
 		"population_record_refs": []any{"01890f47-2f58-7cc0-98c4-000000000211"},

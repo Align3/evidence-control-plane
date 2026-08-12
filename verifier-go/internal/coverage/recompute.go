@@ -2,6 +2,7 @@ package coverage
 
 import (
 	"encoding/json"
+	"fmt"
 	"sort"
 	"strings"
 	"time"
@@ -420,35 +421,118 @@ func recheckRatio(r *Result, b *Bundle, body *jcs.Object) {
 	}
 	r.Ratio = s
 
-	// The ratio's *value* is not recomputed, and saying so is the point.
-	//
-	// coverage_ratio has no definition anywhere in this corpus. ES-017 states
-	// when it must be null, CM-009 states which classes emit one, and A-04
-	// describes "of the enumerated population of N actions, M were matched to
-	// evidence at level L" — but no requirement says the ratio is M/N, nor
-	// which of the CM-012 buckets count toward M, nor whether out-of-scope
-	// records leave the denominator. A verifier that picked one reading and
-	// reported agreement would be reporting agreement with its own guess.
-	//
-	// Without this line a bundle claiming "1.0" over a population it matched
-	// nothing in would reproduce cleanly, which is the overclaim direction and
-	// exactly what this package exists to refuse.
-	r.unresolved("coverage_ratio: present with value " + s +
-		", but no requirement defines the ratio's numerator or denominator, " +
-		"so its value cannot be independently recomputed")
+	// ES-017 now states the formula, so the value is recomputed rather than
+	// accepted. Until it did, a bundle claiming "1.0" over a population it had
+	// matched nothing in reproduced cleanly — the overclaim direction, and the
+	// reason this was the last thing blocking a verdict of valid.
+	recomputeRatio(r, b, body, s)
 }
 
-// validRatioString checks the decimal-string form the only published
-// AttestationWindow vector uses ("1.0") and bounds it to [0, 1].
+// recomputeRatio derives the ratio from the counts and the enumerated
+// population and compares it to the claim, per ES-017.
+func recomputeRatio(r *Result, b *Bundle, body *jcs.Object, claimed string) {
+	counts, ok := countsObject(body)
+	if !ok {
+		r.unresolved("coverage_ratio: counts is not readable, so the ratio's " +
+			"numerator cannot be derived")
+		return
+	}
+	matched, okM := countMember(counts, "matched")
+	outOfScope, okO := countMember(counts, "out_of_scope")
+	if !okM || !okO {
+		// out_of_scope is optional by presence at schema 1.0.0 and required
+		// from 2.0.0; where it is absent the denominator exclusion cannot be
+		// applied and the ratio is not recomputable rather than assumed zero.
+		r.unresolved("coverage_ratio: counts.matched and counts.out_of_scope are " +
+			"both required to derive the ratio (ES-017) and at least one is absent")
+		return
+	}
+	population, known := populationTotal(b, body)
+	if !known {
+		r.unresolved("coverage_ratio: the enumerated population is not resolvable " +
+			"from the bundle, so the ratio cannot be derived")
+		return
+	}
+
+	// One derivation, used by both this path and the conformance runner. Two
+	// copies of the denominator rule could drift, and a mutation test proved
+	// they would drift silently: changing one left the other's tests green.
+	want, err := RatioFor(matched, population, outOfScope)
+	if err != nil {
+		r.fail(err.(*Error))
+		return
+	}
+	denominator := population - outOfScope
+	if claimed != want {
+		r.fail(errf(CodeRatioMismatch,
+			"coverage_ratio is %q, but %d matched over an in-scope denominator "+
+				"of %d (population %d less %d out-of-scope) is %q (ES-017)",
+			claimed, matched, denominator, population, outOfScope, want))
+	}
+}
+
+// RatioFor is ES-017's formula as a pure function, exposed for the conformance
+// vectors. It is the same arithmetic recomputeRatio performs; a runner that
+// re-derived the ratio itself would be testing the vector against the runner.
+func RatioFor(matched, population, outOfScope int64) (string, error) {
+	denominator := population - outOfScope
+	if denominator < 0 {
+		return "", errf(CodeRatioMismatch,
+			"out_of_scope %d exceeds population %d", outOfScope, population)
+	}
+	if denominator == 0 {
+		return "", errf(CodeRatioMustBeNull,
+			"the in-scope denominator is zero, so ES-017 requires null")
+	}
+	if matched > denominator {
+		return "", errf(CodeRatioMismatch,
+			"matched %d exceeds the in-scope denominator %d", matched, denominator)
+	}
+	return formatRatio(matched, denominator), nil
+}
+
+// formatRatio renders matched/denominator as ES-017's fixed four-decimal
+// string, truncating toward zero.
 //
-// **Specification gap.** No requirement states coverage_ratio's encoding.
-// ES-017 says only that it must be null at C4/C5; ES-002 requires quantity
-// values to be strings "with an accompanying unit or currency field", and
-// §5.13 declares no unit member for this one. The decimal string below is read
-// off the vector, which ES-029 makes authoritative — but the vector fixes one
-// value, not a grammar, so scale is undetermined: nothing says whether "1.0",
-// "1.00" and "1" are the same ratio, which matters the moment two
-// implementations compare bundles byte-for-byte under QA-008.
+// The arithmetic is integer throughout. Computing this as a float and
+// formatting with %.4f would round to nearest and would reintroduce exactly
+// the floating-point divergence ES-002a exists to keep out of this system: two
+// implementations could then disagree on the last digit for reasons neither
+// could see. Scaling first and dividing once keeps the result exact.
+func formatRatio(matched, denominator int64) string {
+	scaled := matched * 10000 / denominator // truncates toward zero
+	return fmt.Sprintf("%d.%04d", scaled/10000, scaled%10000)
+}
+
+func countsObject(body *jcs.Object) (*jcs.Object, bool) {
+	raw, ok := body.Get("counts")
+	if !ok {
+		return nil, false
+	}
+	counts, ok := raw.(*jcs.Object)
+	return counts, ok
+}
+
+func countMember(counts *jcs.Object, key string) (int64, bool) {
+	raw, ok := counts.Get(key)
+	if !ok {
+		return 0, false
+	}
+	n, ok := raw.(int64)
+	if !ok || n < 0 {
+		return 0, false
+	}
+	return n, true
+}
+
+// validRatioString enforces ES-017's encoding: a decimal string in [0, 1] with
+// exactly four decimal places and no trailing-zero stripping.
+//
+// The fixed scale is not cosmetic. QA-008 compares golden bundles
+// byte-for-byte, so a free scale would let two implementations that computed
+// the same ratio disagree on bytes — a diff reporting a divergence that says
+// nothing about either of them. "1", "1.0" and "1.0000" are one value with
+// three spellings, and only the last is conformant.
 func validRatioString(s string) *Error {
 	malformed := errf(CodeRatioMalformed,
 		"coverage_ratio %q is not a decimal string in [0, 1]", s)
@@ -456,17 +540,25 @@ func validRatioString(s string) *Error {
 		return malformed
 	}
 	intPart, fracPart, hasFrac := strings.Cut(s, ".")
+	if !hasFrac {
+		return errf(CodeRatioMalformed,
+			"coverage_ratio %q has no decimal part; ES-017 requires exactly four, "+
+				"so %q is a different spelling of the same value and only one is "+
+				"conformant", s, s+".0000")
+	}
 	if intPart != "0" && intPart != "1" {
 		return malformed
 	}
-	if hasFrac {
-		if fracPart == "" {
+	if len(fracPart) != 4 {
+		return errf(CodeRatioMalformed,
+			"coverage_ratio %q has %d decimal places; ES-017 requires exactly "+
+				"four, with no trailing-zero stripping, so that a byte-for-byte "+
+				"golden comparison under QA-008 cannot fail on spelling alone",
+			s, len(fracPart))
+	}
+	for _, c := range fracPart {
+		if c < '0' || c > '9' {
 			return malformed
-		}
-		for _, c := range fracPart {
-			if c < '0' || c > '9' {
-				return malformed
-			}
 		}
 	}
 	if intPart == "1" && strings.Trim(fracPart, "0") != "" {
