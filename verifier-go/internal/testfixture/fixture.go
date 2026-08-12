@@ -258,6 +258,41 @@ func QualificationBody(class, qualifiedAt string) map[string]any {
 	}
 }
 
+// PopulationBody returns a §5.3 PopulationRecord body enumerating count
+// actions. ES-033 puts PopulationRecord in the issuer-observation category, so
+// it is signed with the issuer key.
+func PopulationBody(count int64) map[string]any {
+	return map[string]any{
+		"action_family":       "refund.issue",
+		"destination_system":  "billing",
+		"window_start":        "2026-08-01T00:00:00.000+00:00",
+		"window_end":          "2026-08-31T00:00:00.000+00:00",
+		"enumeration_query":   map[string]any{"api": "list_refunds"},
+		"record_identifiers":  []any{},
+		"count":               count,
+		"pagination_complete": true,
+		"result_cap_hit":      false,
+		"retrieved_at":        "2026-09-01T00:00:00.000+00:00",
+		"authoritative_timestamps": map[string]any{
+			"min": "2026-08-01T00:00:00.000+00:00",
+			"max": "2026-08-31T00:00:00.000+00:00",
+		},
+	}
+}
+
+// CountsBody returns a §5.13 counts object carrying all six CM-012 buckets.
+func CountsBody(matched, unmatchedWith, unmatchedWithout, duplicate, ambiguous,
+	outOfScope int64) map[string]any {
+	return map[string]any{
+		"matched":                    matched,
+		"unmatched_with_evidence":    unmatchedWith,
+		"unmatched_without_evidence": unmatchedWithout,
+		"duplicate":                  duplicate,
+		"ambiguous":                  ambiguous,
+		"out_of_scope":               outOfScope,
+	}
+}
+
 // RevocationBody returns a §5.14 RevocationRecord body. supersedingRef is
 // written as an explicit null when empty, because §5.14 makes it a nullable
 // member rather than an optional one.

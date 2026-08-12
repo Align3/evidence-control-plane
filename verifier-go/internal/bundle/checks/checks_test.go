@@ -294,3 +294,161 @@ func TestBothPackagesClassifyRecordsIdentically(t *testing.T) {
 			len(fromCoverage.Findings), len(fromCoverage.Unresolved))
 	}
 }
+
+// TestValidIsReachable is the regression guard for the terminal state.
+//
+// For most of EV-19 no bundle could reach "valid", because three things an
+// attestation claims were not determined by the specification: capped_by_class
+// (ES-018 against §5.13), the CM-012 counts (six buckets against §5.13's five),
+// and coverage_ratio. The first two are now settled and this demonstrates the
+// consequence end to end, with the real coverage and assertion checks
+// registered and the issuer affirmatively answering that nothing is revoked.
+//
+// The bundle claims below its class ceiling on purpose. At the ceiling,
+// capped_by_class depends on the evidence-supported level, which no
+// requirement derives from a bundle, so that case remains correctly
+// unresolvable — see TestAtTheCeilingCappedByClassIsUnresolvable.
+func TestValidIsReachable(t *testing.T) {
+	b, keys := buildComplete(t, map[string]any{
+		"denominator_class": "C4",
+		"coverage_level":    "unknown",
+		"capped_by_class":   false,
+		"coverage_ratio":    nil,
+		"counts":            testfixture.CountsBody(3, 1, 1, 0, 0, 1),
+	}, 6)
+	res := verify(t, b, keys)
+	if res.Verdict != bundle.Valid {
+		t.Fatalf("verdict = %s, want valid\n  findings   %v\n  unresolved %v",
+			res.Verdict, res.Findings, res.Unresolved)
+	}
+	if len(res.Unresolved) != 0 {
+		t.Fatalf("valid was reached with unresolved items: %v", res.Unresolved)
+	}
+	// Standing limitations still have to be disclosed on a valid verdict.
+	if len(res.Notes) == 0 {
+		t.Fatal("a valid verdict disclosed no standing limitation")
+	}
+}
+
+// TestCountsMustAccountForThePopulationExactly is what the §5.13 correction
+// bought. While out_of_scope had nowhere to be reported, a conformant
+// attestation could sum to less than its population and the check could only
+// ever be an inequality. With all six buckets enumerated the enumeration is
+// closed and admits no residual, so a shortfall is actions in the population
+// the attestation classified as nothing at all.
+func TestCountsMustAccountForThePopulationExactly(t *testing.T) {
+	b, keys := buildComplete(t, map[string]any{
+		"denominator_class": "C4",
+		"coverage_level":    "unknown",
+		"capped_by_class":   false,
+		"coverage_ratio":    nil,
+		"counts":            testfixture.CountsBody(3, 1, 1, 0, 0, 0),
+	}, 6)
+	res := verify(t, b, keys)
+	if res.Verdict != bundle.Invalid {
+		t.Fatalf("verdict = %s; five of six actions accounted for is a "+
+			"silent shortfall, not a pass", res.Verdict)
+	}
+}
+
+// TestAtTheCeilingCappedByClassIsUnresolvable pins the honest limit of ES-018's
+// one-directional check.
+func TestAtTheCeilingCappedByClassIsUnresolvable(t *testing.T) {
+	b, keys := buildComplete(t, map[string]any{
+		"denominator_class": "C4",
+		"coverage_level":    "observed", // exactly the C4 ceiling
+		"capped_by_class":   false,
+		"coverage_ratio":    nil,
+		"counts":            testfixture.CountsBody(3, 1, 1, 0, 0, 1),
+	}, 6)
+	res := verify(t, b, keys)
+	if res.Verdict == bundle.Valid {
+		t.Fatal("a claim at the class ceiling verified as valid, but whether " +
+			"the cap bound is not derivable from the bundle")
+	}
+	var found bool
+	for _, u := range res.Unresolved {
+		if strings.Contains(u, "capped_by_class") {
+			found = true
+		}
+	}
+	if !found {
+		t.Fatalf("the ceiling case was not reported as unresolved: %v", res.Unresolved)
+	}
+}
+
+// TestCappedByClassStrictComparison is ES-018's strict inequality: below the
+// ceiling the cap did not bind, whatever the record asserts.
+func TestCappedByClassStrictComparison(t *testing.T) {
+	b, keys := buildComplete(t, map[string]any{
+		"denominator_class": "C4",
+		"coverage_level":    "unknown",
+		"capped_by_class":   true, // a stronger class would change nothing
+		"coverage_ratio":    nil,
+		"counts":            testfixture.CountsBody(3, 1, 1, 0, 0, 1),
+	}, 6)
+	res := verify(t, b, keys)
+	if res.Verdict != bundle.Invalid {
+		t.Fatalf("verdict = %s; capped_by_class is true only where the class "+
+			"is strictly below what the evidence supports", res.Verdict)
+	}
+}
+
+// buildComplete assembles a bundle carrying everything a full recomputation
+// needs: attestation, boundary, qualification and an enumerated population.
+func buildComplete(
+	t *testing.T, overrides map[string]any, population int64,
+) (*bundle.Bundle, testfixture.Keys) {
+	t.Helper()
+	keys, err := testfixture.NewKeys()
+	if err != nil {
+		t.Fatalf("keys: %v", err)
+	}
+	const (
+		qualID = "01890f47-2f58-7cc0-98c4-000000000101"
+		popID  = "01890f47-2f58-7cc0-98c4-000000000401"
+	)
+	body := testfixture.AttestationBody()
+	for k, v := range overrides {
+		body[k] = v
+	}
+	body["population_record_refs"] = []any{popID}
+	class, _ := body["denominator_class"].(string)
+
+	attWire, err := testfixture.NewEnvelope("AttestationWindow",
+		"01890f47-2f58-7cc0-98c4-000000000064", "tenant-1", "attestation-1",
+		body).SignAttestation(keys)
+	if err != nil {
+		t.Fatalf("sign attestation: %v", err)
+	}
+	qualWire, err := testfixture.NewEnvelope("QualificationRecord", qualID,
+		"tenant-1", "qualifications-1",
+		testfixture.QualificationBody(class, "2026-01-01T00:00:00Z"),
+	).Sign(testfixture.EvidenceKeyID, keys.Evidence)
+	if err != nil {
+		t.Fatalf("sign qualification: %v", err)
+	}
+	boundaryWire, err := testfixture.NewEnvelope("AssuranceBoundary",
+		"01890f47-2f58-7cc0-98c4-000000000201", "tenant-1", "boundary-stream-1",
+		testfixture.BoundaryBody(qualID),
+	).Sign(testfixture.EvidenceKeyID, keys.Evidence)
+	if err != nil {
+		t.Fatalf("sign boundary: %v", err)
+	}
+	popWire, err := testfixture.NewEnvelope("PopulationRecord", popID,
+		"tenant-1", "populations-1", testfixture.PopulationBody(population),
+	).Sign(testfixture.IssuerKeyID, keys.Issuer)
+	if err != nil {
+		t.Fatalf("sign population: %v", err)
+	}
+
+	container, err := testfixture.Bundle(attWire, boundaryWire, qualWire, popWire)
+	if err != nil {
+		t.Fatalf("assemble: %v", err)
+	}
+	parsed, err := bundle.Parse(container)
+	if err != nil {
+		t.Fatalf("parse: %v", err)
+	}
+	return parsed, keys
+}

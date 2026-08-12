@@ -51,6 +51,15 @@ The rule is a **detector**, and that is the part worth protecting. Building EV-0
 
 If the specification turns out to be insufficient, that is the finding — record it, and amend the document from the **vectors** (ES-029 makes them authoritative), not from what the other implementation happens to do. Where the two disagree, the specification and the vectors decide; the incumbent is not evidence of anything except itself.
 
+**AG-018 — When a builder must originate spec, not just implementation.**
+If no requirement covers a structural decision needed to proceed, and no prior implementation exists to consult, the builder may write the missing requirement — but must: (1) mark it explicitly as a new decision, not a clarification of existing text; (2) record any rejected alternative and why, so the choice reads as a choice rather than an inevitability; (3) never manufacture a vector to validate its own decision (QA-019); and (4) the requirement remains **UNCONFIRMED** until a second, independent implementation is built cold against it, with no access to the originating code. Until that confirmation lands, treat the requirement as provisional in any review or reliance decision, regardless of how many tests currently pass against it.
+
+This is not AG-017 restated. AG-017 governs *not reading an incumbent* to resolve an ambiguity someone else already resolved; AG-018 governs the case where there is no incumbent and no answer, so someone has to decide in order to keep building. The two are different situations and only the second permits writing the requirement.
+
+The risk AG-018 addresses is nevertheless the same one. A specification section is supposed to be derivable from the requirements, not from whatever the first implementation happened to find convenient. Where a container shape or a protocol exists because it made one codebase cleaner rather than because it is the necessary shape, a reader cannot tell the difference, and a specification whose structure silently encodes one implementation's incidental choices is weaker than one that does not — even when those choices are good ones. The four obligations above do not remove that risk; they make it visible and bound its duration. The second implementation is what discharges it: if it builds cold against the text without needing to guess or diverge, the requirement stood on its own regardless of how it originated, and if it struggles, AG-017's detector has fired one implementation late rather than never.
+
+Originated under this rule so far: `evidence-spec.md` ES-034 and ES-035, `attestation-reliance.md` AR-029 through AR-031, and `coverage-methodology.md` CM-025, all authored during EV-19 and all UNCONFIRMED pending EV-41.
+
 ---
 
 ## 3. Negative-first

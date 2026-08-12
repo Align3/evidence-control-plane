@@ -316,12 +316,18 @@ func recheckLattice(r *Result, body *jcs.Object) {
 
 	declared, present := body.Get("capped_by_class")
 	if !present {
-		// ES-018 requires the member; §5.13's body enumeration omits it and no
-		// vector carries it. Reported as unresolved rather than as a finding,
-		// because the two halves of one section disagree about whether it is
-		// required and nothing authoritative breaks the tie.
-		r.unresolved("capped_by_class: absent from the record; ES-018 requires it " +
-			"but the §5.13 body enumeration omits it and no vector carries it")
+		// Absence is no longer an unresolved on its own. §5.13 now carries the
+		// member, required from schema 2.0.0 and optional by presence at 1.0.0,
+		// so an absent flag at 1.0.0 is conformant rather than contradictory.
+		//
+		// More to the point, absence does not stop the verifier knowing the
+		// answer. Where the claim sits strictly below the ceiling, ES-018 makes
+		// the flag determinately false whether or not the record says so, and
+		// that case is already resolved above. Where it sits at the ceiling the
+		// unresolved above already fires, and it fires for the real reason —
+		// evidence_supported_level is not derivable from the bundle — rather
+		// than for the absence of a field that would not have settled it
+		// either, since a self-asserted flag is a claim to check, not evidence.
 		return
 	}
 	flag, ok := declared.(bool)
@@ -330,10 +336,18 @@ func recheckLattice(r *Result, body *jcs.Object) {
 			"capped_by_class must be a boolean (ES-018)"))
 		return
 	}
+	// ES-018's comparison is strict: capped_by_class is true iff
+	// class_admissible < evidence_supported, and false where they are equal.
+	// Below the ceiling, min() forces evidence_supported to equal the claim, so
+	// the flag is determinately false and a record asserting true is refused.
+	// At the ceiling nothing here can decide it, and the unresolved above says
+	// so rather than accepting the record's own account of itself.
 	if r.CappedByClassDecided && flag != r.CappedByClass {
 		r.fail(errf(CodeCappedFlagMisreported,
 			"capped_by_class is %v, but the claimed level %q is below the "+
-				"class-admissible %q, so the cap did not bind (CM-008, ES-018)",
+				"class-admissible %q, so a stronger denominator class would not "+
+				"have produced a higher claim and the cap did not bind "+
+				"(CM-008, ES-018)",
 			flag, claimed, r.AdmissibleLevel))
 	}
 }
@@ -577,11 +591,12 @@ func recheckCounts(r *Result, b *Bundle, body *jcs.Object) {
 		r.fail(errf(CodeCountsInvalid, "counts must be an object"))
 		return
 	}
-	// Only the CM-012 buckets are summed. ES-005 keeps body open, so a member
-	// this verifier does not recognise must not be folded into the total: an
-	// unrelated integer would inflate the sum and produce a false *rejection*,
-	// which is a different defect from the one being looked for but still a
-	// verifier reporting something the evidence does not say.
+	// The six CM-012 buckets, now enumerated by §5.13 as well. ES-005 keeps
+	// body open, so a member this verifier does not recognise must not be
+	// folded into the total: an unrelated integer would inflate the sum and
+	// produce a false *rejection*, which is a different defect from the one
+	// being looked for but still a verifier reporting something the evidence
+	// does not say.
 	buckets := map[string]bool{
 		"matched": true, "unmatched_with_evidence": true,
 		"unmatched_without_evidence": true, "duplicate": true,
@@ -626,9 +641,39 @@ func recheckCounts(r *Result, b *Bundle, body *jcs.Object) {
 			"counts sum to %d over an enumerated population of %d; the CM-012 "+
 				"buckets are disjoint subsets of the denominator and cannot exceed it",
 			total, population))
+		return
 	}
-	r.unresolved("counts: CM-012 lists six buckets but §5.13 counts enumerates " +
-		"five, omitting out-of-scope, so only the inequality is checkable")
+
+	// §5.13 now enumerates all six CM-012 buckets. Where all six are present
+	// the check strengthens from an inequality to an equality: CM-012 admits no
+	// residual bucket and ES-015 closes the enumeration, so every enumerated
+	// action falls into exactly one of them and the six must account for the
+	// denominator exactly. A shortfall is the silent-overclaim shape — actions
+	// in the population that the attestation classified as nothing at all.
+	//
+	// Until §5.13 was corrected this could only ever be an inequality, because
+	// out_of_scope had nowhere to be reported and a conformant attestation
+	// could legitimately sum to less than its population.
+	if counted < len(buckets) {
+		missing := make([]string, 0, len(buckets))
+		for name := range buckets {
+			if !counts.Has(name) {
+				missing = append(missing, name)
+			}
+		}
+		sort.Strings(missing)
+		r.unresolved("counts: " + strings.Join(missing, ", ") +
+			" absent from the counts object, so the six CM-012 buckets cannot be " +
+			"checked for exhaustiveness and only the inequality holds")
+		return
+	}
+	if total != population {
+		r.fail(errf(CodeCountsExceedPopulation,
+			"the six CM-012 buckets sum to %d over an enumerated population of "+
+				"%d; the enumeration is closed and admits no residual, so every "+
+				"enumerated action must fall into exactly one bucket",
+			total, population))
+	}
 }
 
 // populationTotal sums the count of every referenced PopulationRecord.
