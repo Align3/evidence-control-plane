@@ -249,7 +249,8 @@ def build_bundle(
     envelope_overrides: dict[str, Any] | None = None,
     qualification: tuple[str, str] = ("C1", "2026-06-01T00:00:00.000+00:00"),
     extra_records: list[Any] | None = None,
-    extra_first: bool = False,
+    omit_boundary: bool = False,
+    unsorted: bool = False,
 ) -> bytes:
     """Assemble a canonical ES-034 bundle: an array of complete signed records."""
     envelope = _attestation_envelope(_attestation_body(**(attestation_overrides or {})))
@@ -289,11 +290,15 @@ def build_bundle(
         return json.loads(canonicalize(record.model_dump(mode="json", exclude_unset=True)))
 
     records = [wire(attestation), wire(boundary), wire(qualification_record)]
-    extras = [wire(r) for r in (extra_records or [])]
-    if extra_first:
-        records = extras + records
-    else:
-        records = records + extras
+    records += [wire(r) for r in (extra_records or [])]
+    if omit_boundary:
+        records = [r for r in records if r["record_type"] != "AssuranceBoundary"]
+    # ES-034: elements sorted by canonical bytes, lexicographic ascending. The
+    # writer emits the one bundle a record set has; unsorted is a different
+    # bundle and the verifier refuses it.
+    records.sort(key=lambda r: canonicalize(r))
+    if unsorted:
+        records.reverse()
     return canonicalize(records)
 
 
@@ -540,13 +545,18 @@ def _coverage_gap_record(keys: dict[str, Any]) -> Any:
     target_fixture="gap_bundles",
 )
 def _bundle_with_gap(keys: dict[str, Any]) -> list[bytes]:
-    # The same records in two different orders. If any classification depended
-    # on position, these would not agree -- which is the property an array
-    # container has and a keyed one does not.
+    # ES-034 fixes element order by canonical bytes, so the same record set has
+    # exactly one legal bundle and "the same records in a different order" is no
+    # longer constructible. What varies instead is the gap's *index*: it sorts
+    # to position 0 beside an attestation alone, and to a later position once
+    # the boundary and qualification are present, because their bodies begin
+    # "action_families"/"action_family" and the gap's begins
+    # "actions_during_gap". Same record, two positions, and its role must not
+    # move with it.
     gap = _coverage_gap_record(keys)
     return [
-        build_bundle(keys, extra_records=[gap], extra_first=False),
-        build_bundle(keys, extra_records=[gap], extra_first=True),
+        build_bundle(keys, extra_records=[gap], omit_boundary=True),
+        build_bundle(keys, extra_records=[gap]),
     ]
 
 
@@ -562,34 +572,43 @@ def _classified_as_gap(gap_results: list[subprocess.CompletedProcess[str]]) -> N
     # Observable through the verifier, not by reaching inside it (QA-003): a
     # signed gap the attestation omits from gaps[] is caught by CM-014 gap
     # conservation, and that check only sees records routed to the gap set.
-    output = output_of(gap_results[0])
-    assert "gap" in output.lower(), output
-    assert gap_results[0].returncode != 0, output
+    for result in gap_results:
+        output = output_of(result)
+        assert "gap" in output.lower(), output
+        assert result.returncode != 0, output
 
 
 @then("it is not classified as a population record")
 def _not_classified_as_population(
     gap_results: list[subprocess.CompletedProcess[str]],
 ) -> None:
-    output = output_of(gap_results[0])
-    # A gap routed into the population set would go missing from conservation
-    # and the bundle would stop being refused for it.
-    assert "REFUSED" in output, (
-        f"the unlisted signed gap was not caught, which is what happens when a "
-        f"CoverageGap is counted as a population:\n{output}"
-    )
+    for result in gap_results:
+        output = output_of(result)
+        # A gap routed into the population set would go missing from
+        # conservation and the bundle would stop being refused for it.
+        assert "REFUSED" in output, (
+            f"the unlisted signed gap was not caught, which is what happens "
+            f"when a CoverageGap is counted as a population:\n{output}"
+        )
 
 
 @then("no position in the container can override its record_type")
 def _position_independent(gap_results: list[subprocess.CompletedProcess[str]]) -> None:
     first, last = gap_results
-    assert first.returncode == last.returncode, (
-        f"the verdict depended on where the gap sat in the container: "
-        f"{first.returncode} vs {last.returncode}"
+    codes = [_gap_codes(r) for r in (first, last)]
+    assert codes[0] and codes[0] == codes[1], (
+        f"the gap was treated differently at different container positions: "
+        f"{codes[0]} vs {codes[1]}"
     )
-    assert _verdict_line(first) == _verdict_line(last), (
-        f"{_verdict_line(first)!r} vs {_verdict_line(last)!r}"
-    )
+
+
+def _gap_codes(result: subprocess.CompletedProcess[str]) -> list[str]:
+    """Every refusal code mentioning a gap, in order."""
+    out = []
+    for line in output_of(result).splitlines():
+        if "REFUSED" in line and "gap" in line.lower():
+            out.append(line.split("REFUSED")[1].strip().split(":")[0])
+    return out
 
 
 def _verdict_line(result: subprocess.CompletedProcess[str]) -> str:

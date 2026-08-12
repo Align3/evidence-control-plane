@@ -146,6 +146,35 @@ func Parse(data []byte) (*Bundle, error) {
 		return nil, fmt.Errorf("%s: bundle is empty", CodeBundleMalformed)
 	}
 
+	// ES-034: elements ordered by their canonical bytes, lexicographic
+	// ascending. Canonicalizing the container is not enough on its own — RFC
+	// 8785 sorts the members of an object and does not reorder the elements of
+	// an array, so the same record set emitted in two orders yields two
+	// conformant bundles with different digests. QA-008 fails CI on any bundle
+	// diff, so without a total order that gate reports divergence between
+	// implementations that agree about everything substantive.
+	//
+	// Each element is already its own canonical form (the container is
+	// canonical and every record is checked against ES-001 below), so
+	// comparing the raw element bytes is comparing the canonical bytes.
+	for i := 1; i < len(raw); i++ {
+		if bytes.Compare(raw[i-1], raw[i]) > 0 {
+			return nil, fmt.Errorf(
+				"%s: bundle elements %d and %d are out of order; ES-034 orders "+
+					"them by canonical bytes, lexicographic ascending, so that one "+
+					"record set has one bundle",
+				CodeBundleUnordered, i-1, i)
+		}
+		if bytes.Equal(raw[i-1], raw[i]) {
+			// Two byte-identical elements are one record presented twice. The
+			// duplicate adds nothing and the pair would make counts and chain
+			// links depend on how many copies a producer happened to include.
+			return nil, fmt.Errorf(
+				"%s: bundle elements %d and %d are byte-identical; a record "+
+					"appears once in a bundle", CodeBundleMalformed, i-1, i)
+		}
+	}
+
 	b := &Bundle{}
 	for i, item := range raw {
 		parsed, err := evidence.ParseRecord(item)

@@ -1041,3 +1041,103 @@ func TestNonContiguousSliceIsDisclosedNotRefused(t *testing.T) {
 		t.Fatalf("the unverified chain hole was not disclosed: %v", res.Unresolved)
 	}
 }
+
+// TestUnorderedBundleIsRefused is ES-034's ordering rule.
+//
+// The rule exists because canonicalizing the container is not enough on its
+// own: RFC 8785 sorts the members of an object and does not reorder the
+// elements of an array, so before this rule the same record set emitted in two
+// orders produced two canonical, conformant bundles with different digests.
+// QA-008 fails CI on any bundle diff, so that gate would have reported
+// divergence between implementations agreeing about everything substantive.
+func TestUnorderedBundleIsRefused(t *testing.T) {
+	b := newBuilder(t)
+	b.envelope["body"] = b.attestation
+	att, err := b.envelope.SignAttestation(b.keys)
+	if err != nil {
+		t.Fatalf("sign: %v", err)
+	}
+	qual, err := testfixture.NewEnvelope("QualificationRecord", qualificationID(0),
+		tenant, "qualifications-1",
+		testfixture.QualificationBody("C1", "2026-07-01T00:00:00Z"),
+	).Sign(testfixture.EvidenceKeyID, b.keys.Evidence)
+	if err != nil {
+		t.Fatalf("sign qual: %v", err)
+	}
+
+	sorted, err := testfixture.Bundle(att, qual)
+	if err != nil {
+		t.Fatalf("assemble: %v", err)
+	}
+	if _, err := Parse(sorted); err != nil {
+		t.Fatalf("the sorted bundle was refused: %v", err)
+	}
+
+	// The same records in the other order. Still canonical, still every
+	// signature valid, and no longer a conformant bundle.
+	reversed, err := testfixture.BundleInOrder(att, qual)
+	if err != nil {
+		t.Fatalf("assemble: %v", err)
+	}
+	if bytes.Equal(sorted, reversed) {
+		t.Skip("the fixture happens to be in sorted order already")
+	}
+	_, err = Parse(reversed)
+	if err == nil {
+		t.Fatal("an unordered bundle parsed; the same record set then has two " +
+			"bundles with two digests and QA-008 cannot hold")
+	}
+	if !strings.Contains(err.Error(), CodeBundleUnordered) {
+		t.Fatalf("error = %v, want %s", err, CodeBundleUnordered)
+	}
+}
+
+// TestOneRecordSetHasOneBundle is the property the ordering rule buys, stated
+// directly: assembling the same records in any order yields identical bytes.
+func TestOneRecordSetHasOneBundle(t *testing.T) {
+	b := newBuilder(t)
+	b.envelope["body"] = b.attestation
+	att, err := b.envelope.SignAttestation(b.keys)
+	if err != nil {
+		t.Fatalf("sign: %v", err)
+	}
+	qual, err := testfixture.NewEnvelope("QualificationRecord", qualificationID(0),
+		tenant, "qualifications-1",
+		testfixture.QualificationBody("C1", "2026-07-01T00:00:00Z"),
+	).Sign(testfixture.EvidenceKeyID, b.keys.Evidence)
+	if err != nil {
+		t.Fatalf("sign qual: %v", err)
+	}
+	one, _ := testfixture.Bundle(att, qual)
+	two, _ := testfixture.Bundle(qual, att)
+	if !bytes.Equal(one, two) {
+		t.Fatalf("two assembly orders produced different bundles:\n  %s\n  %s",
+			one, two)
+	}
+}
+
+// TestDuplicateRecordIsRefused: two byte-identical elements are one record
+// presented twice, and would make counts and chain links depend on how many
+// copies a producer happened to include.
+func TestDuplicateRecordIsRefused(t *testing.T) {
+	b := newBuilder(t)
+	b.envelope["body"] = b.attestation
+	att, err := b.envelope.SignAttestation(b.keys)
+	if err != nil {
+		t.Fatalf("sign: %v", err)
+	}
+	qual, err := testfixture.NewEnvelope("QualificationRecord", qualificationID(0),
+		tenant, "qualifications-1",
+		testfixture.QualificationBody("C1", "2026-07-01T00:00:00Z"),
+	).Sign(testfixture.EvidenceKeyID, b.keys.Evidence)
+	if err != nil {
+		t.Fatalf("sign qual: %v", err)
+	}
+	container, err := testfixture.Bundle(att, qual, qual)
+	if err != nil {
+		t.Fatalf("assemble: %v", err)
+	}
+	if _, err := Parse(container); err == nil {
+		t.Fatal("a bundle carrying the same record twice parsed")
+	}
+}

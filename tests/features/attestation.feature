@@ -5,7 +5,7 @@
 Feature: Attestation and reliance framework
 
   @AR-S-001 @AR-003
-  # source: attestation-reliance.md:199
+  # source: attestation-reliance.md:203
   Scenario: AR-S-001 No assertion outside the catalogue
     Given an attestation generation request
     When the assertion set is assembled
@@ -13,14 +13,14 @@ Feature: Attestation and reliance framework
     And any unmapped assertion causes generation to fail
 
   @AR-S-002 @AR-004
-  # source: attestation-reliance.md:208
+  # source: attestation-reliance.md:212
   Scenario: AR-S-002 No aggregate score
     When an attestation is rendered
     Then no single composite score, rating, or grade appears
     And each assertion carries its own scope and counts
 
   @AR-S-003 @AR-006
-  # source: attestation-reliance.md:216
+  # source: attestation-reliance.md:220
   Scenario: AR-S-003 Excluded scope disclosed
     Given a customer operating action families [X, Y, Z]
     And a boundary covering only [X]
@@ -28,7 +28,7 @@ Feature: Attestation and reliance framework
     Then it states that other families exist and are out of scope
 
   @AR-S-004 @AR-009
-  # source: attestation-reliance.md:225
+  # source: attestation-reliance.md:229
   Scenario: AR-S-004 Expired verifies as expired
     Given an attestation whose validity_until has passed
     When the verifier validates it
@@ -36,7 +36,7 @@ Feature: Attestation and reliance framework
     And the result is not "valid"
 
   @AR-S-005 @AR-011
-  # source: attestation-reliance.md:234
+  # source: attestation-reliance.md:238
   Scenario: AR-S-005 Supersession preserves the original
     Given attestation A and superseding attestation A'
     When either is verified
@@ -45,7 +45,7 @@ Feature: Attestation and reliance framework
     And A is reported as superseded, not invalid
 
   @AR-S-006 @AR-025
-  # source: attestation-reliance.md:244
+  # source: attestation-reliance.md:248
   Scenario: AR-S-006 Phase 0 artefact language check
     Given a phase 0 evidence pack
     When it is reviewed before release
@@ -53,7 +53,7 @@ Feature: Attestation and reliance framework
     And it carries the full §9 header
 
   @AR-S-007 @AR-027 @QA-018
-  # source: attestation-reliance.md:253
+  # source: attestation-reliance.md:257
   Scenario: AR-S-007 A-02 is withheld where the boundary did not span the window
     Given the referenced assurance boundary version has effective interval B1 to B2 after applying its declared window, signed ingest time, and any next version
     And an attestation window from W1 to W2 where W1 < B1 or W2 > B2
@@ -63,7 +63,7 @@ Feature: Attestation and reliance framework
     And no narrower restatement of A-02 is emitted in its place
 
   @AR-S-008 @AR-028 @QA-018
-  # source: attestation-reliance.md:274
+  # source: attestation-reliance.md:278
   Scenario: AR-S-008 A-09 is withheld where outcomes were not confirmed
     Given R actions claimed as confirmed against a named authoritative source
     And S of them have no OutcomeRecord whose authoritative_source matches that source
@@ -73,7 +73,7 @@ Feature: Attestation and reliance framework
     And an unnamed or absent source withholds A-09 outright
 
   @AR-S-009 @AR-029
-  # source: attestation-reliance.md:290
+  # source: attestation-reliance.md:294
   Scenario: AR-S-009 An answer the verifier cannot authenticate establishes nothing
     Given a revocation endpoint that does not answer with an authenticated RevocationRecord
     When the verifier checks revocation for an attestation
@@ -82,7 +82,7 @@ Feature: Attestation and reliance framework
     And it is not reported as "revoked"
 
   @AR-S-010 @AR-030
-  # source: attestation-reliance.md:300
+  # source: attestation-reliance.md:304
   Scenario: AR-S-010 Supersession is distinguished from revocation
     Given an authenticated RevocationRecord naming a superseding attestation
     When the verifier checks revocation
@@ -91,7 +91,7 @@ Feature: Attestation and reliance framework
     And an otherwise identical record with no superseding_ref reports "revoked"
 
   @AR-S-011 @AR-031
-  # source: attestation-reliance.md:310
+  # source: attestation-reliance.md:314
   Scenario: AR-S-011 A revocation before its effective date does not revoke
     Given an authenticated RevocationRecord whose effective_at is later than the evaluation instant
     When the verifier checks revocation

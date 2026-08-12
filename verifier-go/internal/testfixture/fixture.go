@@ -11,11 +11,13 @@
 package testfixture
 
 import (
+	"bytes"
 	"crypto/ed25519"
 	"crypto/sha256"
 	"encoding/base64"
 	"encoding/json"
 	"fmt"
+	"sort"
 
 	"github.com/Align3/evidence-control-plane/verifier-go/internal/evidence"
 )
@@ -173,17 +175,37 @@ func (e Envelope) SignAttestation(keys Keys) ([]byte, error) {
 }
 
 // Bundle assembles an ES-034 container: a JSON array of complete signed
-// records, in the order given. The records keep the exact bytes they were
-// signed as, so the array is canonical whenever its elements are.
+// records sorted by canonical bytes, lexicographic ascending. Callers pass
+// records in any order and get the one bundle that record set has.
 func Bundle(records ...[]byte) ([]byte, error) {
-	raws := make([]json.RawMessage, 0, len(records))
+	raws := make([][]byte, 0, len(records))
 	for _, r := range records {
 		if r == nil {
 			continue
 		}
-		raws = append(raws, json.RawMessage(r))
+		raws = append(raws, r)
 	}
-	return canonical(raws)
+	sort.Slice(raws, func(i, j int) bool {
+		return bytes.Compare(raws[i], raws[j]) < 0
+	})
+	out := make([]json.RawMessage, 0, len(raws))
+	for _, r := range raws {
+		out = append(out, json.RawMessage(r))
+	}
+	return canonical(out)
+}
+
+// BundleInOrder assembles the container without sorting, so a test can present
+// the order ES-034 forbids.
+func BundleInOrder(records ...[]byte) ([]byte, error) {
+	out := make([]json.RawMessage, 0, len(records))
+	for _, r := range records {
+		if r == nil {
+			continue
+		}
+		out = append(out, json.RawMessage(r))
+	}
+	return canonical(out)
 }
 
 // AttestationBody returns a §5.13 AttestationWindow body with every mandatory

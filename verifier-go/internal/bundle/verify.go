@@ -13,6 +13,7 @@ import (
 const (
 	CodeBundleMalformed     = "bundle.malformed"
 	CodeBundleNonCanonical  = "bundle.non_canonical"
+	CodeBundleUnordered     = "bundle.elements_unordered"
 	CodeWrongRecordType     = "bundle.wrong_record_type"
 	CodeSignatureInvalid    = "bundle.signature_invalid"
 	CodeTenantMismatch      = "bundle.tenant_mismatch"
