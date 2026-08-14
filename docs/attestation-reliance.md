@@ -105,7 +105,7 @@ Present on every attestation, adjacent to the assertions, not in an appendix.
 
 **AR-013** — The verifier MUST check revocation online where possible and MUST report `unchecked` rather than `valid` when offline (TM-014).
 
-**AR-029 — The revocation endpoint protocol.** AR-013 and TM-014 oblige a verifier to check "the issuer endpoint" and said nothing about how, which left every independent implementer to invent a protocol and left "no revocation exists" indistinguishable from "I could not ask". The protocol is:
+**AR-029 — The revocation endpoint protocol.** A verifier MUST use this protocol:
 
 ```
 GET {endpoint}/revocations/{attestation record_id}
@@ -114,19 +114,17 @@ GET {endpoint}/revocations/{attestation record_id}
   any other response     -> nothing was established             -> unchecked
 ```
 
-The 200 body MUST be a complete `RevocationRecord` in canonical wire form, carrying the primary `issuer`-namespace signature ES-033 requires of that type, and its `attestation_ref` MUST name the attestation asked about. A response failing any of those establishes nothing and MUST be reported `unchecked` — not `revoked`, because an unauthenticated response would let anyone revoke, and not `valid`, because a suppressed one would let anyone un-revoke.
+The 200 body MUST be a complete `RevocationRecord` in canonical wire form, carrying the primary `issuer`-namespace signature ES-033 requires of that type, and its `attestation_ref` MUST name the attestation asked about. A response failing any of those establishes nothing and MUST be reported `unchecked`.
 
-**The asymmetry is deliberate.** A verifier pointed at an endpoint that does not implement this protocol reports `unchecked`, which is wrong but safe. The opposite default — treating an unrecognised answer as "nothing published" — is wrong and fatal, because every outage, misconfiguration and captive portal would then read as a clean bill of health. Where a verifier cannot distinguish the two, it MUST choose `unchecked`.
-
-**AR-030 — `superseding_ref` distinguishes supersession from revocation.** A `RevocationRecord` whose `superseding_ref` names another attestation reports `superseded`; one whose `superseding_ref` is `null` reports `revoked`. ES-002b makes the member required and nullable, so an *absent* `superseding_ref` is a non-conformant record and MUST be rejected rather than read as either state. §5.14 gave the record both a `reason` and a `superseding_ref` without saying which carries the distinction, and AR-010's grounds for revocation do not include supersession while AR-011 requires a superseding attestation to reference the original — so the two states were describable and not separable. They are separate answers to a relying party: a revoked attestation says the claim was wrong, a superseded one says a later claim replaces it.
+**AR-030 — `superseding_ref` distinguishes supersession from revocation.** A `RevocationRecord` whose `superseding_ref` names another attestation reports `superseded`; one whose `superseding_ref` is `null` reports `revoked`. ES-002b makes the member required and nullable, so an *absent* `superseding_ref` is a non-conformant record and MUST be rejected rather than read as either state.
 
 **AR-031 — A revocation takes effect at `effective_at`, not at publication.** Where an authenticated `RevocationRecord` has an `effective_at` later than the verifier's evaluation instant, the attestation is not yet revoked and the status is `valid`.
 
-**The comparison is on parsed instants, never on strings.** ES-002 requires RFC 3339 with an explicit offset and at least millisecond precision, so both the offset and the precision vary between conformant producers: `2026-10-01T10:00:00.000Z` and `2026-10-01T11:00:00.000+01:00` are the same instant and different strings, and a lexical comparison ranks them as different times. Both values MUST be parsed to instants and compared as instants.
+**The comparison is on parsed instants, never on strings.** Both values MUST be parsed to instants and compared as instants.
 
-**The boundary is exact.** Where `effective_at` equals the evaluation instant, the revocation **is** in effect and the status is `revoked`; only a strictly later `effective_at` leaves the attestation valid. This is pinned rather than left to inference from "later than" for the reason ES-018 pins its own: a tie that two implementations resolve differently is a disagreement nothing in the corpus can settle. Between reporting an attestation revoked slightly early and trusting it slightly too long, the first is the safe failure for a relying party and the second is not. The verifier MUST surface the pending revocation and its `effective_at` alongside that status. Reporting `revoked` before the issuer said it takes effect would misstate the issuer's own act; reporting `valid` while silently discarding a published revocation would withhold the one fact a relying party deciding today most needs.
+**The boundary is exact.** Where `effective_at` equals the evaluation instant, the revocation **is** in effect and the status is `revoked`; only a strictly later `effective_at` leaves the attestation valid. The verifier MUST surface the pending revocation and its `effective_at` alongside that status.
 
-**A verification is an assertion about an instant.** Because AR-009's validity period and this rule both compare against a clock, a verifier MUST make the instant it evaluated at explicit in its output, and MUST accept that instant as an input so a relying party can reconstruct a past decision rather than only ask about today.
+The verifier MUST make the evaluation instant explicit in its output and MUST accept it as an input.
 
 ---
 

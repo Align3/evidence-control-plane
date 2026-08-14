@@ -214,7 +214,7 @@ func Verify(ctx context.Context, b *Bundle, opts Options) Result {
 	//    CM-023 all say the same thing from different directions: an artifact
 	//    is verified under the version that produced it, so a version this
 	//    verifier does not implement is a refusal, not a best effort.
-	res.Findings = append(res.Findings, checkVersions(b.Attestation)...)
+	res.Findings = append(res.Findings, checkVersions(b)...)
 
 	// 5. TM-013 / CM-004, verified independently of the claimed class.
 	res.Findings = append(res.Findings, checkQualification(b)...)

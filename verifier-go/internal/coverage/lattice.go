@@ -21,6 +21,7 @@ const (
 	CodeRatioMismatch          = "coverage.ratio_mismatch"
 	CodeCountsInvalid          = "coverage.counts_invalid"
 	CodeCountsExceedPopulation = "coverage.counts_exceed_population"
+	CodePopulationRefDuplicate = "coverage.population_ref_duplicate"
 	CodeWindowInvalid          = "coverage.window_interval_invalid"
 	CodeGapInvalid             = "coverage.gap_interval_invalid"
 	CodeGapOutsideWindow       = "coverage.gap_outside_window"

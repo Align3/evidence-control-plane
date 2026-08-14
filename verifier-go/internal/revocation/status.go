@@ -113,11 +113,20 @@ func unchecked(reason, detail string) Result {
 	return Result{status: Unchecked, reason: reason, detail: detail}
 }
 
-// checkedValid is the sole constructor of Valid in the entire verifier. It is
-// unexported and called from one place. If a future change needs a second
-// caller, that is the moment to re-read TM-014.
+// checkedValid and checkedPendingValid are the only constructors of Valid in
+// the verifier. Both are reached only after an authenticated issuer answer.
 func checkedValid(reason, detail string) Result {
 	return Result{status: Valid, reason: reason, detail: detail}
+}
+
+func checkedPendingValid(effectiveAt, supersededBy, detail string) Result {
+	return Result{
+		status:       Valid,
+		reason:       ReasonNotYetEffective,
+		detail:       detail,
+		EffectiveAt:  effectiveAt,
+		SupersededBy: supersededBy,
+	}
 }
 
 func checkedRevoked(effectiveAt, detail string) Result {
