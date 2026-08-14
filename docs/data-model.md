@@ -427,6 +427,7 @@ Claim a number here before writing the migration (DM-001).
 | 0012 | EV-12 | Boundaries, qualification records, `evidence_records.boundary_ref` FK | applied |
 | 0013 | EV-40 | Record-type signer-namespace pinning for issuer observations | applied |
 | 0014 | EV-31 | Issuer-signed receipts for boundaries and qualification records | applied |
+| 0015 | EV-18 | Immutable attestations, revocations, and live-attestation deletion guard | applied |
 
 ### §3 amendment 1 — register reconciliation (EV-12)
 

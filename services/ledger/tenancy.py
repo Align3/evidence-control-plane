@@ -210,16 +210,39 @@ def deprovision_tenant(connection: Connection, *, tenant_id: str) -> None:
     """Drop a tenant's role and partition.
 
     Present for test teardown and migration downgrade only. It deletes
-    evidence, so it is not reachable from any application role and must not
-    be called on a tenant whose evidence is covered by a valid attestation
-    (SE-017, DM-012). That check belongs to the deletion path built in a
-    later story; this function does not implement it.
+    evidence, so it is not reachable from any application role. When the
+    EV-18 lifecycle relation exists, deletion is refused while any live
+    attestation remains effective (SE-017, DM-012).
     """
     validate_tenant_id(tenant_id)
     partition = partition_name(tenant_id)
     integrity_partition = integrity_event_partition_name(tenant_id)
     population_partition = population_partition_name(tenant_id)
     role = application_role(tenant_id)
+    lifecycle_present = connection.execute(
+        text("SELECT to_regclass('public.attestations') IS NOT NULL")
+    ).scalar_one()
+    if lifecycle_present:
+        live_attestation = connection.execute(
+            text(
+                "SELECT attestation_id FROM attestations a"
+                " WHERE a.tenant_id = :tenant_id"
+                " AND a.validity_from <= clock_timestamp()"
+                " AND a.validity_until > clock_timestamp()"
+                " AND NOT EXISTS ("
+                "   SELECT 1 FROM revocations r"
+                "    WHERE r.tenant_id = a.tenant_id"
+                "      AND r.attestation_id = a.attestation_id"
+                "      AND r.effective_at <= clock_timestamp()"
+                " ) LIMIT 1"
+            ),
+            {"tenant_id": tenant_id},
+        ).scalar_one_or_none()
+        if live_attestation is not None:
+            raise RuntimeError(
+                "evidence deletion refused: covering attestation must be "
+                "revoked first (SE-017)"
+            )
     connection.execute(text(f'DROP TABLE IF EXISTS "{partition}"'))
     connection.execute(text(f'DROP TABLE IF EXISTS "{integrity_partition}"'))
     connection.execute(text(f'DROP TABLE IF EXISTS "{population_partition}"'))
