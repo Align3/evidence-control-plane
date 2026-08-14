@@ -277,6 +277,16 @@ Then the marking exempts nothing
 And the requirement is still reported as an orphan
 ```
 
+### QA-S-011 — Vector absences are counted and named in every report *(QA-019)*
+
+```gherkin
+Scenario: Vector absences are counted and named in every report
+  Given a corpus with a machine-readable vector absence register
+  When the traceability report is generated
+  Then the report states the vector absence count
+  And the report names every requirement absent from vectors
+```
+
 ### QA-S-010 — Every requirement and scenario is classified after triage *(QA-011)*
 
 EV-26's acceptance. It is about the outcome of triage — that nothing is left
@@ -360,8 +370,6 @@ when the missing rule is common input to both implementations.
 **Requirement classification has the same forward gate.** Every requirement is exactly one of three classes. Scenario-bearing requirements describe runtime behaviour and require Gherkin; while backlogged they name a real PRD story that claims them. Otherwise-verified requirements are objectively testable through a structural, database, CI, deployment, or artefact assertion and name the exact substitute pytest check; naming no check, or a check that does not resolve, does not discharge them. Non-testable requirements are process, governance, or documentation and state why executable verification would be dishonest. A new or materially rewritten requirement without its complete classification fails immediately as `NEW_REQUIREMENT_UNCLASSIFIED`, outside the staged backlog schedule. This comparison uses the same fail-closed merge base and non-weakening input rules as QA-S-001.
 
 ## Verification classifications
-
-> **Verification for QA-019 — scenario-bearing; deferred EV-41.** This is externally observable tooling behaviour; EV-41 owns its missing Gherkin scenario and executable acceptance proof, because the second implementation it builds is what makes the declared absences resolvable rather than permanent.
 
 > **Verification for QA-001 — otherwise-verified; deferred EV-38.** `pytest:tests/traceability/test_policy_coverage.py::test_qa_001_each_level_class_and_assertion_has_a_withholding_scenario` — This requirement is verified by a structural, database, CI, or artifact check rather than a Gherkin product scenario.
 

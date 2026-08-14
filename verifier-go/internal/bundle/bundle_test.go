@@ -367,19 +367,18 @@ func TestTMS005QualificationPostdatesWindow(t *testing.T) {
 	}
 }
 
-// TestQualificationExactlyAtWindowStartIsAccepted pins the boundary of the
-// comparison. CM-004 permits a class for windows beginning *after* the
-// qualification date, so equality is admissible and only a strictly later
-// qualification is not.
-func TestQualificationExactlyAtWindowStartIsAccepted(t *testing.T) {
+// TestQualificationExactlyAtWindowStartIsRefused pins CM-004's strict
+// boundary: a window beginning at the qualification instant does not begin
+// after it.
+func TestQualificationExactlyAtWindowStartIsRefused(t *testing.T) {
 	b := newBuilder(t)
 	b.attestation["window_start"] = "2026-08-01T00:00:00Z"
 	b.qualification = []map[string]any{
 		testfixture.QualificationBody("C1", "2026-08-01T00:00:00Z"),
 	}
 	res := b.verify(Options{})
-	if hasCode(res, CodeQualificationPostdates) {
-		t.Fatalf("a qualification dated exactly at window_start was refused: %v",
+	if !hasCode(res, CodeQualificationPostdates) {
+		t.Fatalf("a qualification dated exactly at window_start was accepted: %v",
 			res.Findings)
 	}
 }

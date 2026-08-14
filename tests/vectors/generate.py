@@ -1555,7 +1555,7 @@ def _bundle_vectors() -> list[dict[str, Any]]:
         _bundle_vector(
             "reject-assertion-outside-catalogue",
             build_bundle(assertions=[{"assertion_id": "A-11"}]),
-            requirements=("AR-003",),
+            requirements=("AR-003", "ES-036"),
             expected=_bundle_expected(
                 accepted=False,
                 verdict="invalid",

@@ -295,20 +295,10 @@ func TestBothPackagesClassifyRecordsIdentically(t *testing.T) {
 	}
 }
 
-// TestValidIsReachable is the regression guard for the terminal state.
-//
-// For most of EV-19 no bundle could reach "valid", because three things an
-// attestation claims were not determined by the specification: capped_by_class
-// (ES-018 against §5.13), the CM-012 counts (six buckets against §5.13's five),
-// and coverage_ratio. The first two are now settled and this demonstrates the
-// consequence end to end, with the real coverage and assertion checks
-// registered and the issuer affirmatively answering that nothing is revoked.
-//
-// The bundle claims below its class ceiling on purpose. At the ceiling,
-// capped_by_class depends on the evidence-supported level, which no
-// requirement derives from a bundle, so that case remains correctly
-// unresolvable — see TestAtTheCeilingCappedByClassIsUnresolvable.
-func TestValidIsReachable(t *testing.T) {
+// TestC4CountConservationCannotMakeAClaimValid guards the independently
+// enumerable boundary: a signed count at C4 is still not an independently
+// established denominator.
+func TestC4CountConservationCannotMakeAClaimValid(t *testing.T) {
 	b, keys := buildComplete(t, map[string]any{
 		"denominator_class": "C4",
 		"coverage_level":    "unknown",
@@ -317,16 +307,12 @@ func TestValidIsReachable(t *testing.T) {
 		"counts":            testfixture.CountsBody(3, 1, 1, 0, 0, 1),
 	}, 6)
 	res := verify(t, b, keys)
-	if res.Verdict != bundle.Valid {
-		t.Fatalf("verdict = %s, want valid\n  findings   %v\n  unresolved %v",
+	if res.Verdict != bundle.Indeterminate {
+		t.Fatalf("verdict = %s, want indeterminate\n  findings   %v\n  unresolved %v",
 			res.Verdict, res.Findings, res.Unresolved)
 	}
-	if len(res.Unresolved) != 0 {
-		t.Fatalf("valid was reached with unresolved items: %v", res.Unresolved)
-	}
-	// Standing limitations still have to be disclosed on a valid verdict.
-	if len(res.Notes) == 0 {
-		t.Fatal("a valid verdict disclosed no standing limitation")
+	if len(res.Unresolved) == 0 {
+		t.Fatal("C4 count conservation was silently treated as independently established")
 	}
 }
 

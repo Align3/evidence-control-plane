@@ -691,6 +691,12 @@ func recheckCounts(r *Result, b *Bundle, body *jcs.Object) {
 		r.fail(errf(CodeCountsInvalid, "counts must be an object"))
 		return
 	}
+	if r.DenominatorClass == C4 || r.DenominatorClass == C5 {
+		r.unresolved(
+			"count_conservation: denominator classes C4 and C5 do not establish an " +
+				"independently enumerable population, so the supplied count cannot " +
+				"independently prove conservation")
+	}
 	// The six CM-012 buckets, now enumerated by §5.13 as well. ES-005 keeps
 	// body open, so a member this verifier does not recognise must not be
 	// folded into the total: an unrelated integer would inflate the sum and

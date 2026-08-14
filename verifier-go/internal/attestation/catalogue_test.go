@@ -85,16 +85,16 @@ func readAssertions(t *testing.T, jsonBody string) (AssertionSet, error) {
 }
 
 func TestReadAssertionsRefusesOffCatalogue(t *testing.T) {
-	if _, err := readAssertions(t, `{"assertions":["A-01","A-11"]}`); Code(err) != CodeAssertionOffCatalogue {
+	if _, err := readAssertions(t, `{"assertions":[{"assertion_id":"A-01"},{"assertion_id":"A-11"}]}`); Code(err) != CodeAssertionOffCatalogue {
 		t.Fatalf("off-catalogue assertion gave %v", err)
 	}
-	if _, err := readAssertions(t, `{"assertions":[{"id":"A-99","count":3}]}`); Code(err) != CodeAssertionOffCatalogue {
+	if _, err := readAssertions(t, `{"assertions":[{"assertion_id":"A-99","count":3}]}`); Code(err) != CodeAssertionOffCatalogue {
 		t.Fatalf("off-catalogue object assertion gave %v", err)
 	}
 }
 
 func TestReadAssertionsRefusesDuplicates(t *testing.T) {
-	if _, err := readAssertions(t, `{"assertions":["A-05",{"id":"A-05"}]}`); Code(err) != CodeAssertionDuplicated {
+	if _, err := readAssertions(t, `{"assertions":[{"assertion_id":"A-05"},{"assertion_id":"A-05"}]}`); Code(err) != CodeAssertionDuplicated {
 		t.Fatalf("duplicate assertion gave %v", err)
 	}
 }
@@ -108,20 +108,25 @@ func TestReadAssertionsRequiresAnArray(t *testing.T) {
 	}
 }
 
-// An encoding the specification does not determine is recorded, not accepted
-// and not refused: the verifier reports that it could not check, which is a
-// different claim from either.
-func TestUndeterminedEncodingsAreRecorded(t *testing.T) {
-	set, err := readAssertions(t, `{"assertions":[{"scope":"window"},["A-01"],null,{"id":7}]}`)
+func TestAssertionElementsRequireTheNormativeRoutingMember(t *testing.T) {
+	for _, body := range []string{
+		`{"assertions":["A-01"]}`,
+		`{"assertions":[{"scope":"window"}]}`,
+		`{"assertions":[{"assertion_id":7}]}`,
+	} {
+		if _, err := readAssertions(t, body); Code(err) != CodeAssertionInvalid {
+			t.Fatalf("malformed assertion element gave %v", err)
+		}
+	}
+}
+
+func TestCataloguedAssertionPayloadRemainsUndetermined(t *testing.T) {
+	set, err := readAssertions(t, `{"assertions":[{"assertion_id":"A-01","scope":"window"}]}`)
 	if err != nil {
-		t.Fatalf("undetermined encodings were refused: %v", err)
+		t.Fatal(err)
 	}
-	if len(set.IDs) != 0 {
-		t.Fatalf("undetermined encodings produced assertions: %v", set.IDs)
-	}
-	if len(set.Undetermined) != 4 {
-		t.Fatalf("recorded %d undetermined encodings, want 4: %v",
-			len(set.Undetermined), set.Undetermined)
+	if !set.Has(A01) || len(set.Undetermined) != 1 {
+		t.Fatalf("catalogued payload was not retained as undetermined: %+v", set)
 	}
 }
 
@@ -146,7 +151,7 @@ func TestNoAggregateScoreRowExists(t *testing.T) {
 			t.Fatalf("%q was admitted to the catalogue", bad)
 		}
 	}
-	if _, err := readAssertions(t, `{"assertions":[{"id":"SCORE","value":"87"}]}`); Code(err) != CodeAssertionOffCatalogue {
+	if _, err := readAssertions(t, `{"assertions":[{"assertion_id":"SCORE","value":"87"}]}`); Code(err) != CodeAssertionOffCatalogue {
 		t.Fatalf("an aggregate score was accepted as an assertion: %v", err)
 	}
 }

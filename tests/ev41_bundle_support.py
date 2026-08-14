@@ -254,12 +254,14 @@ def revocation_record(
     effective_at: str,
     superseding_ref: str | None,
     attestation_ref: str = _record_id(404),
+    schema_version: str = "1.0.0",
 ) -> bytes:
     record = _sign(
         _envelope(
             index=405,
             record_type="RevocationRecord",
             stream_id="revocation-1",
+            schema_version=schema_version,
             body={
                 "attestation_ref": attestation_ref,
                 "reason": "computation defect",

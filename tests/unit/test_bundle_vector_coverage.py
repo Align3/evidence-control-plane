@@ -1,17 +1,4 @@
-"""What the published corpus does and does not say about this story's subject.
-
-QA-019: a requirement no vector exercises has nothing behind it, and the honest
-response is to record the absence rather than to manufacture a confirming case
-from the implementation under test.  ES-034, ES-035, CM-025 and AR-029 through
-AR-031 have no vector coverage, and this file states that as an executable
-fact so it stops being invisible.
-
-One vector *is* relevant and is used here: `accept-revocationrecord-signed-by-
-issuer-key` carries a real issuer-signed `RevocationRecord`.  It was published
-for ES-033 rather than for AR-030, so it pins the record's authentication and
-not the protocol's verdicts — but it is normative bytes this implementation did
-not write, which is worth more than a fixture for the part it does cover.
-"""
+"""QA-019 coverage checks for EV-41's now-published bundle vectors."""
 
 from __future__ import annotations
 
@@ -29,8 +16,8 @@ from sdk_python.evidence.versions import require_published_schema_version
 CORPUS = Path(__file__).resolve().parents[1] / "vectors" / "vectors-v0.1.json"
 DOCUMENT: dict[str, Any] = json.loads(CORPUS.read_text(encoding="utf-8"))
 
-#: Requirements in this story's scope, and what the corpus offers for each.
-UNCOVERED_REQUIREMENTS = (
+#: Requirements for which EV-41 publishes cross-implementation vectors.
+COVERED_REQUIREMENTS = (
     "ES-034",  # the bundle container
     "ES-035",  # the schema-version registry
     "CM-025",  # the methodology-version registry
@@ -46,30 +33,18 @@ def _vector(vector_id: str) -> dict[str, Any]:
     )
 
 
-def test_no_vector_operation_exercises_a_bundle_or_a_revocation_verdict() -> None:
-    """The declared absence, as a tripwire rather than as a comment.
-
-    Every operation in the corpus is a record-level or stream-level check.
-    None parses a container, none consults a version registry, and none asks
-    what a `RevocationRecord` *means* — only whether it authenticates.  When a
-    bundle or revocation-status vector is published this test fails, which is
-    the point: the absence should not be able to persist unnoticed, and neither
-    should its removal.
-    """
-
-    operations = {vector["operation"] for vector in DOCUMENT["vectors"]}
-    assert not {
-        operation
-        for operation in operations
-        if "bundle" in operation or "revocation" in operation
-    }
-    assert UNCOVERED_REQUIREMENTS  # named above so the gap has a subject
+def test_bundle_operation_is_present_and_executable_by_both_harnesses() -> None:
+    bundle_vectors = [
+        vector for vector in DOCUMENT["vectors"] if vector["operation"] == "verify_bundle"
+    ]
+    assert bundle_vectors
+    assert all(vector.get("bundle_utf8_hex") for vector in bundle_vectors)
 
 
-def test_the_corpus_carries_no_attestation_bundle() -> None:
-    for vector in DOCUMENT["vectors"]:
-        subject = vector.get("record") or vector.get("input_json")
-        assert not isinstance(subject, list) or "records" not in vector
+def test_each_ev41_requirement_is_attributed_and_not_declared_absent() -> None:
+    coverage = DOCUMENT["requirement_coverage"]
+    assert set(COVERED_REQUIREMENTS) <= coverage["covered"].keys()
+    assert set(COVERED_REQUIREMENTS).isdisjoint(coverage["declared_absent"])
 
 
 def test_the_published_revocation_record_authenticates_and_classifies() -> None:
@@ -106,29 +81,15 @@ def test_the_published_revocation_record_authenticates_and_classifies() -> None:
     assert before.pending_status is RevocationStatus.REVOKED
 
 
-def test_no_published_vector_carries_a_non_null_superseding_ref() -> None:
-    """AR-030's `superseded` half rests on prose alone.
-
-    The corpus contains exactly one `RevocationRecord` and its `superseding_ref`
-    is null, so the state that distinguishes supersession from revocation has
-    never been exercised by anything ES-029 makes authoritative.  Writing a
-    vector for it here would be QA-019's forbidden move — a case manufactured
-    by the implementation whose reading it would then appear to confirm.
-    """
-
-    revocation_records = [
-        vector["record"]
-        for vector in DOCUMENT["vectors"] + DOCUMENT["adversarial_vectors"]
-        if isinstance(vector.get("record"), dict)
-        and vector["record"].get("record_type") == "RevocationRecord"
-    ]
-    assert revocation_records
-    assert all(
-        record["body"]["superseding_ref"] is None for record in revocation_records
-    )
+def test_supersession_has_normative_non_null_vector_coverage() -> None:
+    vector = _vector("revocation-superseding-reference-is-distinct")
+    response = vector["revocation_response"]
+    record = json.loads(bytes.fromhex(response["body_utf8_hex"]))
+    assert record["body"]["superseding_ref"] == "attestation-2"
+    assert vector["expected"]["verdict"] == "superseded"
 
 
-@pytest.mark.parametrize("requirement", UNCOVERED_REQUIREMENTS)
+@pytest.mark.parametrize("requirement", COVERED_REQUIREMENTS)
 def test_each_requirement_in_scope_is_named_in_its_owning_document(
     requirement: str,
 ) -> None:

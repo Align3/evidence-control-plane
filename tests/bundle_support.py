@@ -248,6 +248,7 @@ def signed_revocation(
     record_id: str | None = None,
     signer: str = "issuer",
     reason: str = "discovered defect in computation",
+    schema_version: str = "1.0.0",
 ) -> RecordEnvelope:
     record = validate_record(
         envelope(
@@ -260,6 +261,7 @@ def signed_revocation(
             ),
             record_id=record_id or _record_id(4),
             stream_id="issuer:RevocationRecord",
+            schema_version=schema_version,
         )
     )
     return sign_issuer(record) if signer == "issuer" else sign_evidence(record)

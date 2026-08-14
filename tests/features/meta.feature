@@ -80,7 +80,7 @@ Feature: Test-system self-checks
     And the requirement is still reported as an orphan
 
   @QA-S-010 @QA-011
-  # source: testing-qa.md:280
+  # source: testing-qa.md:290
   Scenario: QA-S-010 Every requirement and scenario is classified after triage
     Given the live corpus after triage
     When the traceability matrix is generated
@@ -89,3 +89,11 @@ Feature: Test-system self-checks
     And no requirement claimed by a story is reported without a scenario
     And no scenario is reported as having no Acceptance owner
     And untested scenarios owned by unlanded stories remain reported as roadmap debt
+
+  @QA-S-011 @QA-019
+  # source: testing-qa.md:280
+  Scenario: QA-S-011 Vector absences are counted and named in every report
+    Given a corpus with a machine-readable vector absence register
+    When the traceability report is generated
+    Then the report states the vector absence count
+    And the report names every requirement absent from vectors

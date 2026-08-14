@@ -602,6 +602,9 @@
       "ES-035": [
         "reject-unpublished-schema-version"
       ],
+      "ES-036": [
+        "reject-assertion-outside-catalogue"
+      ],
       "SE-003": [
         "accept-externalconfirmation-signed-by-issuer-key",
         "accept-populationrecord-signed-by-issuer-key",
@@ -4496,7 +4499,8 @@
       "id": "reject-assertion-outside-catalogue",
       "operation": "verify_bundle",
       "requirements": [
-        "AR-003"
+        "AR-003",
+        "ES-036"
       ],
       "verification_keys": {
         "ISSUER1": {

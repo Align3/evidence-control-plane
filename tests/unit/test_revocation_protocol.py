@@ -146,6 +146,14 @@ def test_a_200_carrying_a_different_record_type_establishes_nothing() -> None:
     assert _check(RevocationResponse(200, body)).status is RevocationStatus.UNCHECKED
 
 
+@pytest.mark.parametrize("schema_version", ["2.0.0", "9.9.9"])
+def test_a_revocation_with_an_unpublished_schema_establishes_nothing(
+    schema_version: str,
+) -> None:
+    body = _signed_revocation_bytes(schema_version=schema_version)
+    assert _check(RevocationResponse(200, body)).status is RevocationStatus.UNCHECKED
+
+
 def test_a_non_canonical_200_body_establishes_nothing() -> None:
     body = json.dumps(json.loads(_signed_revocation_bytes()), indent=2).encode()
     assert _check(RevocationResponse(200, body)).status is RevocationStatus.UNCHECKED
@@ -342,6 +350,11 @@ def test_a_negative_offset_is_ordered_correctly() -> None:
 def test_an_uncomparable_precision_is_refused_rather_than_truncated() -> None:
     with pytest.raises(TimestampError, match="nanosecond"):
         parse_instant("2026-08-01T12:00:00.0000000001Z")
+
+
+def test_an_unvalidated_leap_second_is_refused_rather_than_normalized() -> None:
+    with pytest.raises(TimestampError, match="leap-second"):
+        parse_instant("2026-08-01T12:00:60.000Z")
 
 
 def test_a_timestamp_without_an_offset_is_refused() -> None:

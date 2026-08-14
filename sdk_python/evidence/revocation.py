@@ -36,6 +36,7 @@ from sdk_python.evidence.schema import (
     EnvelopeValidationError,
     RevocationRecord,
 )
+from sdk_python.evidence.versions import require_published_schema_version
 
 NOT_FOUND: int = 404
 OK: int = 200
@@ -122,6 +123,7 @@ def _authenticate(
         raise EnvelopeValidationError(
             f"200 response carried a {record.record_type}, not a RevocationRecord"
         )
+    require_published_schema_version(record.schema_version)
     # ES-033 already required the issuer namespace for this record type inside
     # the call above; re-stating it here would be a second, weaker check.
     if record.body.attestation_ref != attestation.record_id:

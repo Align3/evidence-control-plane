@@ -203,6 +203,8 @@ Body: `gap_start`, `gap_end`, `affected_scope` (families, identities, systems), 
 
 Body: `boundary_ref`, `window_start`, `window_end`, `methodology_version`, `denominator_class`, `population_record_refs[]`, `coverage_level`, `capped_by_class`, `verification_status` (`self_computed`|`independently_reproduced`), `coverage_ratio` (nullable), `counts` (matched, unmatched_with_evidence, unmatched_without_evidence, duplicate, ambiguous, out_of_scope), `gaps[]`, `assertions[]`, `exclusions[]`, `relying_parties`, `validity_from`, `validity_until`, `liability_ref`, `issued_at`, `issuer`, `verifier_version`.
 
+**ES-036 — Assertion element routing (provisional under AG-018).** Every `assertions[]` element is an object whose required `assertion_id` string names one row of the closed AR-003 catalogue. A verifier MUST refuse an ID outside that catalogue. Until a normative payload schema defines the remaining members, a verifier MUST report an in-catalogue assertion payload as unchecked rather than claim its scope or count was reproduced.
+
 > **`out_of_scope` was missing from `counts` and is a correction, not a new rule.** CM-012 has defined six reconciliation classifications since it was written and ES-015 makes that enumeration closed with no residual bucket; this list enumerated five and omitted `out_of_scope`. The consequence was that a verifier could only ever check the counts as `≤` the population and never as `=`, because one of the six places a record may legitimately go had nowhere to be reported. CM-012 was already authoritative on the six. This entry catches up to it.
 
 > **`capped_by_class` is provisional under AG-018.** It is required from `schema_version` 2.0.0 and optional by presence at 1.0.0 (ES-002b: encode absence by omission, never as `null`).
@@ -326,6 +328,15 @@ An implementation is conformant if it produces records that our reference verifi
 RFC 8785 sorts the members of an object; it does not reorder the elements of an array. Canonicalizing the container is therefore not sufficient to make a bundle byte-identical: the same record set emitted in two different orders yields two canonical, conformant bundles with different bytes and different digests. QA-008 requires fixed evidence fixtures to produce byte-identical attestation bundles and fails CI on any diff, so without a total order on elements that gate reports divergence between two implementations that agree about everything that matters. Comparing the canonical bytes themselves gives that order without depending on any member that a record type might omit.
 
 **Selective disclosure is preserved.** ES-026 requires that a relying party can be given a bundle proving a claim without receiving everything. A bundle is therefore expected to carry slices of streams rather than whole ones, and a verifier MUST NOT require a stream to be complete or anchored at sequence 1 within a bundle. Where two records of one stream sit at consecutive sequences, the ES-006a link between them is checkable and MUST be checked. Where the slice is non-contiguous, the link across the omission is not checkable from the bundle, and the verifier MUST report it as unchecked rather than as either verified or broken.
+
+### ES-S-025 — Assertion routing agrees across implementations *(ES-036, AR-003)*
+
+```gherkin
+Scenario: Assertion routing agrees across implementations
+  Given a signed bundle carrying an assertion_id outside the catalogue
+  When the same bundle bytes are verified by the Python and Go entry points
+  Then both refuse with assertion.outside_catalogue
+```
 
 ---
 

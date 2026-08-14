@@ -10,7 +10,8 @@ import "fmt"
 // for canonicalization/signature/chain/continuity. `attestation` is a new
 // family: no published vector exercises any rule in this package.
 const (
-	CodeAssertionOffCatalogue = "attestation.assertion_off_catalogue"
+	CodeAssertionOffCatalogue = "assertion.outside_catalogue"
+	CodeAssertionInvalid      = "assertion.invalid"
 	CodeAssertionsNotArray    = "attestation.assertions_not_array"
 	CodeAssertionDuplicated   = "attestation.assertion_duplicated"
 )

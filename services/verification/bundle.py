@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import json
 from collections.abc import Callable, Mapping
 from dataclasses import dataclass
 from datetime import UTC, datetime
@@ -11,6 +12,8 @@ from urllib.request import urlopen
 
 from sdk_python.evidence.bundle import (
     Bundle as AttestationBundle,
+)
+from sdk_python.evidence.bundle import (
     BundleError,
     BundleOrderError,
     BundleShapeError,
@@ -20,6 +23,8 @@ from sdk_python.evidence.bundle import (
 from sdk_python.evidence.canonical import canonical_digest, canonicalize
 from sdk_python.evidence.chain import (
     RegisteredPublicKey as SDKRegisteredPublicKey,
+)
+from sdk_python.evidence.chain import (
     verify_key_continuity,
 )
 from sdk_python.evidence.schema import (
@@ -30,7 +35,13 @@ from sdk_python.evidence.schema import (
     RevocationRecord,
 )
 from sdk_python.evidence.signing import SignatureError
-from sdk_python.evidence.versions import UnpublishedVersionError
+from sdk_python.evidence.versions import (
+    METHODOLOGY_VERSION_REGISTRY,
+    UnpublishedVersionError,
+    published_versions,
+    require_published_methodology_version,
+    require_published_schema_version,
+)
 from services.ingestion.receipts import (
     KeyNamespaceError,
     RegisteredPublicKey,
@@ -39,7 +50,7 @@ from services.ingestion.receipts import (
     verify_record_origin_signature,
 )
 
-PUBLISHED_METHODOLOGY_VERSIONS = frozenset({"1.0.0"})
+PUBLISHED_METHODOLOGY_VERSIONS = published_versions(METHODOLOGY_VERSION_REGISTRY)
 ASSERTION_CATALOGUE = frozenset(f"A-{index:02d}" for index in range(1, 11))
 COUNT_FIELDS = (
     "matched",
@@ -127,6 +138,25 @@ def _instant(value: datetime | str) -> datetime:
 
 def _evaluated_at(value: datetime) -> str:
     return value.astimezone(UTC).isoformat(timespec="milliseconds").replace("+00:00", "Z")
+
+
+def _attestation_id_after_verified_parse(wire: bytes) -> str | None:
+    """Recover the already-verified attestation ID after a methodology refusal.
+
+    ``parse_bundle`` checks every schema and signature before it checks the
+    attestation methodology. Re-reading only the ID here preserves that useful
+    diagnostic without treating a failed schema parse as an authenticated
+    identity.
+    """
+
+    decoded = json.loads(wire)
+    if not isinstance(decoded, list):
+        return None
+    for value in decoded:
+        if isinstance(value, dict) and value.get("record_type") == "AttestationWindow":
+            record_id = value.get("record_id")
+            return record_id if isinstance(record_id, str) else None
+    return None
 
 
 def _stream_checks(
@@ -228,11 +258,12 @@ def _counts(attestation: AttestationWindowRecord) -> dict[str, int]:
 
 def _ratio_checks(bundle: AttestationBundle) -> tuple[str | None, tuple[str, ...]]:
     attestation = bundle.attestation
-    if attestation.body.methodology_version not in PUBLISHED_METHODOLOGY_VERSIONS:
+    try:
+        require_published_methodology_version(attestation.body.methodology_version)
+    except UnpublishedVersionError as exc:
         raise BundleVerificationError(
-            "methodology.version_unsupported",
-            f"methodology_version {attestation.body.methodology_version!r} is not published",
-        )
+            "methodology.version_unsupported", str(exc)
+        ) from exc
     refs = attestation.body.population_record_refs
     if len(refs) != len(set(refs)):
         raise BundleVerificationError(
@@ -486,6 +517,7 @@ def check_revocation(
         record, _ = parse_canonical_record_wire(response.body)
         if not isinstance(record, RevocationRecord):
             return RevocationResult(status="unchecked", checked=False)
+        require_published_schema_version(record.schema_version)
         verify_record_origin_signature(record, verification_keys=verification_keys)
         if record.body.attestation_ref != attestation.record_id:
             return RevocationResult(status="unchecked", checked=False)
@@ -601,16 +633,21 @@ def verify_attestation_bundle(
             error_codes=(code,),
         )
     except UnpublishedVersionError as exc:
+        methodology_error = "methodology_version" in str(exc)
         code = (
             "methodology.version_unsupported"
-            if "methodology_version" in str(exc)
+            if methodology_error
             else "schema.version_unsupported"
         )
         return BundleVerificationResult(
             accepted=False,
             verdict="invalid",
             evaluated_at=rendered_instant,
-            attestation_id=attestation.record_id if attestation is not None else None,
+            attestation_id=(
+                _attestation_id_after_verified_parse(wire)
+                if methodology_error
+                else None
+            ),
             revocation_status="unchecked",
             coverage_ratio=None,
             error_codes=(code,),

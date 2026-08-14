@@ -193,6 +193,21 @@ def test_ar_029_wrong_attestation_and_invalid_body_establish_nothing() -> None:
     assert verify(build_bundle(), revocation_response=malformed).revocation_status == "unchecked"
 
 
+@pytest.mark.parametrize("schema_version", ["2.0.0", "9.9.9"])
+def test_ar_029_unpublished_revocation_schema_establishes_nothing(
+    schema_version: str,
+) -> None:
+    response = RevocationResponse(
+        200,
+        revocation_record(
+            effective_at="2026-09-01T00:00:00.000Z",
+            superseding_ref=None,
+            schema_version=schema_version,
+        ),
+    )
+    assert verify(build_bundle(), revocation_response=response).revocation_status == "unchecked"
+
+
 def test_ar_030_supersession_is_not_plain_revocation() -> None:
     response = RevocationResponse(
         200,

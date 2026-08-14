@@ -12,8 +12,9 @@ import (
 // Stable dotted codes. Wording is ours; the code is what tests and output pin.
 const (
 	CodeBundleMalformed     = "bundle.malformed"
+	CodeBundleContainer     = "bundle.container_invalid"
 	CodeBundleNonCanonical  = "bundle.non_canonical"
-	CodeBundleUnordered     = "bundle.elements_unordered"
+	CodeBundleUnordered     = "bundle.element_order"
 	CodeWrongRecordType     = "bundle.wrong_record_type"
 	CodeSignatureInvalid    = "bundle.signature_invalid"
 	CodeTenantMismatch      = "bundle.tenant_mismatch"

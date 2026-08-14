@@ -2,6 +2,7 @@ package coverage
 
 import (
 	"encoding/json"
+	"strings"
 	"testing"
 
 	"github.com/Align3/evidence-control-plane/verifier-go/internal/attestation"
@@ -404,28 +405,43 @@ func TestNegativeCountIsRefused(t *testing.T) {
 
 // TestAR_S_001_OffCatalogueAssertionFailsVerification.
 func TestAR_S_001_OffCatalogueAssertionFailsVerification(t *testing.T) {
-	for _, bad := range []any{"A-11", "A-00", "a-01", "", "OVERALL-SCORE"} {
-		r := recompute(t, attestationWindow(t, obj{"assertions": []any{bad}}))
+	for _, bad := range []any{"A-11", "A-00", "a-01", "OVERALL-SCORE"} {
+		r := recompute(t, attestationWindow(t, obj{"assertions": []any{obj{"assertion_id": bad}}}))
 		if !hasFinding(r, attestation.CodeAssertionOffCatalogue) {
 			t.Fatalf("off-catalogue assertion %v was accepted: %v", bad, findingCodes(r))
 		}
+	}
+	empty := recompute(t, attestationWindow(t, obj{
+		"assertions": []any{obj{"assertion_id": ""}},
+	}))
+	if !hasFinding(empty, attestation.CodeAssertionInvalid) {
+		t.Fatalf("empty assertion_id was not refused: %v", findingCodes(empty))
 	}
 }
 
 func TestCataloguedAssertionsAreAccepted(t *testing.T) {
 	r := recompute(t, attestationWindow(t, obj{
-		"assertions": []any{"A-01", obj{"id": "A-06", "scope": "window", "count": 12}},
+		"assertions": []any{obj{"assertion_id": "A-01"}, obj{"assertion_id": "A-06", "scope": "window", "count": 12}},
 	}))
-	if !r.Valid() {
+	if len(r.Findings) != 0 {
 		t.Fatalf("catalogued assertions were refused: %v", findingCodes(r))
 	}
 	if !r.Assertions.Has(attestation.A01) || !r.Assertions.Has(attestation.A06) {
 		t.Fatalf("assertions not read back: %v", r.Assertions.IDs)
 	}
+	var payloadUnresolved int
+	for _, unresolved := range r.Unresolved {
+		if strings.Contains(unresolved, "assertion payload") {
+			payloadUnresolved++
+		}
+	}
+	if payloadUnresolved != 2 {
+		t.Fatalf("catalogued payloads were promoted to verified: %v", r.Unresolved)
+	}
 }
 
 func TestDuplicateAssertionIsRefused(t *testing.T) {
-	r := recompute(t, attestationWindow(t, obj{"assertions": []any{"A-04", "A-04"}}))
+	r := recompute(t, attestationWindow(t, obj{"assertions": []any{obj{"assertion_id": "A-04"}, obj{"assertion_id": "A-04"}}}))
 	if !hasFinding(r, attestation.CodeAssertionDuplicated) {
 		t.Fatalf("a duplicated assertion was accepted: %v", findingCodes(r))
 	}
@@ -436,8 +452,8 @@ func TestUndeterminedAssertionShapeIsNotAPass(t *testing.T) {
 	if r.Reproduced() {
 		t.Fatal("an assertion whose encoding is undetermined was reported as reproduced")
 	}
-	if hasFinding(r, attestation.CodeAssertionOffCatalogue) {
-		t.Fatal("an undetermined encoding was reported as an off-catalogue assertion")
+	if !hasFinding(r, attestation.CodeAssertionInvalid) {
+		t.Fatal("an assertion without assertion_id was not refused as malformed")
 	}
 }
 

@@ -87,13 +87,11 @@ def parse_instant(value: object) -> Instant:
     nanoseconds = int(fraction.ljust(NANOSECOND_DIGITS, "0"))
 
     second = int(match.group("second"))
-    leap_adjustment = 0
     if second == 60:
-        # RFC 3339 permits a leap second; datetime cannot represent one. Mapping
-        # it to the following instant keeps the ordering total, which is all
-        # AR-031 asks of it.
-        second = 59
-        leap_adjustment = 1
+        raise TimestampError(
+            "leap-second timestamps are refused because this verifier has no "
+            "authoritative leap-second table"
+        )
     if int(match.group("hour")) > 23 or int(match.group("minute")) > 59 or second > 59:
         raise TimestampError(f"timestamp {value!r} contains an invalid time")
 
@@ -118,5 +116,5 @@ def parse_instant(value: object) -> Instant:
         offset = timedelta(hours=offset_hour, minutes=offset_minute)
         naive -= offset if match.group("sign") == "+" else -offset
 
-    epoch_seconds = int(naive.timestamp()) + leap_adjustment
+    epoch_seconds = int(naive.timestamp())
     return Instant(epoch_nanoseconds=epoch_seconds * 10**9 + nanoseconds, text=value)
