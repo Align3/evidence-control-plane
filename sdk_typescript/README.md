@@ -35,6 +35,12 @@ When actual rendered bytes are unavailable, use
 that claim. The SDK does not attempt to reconstruct what a client should have
 shown.
 
+`captureHumanReview()` snapshots the complete review at the decision boundary:
+reviewer identity and authority, surface, the evidence capture above, references,
+options, timing, decision and modifications, `action_state_at_review`, and the
+decision timestamp. Mutable UI objects are copied, and invalid timing, action
+state, digest, timestamp, or evidence provenance is refused before emission.
+
 ## Specification findings
 
 EV-10 exposed one ES-013 ambiguity without consulting either incumbent: the

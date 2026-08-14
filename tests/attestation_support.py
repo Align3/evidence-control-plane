@@ -84,6 +84,8 @@ def attestation_request(
         boundary_versions=(version or boundary_version(),),
         action_families=action_families,
         operated_action_families=operated_action_families,
+        review_action_ids=(),
+        human_reviews=(),
         outcome_action_ids=("action-0",),
         authoritative_source=authoritative_source,
         outcome_records=(),

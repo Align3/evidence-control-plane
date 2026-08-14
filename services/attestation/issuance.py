@@ -11,12 +11,14 @@ from cryptography.hazmat.primitives.asymmetric.ed25519 import Ed25519PrivateKey
 
 from sdk_python.evidence.schema import (
     AttestationWindowRecord,
+    HumanReviewRecord,
     OutcomeRecord,
     validate_record,
 )
 from sdk_python.evidence.signing import counter_sign_attestation, sign_record
 from services.admin.boundary import BoundaryVersion, IntervalCoverage, interval_coverage
 from services.computation.coverage import CoverageReport, RatioState
+from services.computation.oversight import OversightReason, evaluate_oversight
 
 from .assertions import (
     A02BoundaryInForce,
@@ -24,6 +26,8 @@ from .assertions import (
     A04PopulationMatched,
     A05UnknownIntervals,
     A06CoverageMinimum,
+    A07ReviewsRecorded,
+    A08ReversibleReviews,
     A09OutcomesConfirmed,
     AssertionCounts,
     AssertionScope,
@@ -99,6 +103,8 @@ class AttestationRequest:
     boundary_versions: tuple[BoundaryVersion, ...]
     action_families: tuple[str, ...]
     operated_action_families: tuple[str, ...]
+    review_action_ids: tuple[str, ...]
+    human_reviews: tuple[HumanReviewRecord, ...]
     outcome_action_ids: tuple[str, ...]
     authoritative_source: str | None
     outcome_records: tuple[OutcomeRecord, ...]
@@ -270,6 +276,40 @@ def assemble_attestation(request: AttestationRequest) -> AttestationAssembly:
             capped_by_class=coverage.capped_by_class,
         )
     )
+    oversight = None
+    if request.review_action_ids:
+        oversight = evaluate_oversight(
+            request.human_reviews,
+            required_action_ids=request.review_action_ids,
+            tenant_id=request.tenant_id,
+            boundary_ref=coverage.boundary_ref,
+            window_start=coverage.window.start,
+            window_end=coverage.window.end,
+        )
+        if oversight.reviewed_action_ids:
+            in_window_records = sum(
+                evaluation.reason is not OversightReason.OUTSIDE_ATTESTATION_WINDOW
+                for evaluation in oversight.evaluations
+            )
+            assertions.append(
+                A07ReviewsRecorded(
+                    scope=scope,
+                    counts=counts,
+                    review_record_count=in_window_records,
+                )
+            )
+        if oversight.effective_action_ids:
+            assertions.append(
+                A08ReversibleReviews(
+                    scope=scope,
+                    counts=counts,
+                    reversible_review_count=len(oversight.effective_action_ids),
+                )
+            )
+    elif request.human_reviews:
+        raise AttestationInputError(
+            "human_reviews cannot support a claim without review_action_ids"
+        )
     outcome = _outcome_assertion(
         scope=scope,
         counts=counts,
@@ -284,6 +324,24 @@ def assemble_attestation(request: AttestationRequest) -> AttestationAssembly:
     exclusions: list[dict[str, Any]] = [
         {"kind": "standing_exclusion", "claim": exclusion.value} for exclusion in StandingExclusion
     ]
+    if oversight is not None:
+        if oversight.missing_action_ids:
+            exclusions.append(
+                {
+                    "kind": "human_review_missing",
+                    "action_ids": list(oversight.missing_action_ids),
+                }
+            )
+        exclusions.extend(
+            {
+                "kind": "human_review_ineffective",
+                "record_id": evaluation.record_id,
+                "action_id": evaluation.action_id,
+                "reason": evaluation.reason.value,
+            }
+            for evaluation in oversight.evaluations
+            if not evaluation.effective
+        )
     outside_boundary = sorted(set(operated) - selected_boundary.declared_families)
     if outside_boundary:
         exclusions.append(
