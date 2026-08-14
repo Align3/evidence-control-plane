@@ -12,6 +12,7 @@ import (
 
 	"github.com/Align3/evidence-control-plane/verifier-go/internal/evidence"
 	"github.com/Align3/evidence-control-plane/verifier-go/internal/jcs"
+	"github.com/Align3/evidence-control-plane/verifier-go/internal/versions"
 )
 
 // SPEC GAP (recorded, not guessed).
@@ -195,7 +196,18 @@ func (c Checker) classify(body []byte, attestationRef string) Result {
 		return unchecked(ReasonBodyShape, err.Error())
 	}
 
-	ref, _ := stringMember(bodyObj, "attestation_ref")
+	schemaRaw, _ := rec.Obj.Get("schema_version")
+	schema, schemaOK := schemaRaw.(string)
+	if !schemaOK || versions.Schema(schema) != versions.Published {
+		return unchecked(ReasonMalformed,
+			fmt.Sprintf("RevocationRecord schema_version %q is not published", schema))
+	}
+
+	ref, refOK := stringMember(bodyObj, "attestation_ref")
+	if !refOK {
+		return unchecked(ReasonBodyShape,
+			"RevocationRecord attestation_ref must be a string")
+	}
 	if ref != attestationRef {
 		// An authenticated record about a different attestation tells us
 		// nothing about this one. Reporting it as revoked would let one
@@ -215,32 +227,42 @@ func (c Checker) classify(body []byte, attestationRef string) Result {
 			fmt.Sprintf("RevocationRecord effective_at %q is not RFC 3339", effectiveAt))
 	}
 
-	// SPEC GAP (recorded): §5.14 gives RevocationRecord a superseding_ref but
-	// never says that its presence is what distinguishes supersession from
-	// revocation. AR-011 says supersession references the original, and AR-010
-	// lists revocation grounds that do not include supersession, so this is the
-	// reading the prose best supports — but the prose does not state it and no
-	// vector pins it.
-	supersededBy, hasSuperseding := stringMember(bodyObj, "superseding_ref")
+	supersedingRaw, hasSuperseding := bodyObj.Get("superseding_ref")
+	if !hasSuperseding {
+		return unchecked(ReasonBodyShape,
+			"RevocationRecord has no superseding_ref")
+	}
+	var supersededBy string
+	if supersedingRaw != nil {
+		var ok bool
+		supersededBy, ok = supersedingRaw.(string)
+		if !ok || supersededBy == "" {
+			return unchecked(ReasonBodyShape,
+				"RevocationRecord superseding_ref must be null or a non-empty string")
+		}
+	}
+	reason, reasonOK := stringMember(bodyObj, "reason")
+	if !reasonOK || reason == "" {
+		return unchecked(ReasonBodyShape,
+			"RevocationRecord reason must be a non-empty string")
+	}
+	if _, ok := stringMember(bodyObj, "relying_party_notification_status"); !ok {
+		return unchecked(ReasonBodyShape,
+			"RevocationRecord relying_party_notification_status must be a string")
+	}
 
 	if effective.After(c.now()) {
 		// Checked, and the answer is that the revocation has not taken effect
 		// yet. The pending state is carried on the Result rather than folded
 		// away, because a relying party deciding today needs to see it.
-		return Result{
-			status:       Valid,
-			reason:       ReasonNotYetEffective,
-			detail:       fmt.Sprintf("a revocation is published but takes effect at %s", effectiveAt),
-			EffectiveAt:  effectiveAt,
-			SupersededBy: supersededBy,
-		}
+		return checkedPendingValid(effectiveAt, supersededBy,
+			fmt.Sprintf("a revocation is published but takes effect at %s", effectiveAt))
 	}
 
-	if hasSuperseding && supersededBy != "" {
+	if supersededBy != "" {
 		return checkedSuperseded(effectiveAt, supersededBy,
 			fmt.Sprintf("superseded by %s", supersededBy))
 	}
-	reason, _ := stringMember(bodyObj, "reason")
 	return checkedRevoked(effectiveAt, fmt.Sprintf("revoked by issuer: %s", reason))
 }
 

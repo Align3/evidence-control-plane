@@ -152,11 +152,12 @@ func itoa(n int64) string {
 // allRecords is every record the bundle carries, attestation included.
 func allRecords(b *Bundle) []*Record {
 	out := make([]*Record, 0,
-		1+len(b.Qualifications)+len(b.Populations)+len(b.Gaps))
+		1+len(b.Qualifications)+len(b.Populations)+len(b.Gaps)+len(b.Other))
 	out = append(out, b.Attestation)
 	out = append(out, b.Qualifications...)
 	out = append(out, b.Populations...)
 	out = append(out, b.Gaps...)
+	out = append(out, b.Other...)
 	if b.Boundary != nil {
 		out = append(out, b.Boundary)
 	}

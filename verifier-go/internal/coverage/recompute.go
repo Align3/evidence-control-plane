@@ -601,6 +601,7 @@ func truncationState(r *Result, b *Bundle, body *jcs.Object) (truncated, resolve
 	}
 
 	resolved = true
+	seen := map[*evidence.Record]bool{}
 	for _, refRaw := range refs {
 		ref, ok := refRaw.(string)
 		if !ok {
@@ -620,12 +621,26 @@ func truncationState(r *Result, b *Bundle, body *jcs.Object) (truncated, resolve
 			resolved = false
 			continue
 		}
+		if seen[rec] {
+			r.fail(errf(CodePopulationRefDuplicate,
+				"population_record_refs repeats %q; one signed population cannot be counted twice",
+				ref))
+			resolved = false
+			continue
+		}
+		seen[rec] = true
 		popBody, err := bodyOf(rec)
 		if err != nil {
 			resolved = false
 			continue
 		}
-		if boolMember(popBody, "result_cap_hit") || !boolMemberDefaultTrue(popBody, "pagination_complete") {
+		capHit, capOK := requiredBoolMember(r, popBody, "result_cap_hit")
+		paginationComplete, pageOK := requiredBoolMember(r, popBody, "pagination_complete")
+		if !capOK || !pageOK {
+			resolved = false
+			continue
+		}
+		if capHit || !paginationComplete {
 			truncated = true
 		}
 	}
@@ -641,26 +656,19 @@ func refOf(rec *evidence.Record) string {
 	return s
 }
 
-func boolMember(obj *jcs.Object, key string) bool {
-	raw, _ := obj.Get(key)
-	v, _ := raw.(bool)
-	return v
-}
-
-// boolMemberDefaultTrue treats a missing or non-boolean pagination_complete as
-// true so that the caller's `!` turns it into "not known to be complete" only
-// when the record actually says false. Record validation already requires the
-// member, so this is a total-function guard rather than a policy.
-func boolMemberDefaultTrue(obj *jcs.Object, key string) bool {
+func requiredBoolMember(r *Result, obj *jcs.Object, key string) (bool, bool) {
 	raw, ok := obj.Get(key)
 	if !ok {
-		return true
+		r.fail(errf(CodeBundleShape, "PopulationRecord body.%s is absent", key))
+		return false, false
 	}
 	v, ok := raw.(bool)
 	if !ok {
-		return true
+		r.fail(errf(CodeBundleShape,
+			"PopulationRecord body.%s must be a boolean", key))
+		return false, false
 	}
-	return v
+	return v, true
 }
 
 // recheckCounts applies what CM-012 determines about the classification counts.
@@ -792,6 +800,7 @@ func populationTotal(b *Bundle, body *jcs.Object) (int64, bool) {
 		}
 	}
 	var total int64
+	seen := map[*evidence.Record]bool{}
 	for _, refRaw := range refs {
 		ref, ok := refRaw.(string)
 		if !ok {
@@ -801,6 +810,10 @@ func populationTotal(b *Bundle, body *jcs.Object) (int64, bool) {
 		if !found {
 			return 0, false
 		}
+		if seen[rec] {
+			return 0, false
+		}
+		seen[rec] = true
 		popBody, err := bodyOf(rec)
 		if err != nil {
 			return 0, false
