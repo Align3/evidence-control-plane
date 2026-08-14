@@ -23,6 +23,28 @@ So the rationale lives here instead. The specification carries the rule; this fi
 
 ---
 
+## 0.1 Leaked and unleaked briefs — concrete examples
+
+AG-018a states the rule and deliberately carries no example, because `agent-working-agreement.md` is on every cold-build reading list and an illustration naming a real rejected alternative would put the leak into the one file the builder is always told to read. The examples live here instead.
+
+Both leaks below are real. Neither author was careless; both were trying to help.
+
+**Leak 1 — the specification itself.** ES-034 originally carried a subsection headed *"Why an array rather than named members"*, narrating the keyed container, the misfiled `CoverageGap`, and the fix. The first cold build read it as instructed and reported that its assigned reading had defeated the experiment before it wrote a line of code. Fixed by moving the rationale to this file.
+
+**Leak 2 — the story brief.** With the specification clean, the brief for the same story said, in its build instructions, *"the array container, records routed by their own record_type, not by container position or a keyed structure"*, and added a paragraph headed *"WATCH SPECIFICALLY FOR THE DEFECT THE ORIGINAL BUILDER FOUND AND FIXED"* describing the keyed container, the misfiling mechanism, and the correct shape — closing with the assertion *"you have not been told about it in your reading materials"*, which was true of the reading materials and false of the brief. The second cold build reported it could not have arrived at a keyed structure after reading that, so its not arriving at one was worth nothing as evidence.
+
+**What the brief should have said.** Name the requirement, not the answer:
+
+> Build bundle parsing per ES-034.
+>
+> Required test: construct an adversarial input that attempts to make a record be treated as something other than what ES-034's routing rule says it is, and show it is refused.
+
+That commissions the identical adversarial test and demonstrates the identical property, while leaving the builder to discover from ES-034's own text what the routing rule is and what violating it would look like. If the builder cannot construct the adversarial input from the requirement alone, *that is the finding* — it means the requirement does not state its own failure mode, which is exactly what obligation (4) exists to detect.
+
+**The general shape.** A leak is any sentence that would let a reader who has never seen this file reconstruct what was rejected or why. Warnings leak. Comparisons leak. "Not X" leaks as surely as "X". Test obligations phrased over the requirement's own normative text do not.
+
+---
+
 ## 1. Requirements originated under AG-018
 
 Every entry is **UNCONFIRMED** until a second independent implementation is built cold against it and reports.
