@@ -40,6 +40,7 @@ from cryptography.hazmat.primitives.asymmetric.ed25519 import Ed25519PrivateKey
 from sdk_python.evidence.canonical import canonicalize
 from sdk_python.evidence.schema import AssuranceBoundaryRecord, QualificationRecord
 from sdk_python.evidence.signing import record_signing_bytes, sign_record
+from services.ingestion.receipts import SignedIngestionReceipt, create_ingestion_receipt
 
 SCHEMA_VERSION = "0.1.0"
 
@@ -272,6 +273,23 @@ def canonical_body_bytes(body: dict[str, Any]) -> bytes:
     return canonicalize(body)
 
 
+def constitutive_receipt(
+    record: AssuranceBoundaryRecord | QualificationRecord,
+    *,
+    issuer_key_id: str,
+    issuer_private_key: Ed25519PrivateKey,
+    recorded_at: datetime,
+) -> SignedIngestionReceipt:
+    """Create the real ES-032 issuer receipt used by administrative writes."""
+
+    return create_ingestion_receipt(
+        record,
+        ingest_time=recorded_at,
+        issuer_key_id=issuer_key_id,
+        issuer_private_key=issuer_private_key,
+    )
+
+
 @dataclass(frozen=True)
 class AdminActor:
     """One tenant's administrative signing identity, plus write helpers.
@@ -287,6 +305,8 @@ class AdminActor:
     collector_id: str
     key_id: str
     private_key: Ed25519PrivateKey
+    issuer_key_id: str
+    issuer_private_key: Ed25519PrivateKey
 
     @property
     def public_keys(self) -> dict[str, Any]:
@@ -300,10 +320,12 @@ class AdminActor:
         destination_system: str,
         assigned_class: str,
         qualified_at: datetime,
+        recorded_at: datetime | None = None,
         **body_kwargs: Any,
     ) -> str:
         from services.admin import record_qualification
 
+        observed_at = recorded_at or datetime.now(tz=UTC)
         record, canonical, signature = signed_qualification(
             tenant_id=self.tenant_id,
             collector_id=self.collector_id,
@@ -317,12 +339,19 @@ class AdminActor:
                 qualified_at=qualified_at,
                 **body_kwargs,
             ),
+            source_time=observed_at,
         )
         return record_qualification(
             connection,
             record=record,
             canonical_bytes=canonical,
             signature=signature,
+            receipt=constitutive_receipt(
+                record,
+                issuer_key_id=self.issuer_key_id,
+                issuer_private_key=self.issuer_private_key,
+                recorded_at=observed_at,
+            ),
         )
 
     def write_boundary(
@@ -352,13 +381,19 @@ class AdminActor:
                 window_end=window_end,
                 families=families,
             ),
+            source_time=recorded_at,
         )
         return record_boundary(
             connection,
             record=record,
             canonical_bytes=canonical,
             signature=signature,
-            recorded_at=recorded_at,
+            receipt=constitutive_receipt(
+                record,
+                issuer_key_id=self.issuer_key_id,
+                issuer_private_key=self.issuer_private_key,
+                recorded_at=recorded_at,
+            ),
         )
 
 
@@ -367,6 +402,7 @@ __all__ = [
     "AdminActor",
     "boundary_body",
     "canonical_body_bytes",
+    "constitutive_receipt",
     "qualification_body",
     "rfc3339",
     "signed_boundary",

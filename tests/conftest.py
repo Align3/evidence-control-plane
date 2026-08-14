@@ -169,6 +169,8 @@ def admin_actors(record_factories: dict[str, RecordFactory]) -> dict[str, Any]:
             collector_id=factory.collector_id,
             key_id=factory.key_id,
             private_key=factory.private_key,
+            issuer_key_id=factory.receipt_key_id,
+            issuer_private_key=factory.receipt_private_key,
         )
         for tenant_id, factory in record_factories.items()
     }
@@ -195,6 +197,7 @@ def default_boundaries(
     from services.admin import record_boundary, record_qualification
     from tests.admin_support import (
         boundary_body,
+        constitutive_receipt,
         qualification_body,
         signed_boundary,
         signed_qualification,
@@ -222,6 +225,12 @@ def default_boundaries(
                 record=qualification,
                 canonical_bytes=canonical,
                 signature=signature,
+                receipt=constitutive_receipt(
+                    qualification,
+                    issuer_key_id=factory.receipt_key_id,
+                    issuer_private_key=factory.receipt_private_key,
+                    recorded_at=qualified_at,
+                ),
             )
             boundary, canonical, signature = signed_boundary(
                 tenant_id=tenant_id,
@@ -249,7 +258,12 @@ def default_boundaries(
                 record=boundary,
                 canonical_bytes=canonical,
                 signature=signature,
-                recorded_at=datetime(2026, 1, 1, tzinfo=UTC),
+                receipt=constitutive_receipt(
+                    boundary,
+                    issuer_key_id=factory.receipt_key_id,
+                    issuer_private_key=factory.receipt_private_key,
+                    recorded_at=datetime(2026, 1, 1, tzinfo=UTC),
+                ),
             )
     return refs
 
