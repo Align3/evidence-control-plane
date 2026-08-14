@@ -198,6 +198,11 @@ class EvidenceClient:
             )
         except RecordRejectedError:
             # Seen and refused: buffering would retry something already judged.
+            # It was not durably accepted, so it cannot remain the predecessor
+            # of the next record we author. Restore the exact pre-authoring
+            # stream state or the next accepted record would link to evidence
+            # that does not exist in the ledger.
+            self._sequence, self._prev_digest = anchor
             raise
         self._unreachable_since = None
         return EmissionResult(
@@ -236,19 +241,17 @@ class EvidenceClient:
         # which is precisely the unverifiable stream this design exists to
         # avoid. Nothing was submitted or buffered, so the rollback is total.
         self._sequence, self._prev_digest = anchor
-        self._uncaptured += 1
-
-        self._emit_gap(
-            cause="collector_unreachable",
-            action_family=action_family,
-            actions_during_gap=self._uncaptured,
-        )
 
         if policy.behaviour == "fail_closed":
             # IN-013: the gap is recorded, then the action is refused. The
             # customer chose this trade-off explicitly at configuration time.
-            # No refusal is counted: the caller is being told, so this is not
-            # evidence lost behind its back.
+            # The action did not proceed, so the gap must not claim that an
+            # action occurred without evidence.
+            self._emit_gap(
+                cause="collector_unreachable",
+                action_family=action_family,
+                actions_during_gap=0,
+            )
             raise FailClosedError(
                 f"action family {action_family!r} is fail_closed and evidence "
                 "could not be recorded; a CoverageGap has been signed locally"
@@ -256,6 +259,12 @@ class EvidenceClient:
 
         # IN-011 fail-open: the action proceeds without evidence. The gap above
         # is the only account of it, which is why it is authored first.
+        self._uncaptured += 1
+        self._emit_gap(
+            cause="collector_unreachable",
+            action_family=action_family,
+            actions_during_gap=self._uncaptured,
+        )
         self._buffer.record_refusal()
         return EmissionResult(
             record_id=buffered.record_id,

@@ -48,6 +48,10 @@ class PolicyChange:
     changed_at: datetime
 
     def __post_init__(self) -> None:
+        if not self.action_family:
+            raise ClientConfigurationError(
+                "a policy change must name its action family"
+            )
         if self.previous == self.current:
             raise ClientConfigurationError("a policy change must change the behaviour")
         _require_attribution(self.changed_by, self.reason)
@@ -100,7 +104,13 @@ class FamilyPolicy:
         )
 
     def changed_to(
-        self, behaviour: FailBehaviour, *, changed_by: str, reason: str, **kwargs: str
+        self,
+        behaviour: FailBehaviour,
+        *,
+        action_family: str,
+        changed_by: str,
+        reason: str,
+        **kwargs: str,
     ) -> tuple[FamilyPolicy, PolicyChange]:
         """Return the replacement policy *and* the audit record for the change.
 
@@ -120,7 +130,7 @@ class FamilyPolicy:
                 acknowledged_by=changed_by, reason=reason
             )
         change = PolicyChange(
-            action_family="",
+            action_family=action_family,
             previous=self.behaviour,
             current=behaviour,
             changed_by=changed_by,

@@ -18,6 +18,7 @@ from sdk_python.client import (
     EvidenceClient,
     FailClosedError,
     FamilyPolicy,
+    RecordRejectedError,
     SigningIdentity,
     SigningUnavailableError,
     TransportUnavailableError,
@@ -62,6 +63,20 @@ class ShuffledTransport(CollectingTransport):
     def submit(self, canonical_bytes: bytes) -> None:
         super().submit(canonical_bytes)
         self.sequences.append(json.loads(canonical_bytes)["sequence"])
+
+
+class RejectOnceTransport(CollectingTransport):
+    """Reject the first record, then accept subsequent submissions."""
+
+    def __init__(self) -> None:
+        super().__init__()
+        self.calls = 0
+
+    def submit(self, canonical_bytes: bytes) -> None:
+        self.calls += 1
+        if self.calls == 1:
+            raise RecordRejectedError(422, "invalid record")
+        super().submit(canonical_bytes)
 
 
 @pytest.fixture
@@ -164,11 +179,13 @@ def test_changing_fail_behaviour_produces_an_audit_record() -> None:
     policy = FamilyPolicy.fail_open(acknowledged_by="ops@example.invalid", reason="initial")
     replacement, change = policy.changed_to(
         "fail_closed",
+        action_family=FAMILY,
         changed_by="risk@example.invalid",
         reason="regulatory review",
         trade_off_acknowledged=FAIL_CLOSED_TRADE_OFF,
     )
     assert replacement.behaviour == "fail_closed"
+    assert change.action_family == FAMILY
     assert change.previous == "fail_open" and change.current == "fail_closed"
     assert change.changed_by == "risk@example.invalid"
     with pytest.raises(AttributeError):
@@ -199,8 +216,27 @@ def test_fail_closed_family_refuses_the_action_after_recording_the_gap(
 
     assert len(client.gap_records()) == 1, "the gap must survive the refusal"
     assert client.buffered_count() == 3, "fail-closed must not discard buffered evidence"
-    # Nothing was lost behind the caller's back: it was told, by exception.
+    gap = parse_record(json.loads(client.gap_records()[0].canonical_bytes))
+    assert gap.body.actions_during_gap == 0
+    # Nothing was lost behind the caller's back: it was told, by exception,
+    # and the action did not proceed.
     assert client.refused_count() == 0
+
+
+def test_transport_rejection_does_not_create_a_phantom_predecessor(
+    identity: SigningIdentity,
+) -> None:
+    transport = RejectOnceTransport()
+    client = _client(identity, transport)
+
+    with pytest.raises(RecordRejectedError):
+        client.emit_execution_receipt(_receipt(0), action_family=FAMILY)
+
+    accepted = client.emit_execution_receipt(_receipt(1), action_family=FAMILY)
+    assert accepted.sequence == 1
+    record = json.loads(transport.received[0])
+    assert record["sequence"] == 1
+    assert record["prev_digest"] is None
 
 
 # --------------------------------------------------------------- IN-010 / IN-011
@@ -378,7 +414,7 @@ def test_flush_does_not_assume_in_order_delivery(identity: SigningIdentity) -> N
     assert len(results) == 3
     # Every buffered record was offered exactly once, and the client did not
     # abort when sequences arrived non-monotonically at the far side.
-    assert sorted(shuffled.sequences) == shuffled.sequences or True
+    assert shuffled.sequences == sorted(shuffled.sequences)
     assert len({json.loads(b)["record_id"] for b in shuffled.received}) == 3
     assert client.buffered_count() == 0
 

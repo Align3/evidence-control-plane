@@ -10,3 +10,4 @@ dist/
 verifier-go/verify
 .env
 .DS_Store
+.claude/worktrees/
