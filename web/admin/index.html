@@ -1,0 +1,77 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <title>Evidence administration</title>
+    <link rel="stylesheet" href="/admin/assets/admin.css">
+  </head>
+  <body>
+    <header>
+      <div>
+        <p class="eyebrow">Evidence control plane</p>
+        <h1>Administration</h1>
+      </div>
+      <form id="session" class="session">
+        <label>Tenant <input id="tenant" required autocomplete="organization"></label>
+        <label>Access token <input id="token" required type="password" autocomplete="current-password"></label>
+        <button type="submit">Open workspace</button>
+      </form>
+    </header>
+
+    <main hidden id="workspace">
+      <section class="summary" aria-live="polite">
+        <div><span>Coverage</span><strong id="coverage">—</strong></div>
+        <div><span>Gaps</span><strong id="gaps">—</strong></div>
+        <div><span>Unmatched</span><strong id="unmatched">—</strong></div>
+        <div><span>Attestations</span><strong id="attestations">—</strong></div>
+      </section>
+
+      <p id="identity" class="identity"></p>
+      <p id="message" class="message" role="status"></p>
+
+      <section data-capability="boundary.manage">
+        <h2>Boundary management</h2>
+        <p>Submit the signed boundary command and its issuer receipt.</p>
+        <form data-operation="boundaries">
+          <textarea name="payload" spellcheck="false" required>{}</textarea>
+          <button type="submit">Record boundary version</button>
+        </form>
+      </section>
+
+      <section data-capability="qualification.manage">
+        <h2>Qualification management</h2>
+        <p>Record a signed qualification; retroactive upgrades remain refused.</p>
+        <form data-operation="qualifications">
+          <textarea name="payload" spellcheck="false" required>{}</textarea>
+          <button type="submit">Record qualification</button>
+        </form>
+      </section>
+
+      <section data-capability="attestation.issue">
+        <h2>Attestation issuance</h2>
+        <p>Issue only from the current coverage and qualification state.</p>
+        <form data-operation="attestations">
+          <textarea name="payload" spellcheck="false" required>{}</textarea>
+          <button type="submit">Issue attestation</button>
+        </form>
+      </section>
+
+      <section data-capability="attestation.revoke">
+        <h2>Lifecycle</h2>
+        <p>Revoke or supersede an issued attestation and notify its relying parties.</p>
+        <form data-lifecycle="revocations">
+          <input name="attestation_id" required placeholder="Attestation UUID">
+          <textarea name="payload" spellcheck="false" required>{}</textarea>
+          <button type="submit">Revoke</button>
+        </form>
+        <form data-lifecycle="supersessions">
+          <input name="attestation_id" required placeholder="Original attestation UUID">
+          <textarea name="payload" spellcheck="false" required>{}</textarea>
+          <button type="submit">Supersede</button>
+        </form>
+      </section>
+    </main>
+    <script type="module" src="/admin/assets/admin.js"></script>
+  </body>
+</html>

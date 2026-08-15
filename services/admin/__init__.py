@@ -23,6 +23,7 @@ from .boundary import (
     interval_coverage,
     record_boundary,
 )
+from .console import AdminBackend, Authenticator, JsonObject, create_admin_app
 from .qualification import (
     QUALIFICATION_POSTDATES_WINDOW,
     ClassNotQualifiedError,
@@ -36,6 +37,15 @@ from .qualification import (
     class_in_force,
     qualification_history,
     record_qualification,
+)
+from .rbac import (
+    ROLE_CAPABILITIES,
+    AdminPrincipal,
+    AdminRole,
+    AuthenticationError,
+    AuthorizationError,
+    Capability,
+    authorize,
 )
 from .schema import (
     ADMIN_TABLES,
@@ -126,16 +136,25 @@ def assert_admin_tables_protected(connection: Connection) -> None:
 
 __all__ = [
     "ADMIN_TABLES",
+    "ROLE_CAPABILITIES",
     "QUALIFICATION_POSTDATES_WINDOW",
     "TENANT_ISOLATION_POLICY",
     "BoundaryError",
     "BoundaryVersion",
     "ClassNotQualifiedError",
+    "AdminBackend",
+    "AdminPrincipal",
+    "AdminRole",
+    "AuthenticationError",
+    "Authenticator",
+    "AuthorizationError",
+    "Capability",
     "CoverageLevel",
     "DeclaredFamily",
     "DenominatorClass",
     "EffectiveInterval",
     "IntervalCoverage",
+    "JsonObject",
     "Qualification",
     "QualificationError",
     "QualificationPostdatesWindowError",
@@ -145,8 +164,10 @@ __all__ = [
     "admin_isolation_status",
     "assert_admin_tables_protected",
     "assert_class_claimable",
+    "authorize",
     "boundary_versions",
     "class_in_force",
+    "create_admin_app",
     "effective_interval",
     "interval_coverage",
     "qualification_history",
