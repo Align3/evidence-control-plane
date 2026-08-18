@@ -76,6 +76,15 @@ def test_salesforce_ids_are_closed_before_soql_interpolation() -> None:
         )
 
 
+def test_connector_cannot_silently_choose_a_smaller_query_batch() -> None:
+    with pytest.raises(ValueError, match="query_batch_size 2000"):
+        SalesforceConnectorConfig(
+            api_version="v67.0",
+            integration_user_id=USER_ID,
+            query_batch_size=1999,
+        )
+
+
 def test_next_records_url_cannot_escape_the_configured_query_api() -> None:
     client = _client()
 

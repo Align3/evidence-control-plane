@@ -368,8 +368,8 @@ class SalesforceConnectorConfig:
             raise ValueError("EV-42 destination_system must be salesforce")
         if self.sobject != "Case":
             raise ValueError("EV-42 is qualified only for the Case object")
-        if not 200 <= self.query_batch_size <= 2000:
-            raise ValueError("Salesforce query_batch_size must be between 200 and 2000")
+        if self.query_batch_size != 2000:
+            raise ValueError("EV-42 requires Salesforce query_batch_size 2000")
 
     @property
     def scope_parameters(self) -> Mapping[str, str]:
@@ -538,8 +538,8 @@ class SalesforceRestClient:
     ) -> None:
         if _API_VERSION.fullmatch(api_version) is None:
             raise ValueError("api_version must look like vNN.N")
-        if not 200 <= query_batch_size <= 2000:
-            raise ValueError("Salesforce query_batch_size must be between 200 and 2000")
+        if query_batch_size != 2000:
+            raise ValueError("EV-42 requires Salesforce query_batch_size 2000")
         _require_salesforce_https_url(token.instance_url, label="instance URL")
         self._token = token
         self.api_version = api_version
@@ -757,7 +757,9 @@ class SalesforceConnector:
                 "record_identifiers": identifiers,
                 "count": len(identifiers),
                 "pagination_complete": pagination_complete,
-                "result_cap_hit": not total_matches,
+                # Salesforce signalled no result cap. A count disagreement is
+                # an incomplete traversal, not evidence that a vendor cap was hit.
+                "result_cap_hit": False,
                 "retrieved_at": _timestamp(retrieved_at),
                 "authoritative_timestamps": {
                     "min": _timestamp(minimum) if minimum is not None else None,
@@ -766,6 +768,7 @@ class SalesforceConnector:
                 "attribution_observations": attribution,
                 "observed_settlement_lag_ms": 0,
                 "qualification_condition": permission.outcome.value,
+                "total_size_matches": total_matches,
             }
         )
         clocks_data: dict[str, str] = {"source_time": _timestamp(retrieved_at)}
@@ -779,26 +782,14 @@ class SalesforceConnector:
 
     def confirm(self, action_ref: ActionReference) -> ConfirmationObservation:
         retrieved_at = self._aware_now()
-        try:
-            record = self._client.get_record(
-                sobject=self._config.sobject,
-                record_id=action_ref.destination_record_id,
-            )
-        except SalesforceApiError as exc:
-            if exc.status != 404:
-                raise
-            digest_subject: object = {"missing": True}
-            authoritative = retrieved_at
-            status: Literal["matched", "unmatched_without_evidence"] = (
-                "unmatched_without_evidence"
-            )
-        else:
-            digest_subject = record
-            authoritative = _parse_salesforce_timestamp(
-                _salesforce_record_text(record, "CreatedDate")
-            )
-            status = "matched"
-        digest = "sha256:" + sha256(canonicalize(digest_subject)).hexdigest()
+        record = self._client.get_record(
+            sobject=self._config.sobject,
+            record_id=action_ref.destination_record_id,
+        )
+        authoritative = _parse_salesforce_timestamp(
+            _salesforce_record_text(record, "CreatedDate")
+        )
+        digest = "sha256:" + sha256(canonicalize(record)).hexdigest()
         return ConfirmationObservation(
             body=ExternalConfirmationBody(
                 action_id=action_ref.action_id,
@@ -806,7 +797,7 @@ class SalesforceConnector:
                 destination_record_id=action_ref.destination_record_id,
                 destination_record_digest=digest,
                 authoritative_timestamp=_timestamp(authoritative),
-                reconciliation_status=status,
+                reconciliation_status="matched",
                 retrieved_at=_timestamp(retrieved_at),
             ),
             clocks=ClocksModel(
