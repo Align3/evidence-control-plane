@@ -40,6 +40,7 @@ from sdk_python.evidence.signing import (
     verify_record_signature,
 )
 from services.ingestion.receipts import IngestionReceipt, RegisteredPublicKey
+from services.verification.bundle import RevocationResponse, verify_attestation_bundle
 from tests.vectors.generate import VECTOR_PATH, render_vectors
 
 DOCUMENT: dict[str, Any] = json.loads(VECTOR_PATH.read_text(encoding="utf-8"))
@@ -93,6 +94,7 @@ REQUIRED_ADVERSARIAL_VECTORS = {
     "adversarial-reject-attestation-without-issuer-signature",
     "reject-populationrecord-signed-by-evidence-key",
     "reject-externalconfirmation-signed-by-evidence-key",
+    "reject-bundle-object-container",
 }
 JCS_REFERENCE = Path(__file__).parents[1] / "property" / "jcs_reference.js"
 
@@ -127,8 +129,17 @@ def _stream_keyring(vector: dict[str, Any]) -> dict[str, RegisteredPublicKey]:
 
 
 def _assert_adversarial_provenance(vector: dict[str, Any]) -> None:
-    """Require measured, implementation-neutral evidence of a prior acceptance."""
+    """Require exactly one honest provenance form for every refusal probe."""
 
+    assert ("pre_fix" in vector) != ("new_rule" in vector)
+    if "new_rule" in vector:
+        new_rule = vector["new_rule"]
+        assert isinstance(new_rule["requirement"], str) and new_rule["requirement"]
+        assert isinstance(new_rule["introduced_by"], str)
+        assert len(new_rule["introduced_by"]) == 40
+        int(new_rule["introduced_by"], 16)
+        assert new_rule["requirement"] in vector["requirements"]
+        return
     pre_fix = vector["pre_fix"]
     assert isinstance(pre_fix["revision"], str) and pre_fix["revision"]
     implementations = pre_fix["implementations"]
@@ -472,6 +483,24 @@ def _run_verify_canonical_evidence_record(vector: dict[str, Any]) -> None:
     assert expected["accepted"]
 
 
+def _run_verify_bundle(vector: dict[str, Any]) -> None:
+    response = None
+    encoded_response = vector.get("revocation_response")
+    if encoded_response is not None:
+        encoded_body = encoded_response.get("body_utf8_hex")
+        response = RevocationResponse(
+            status_code=encoded_response["status_code"],
+            body=bytes.fromhex(encoded_body) if encoded_body is not None else None,
+        )
+    result = verify_attestation_bundle(
+        bytes.fromhex(vector["bundle_utf8_hex"]),
+        verification_keys=_registered_public_keys(vector["verification_keys"]),
+        evaluated_at=vector["evaluated_at"],
+        revocation_response=response,
+    )
+    assert result.to_vector_result() == vector["expected"]
+
+
 RUNNERS = {
     "canonicalize": _run_canonicalization,
     "sign_record": _run_sign_record,
@@ -483,12 +512,13 @@ RUNNERS = {
     "verify_evidence_record_signature": _run_verify_evidence_record_signature,
     "verify_record_origin_signature": _run_verify_record_origin_signature,
     "verify_canonical_evidence_record": _run_verify_canonical_evidence_record,
+    "verify_bundle": _run_verify_bundle,
 }
 
 
 def test_es_029_vector_manifest_is_closed_and_attack_complete() -> None:
     assert DOCUMENT["format"] == "evidence-control-plane-conformance-vectors"
-    assert DOCUMENT["format_version"] == "1.2.0"
+    assert DOCUMENT["format_version"] == "1.3.0"
     assert DOCUMENT["spec_version"] == "0.1"
     ids = [vector["id"] for vector in VECTORS]
     assert len(ids) == len(set(ids))
@@ -516,7 +546,7 @@ def test_es_029_vector_manifest_is_closed_and_attack_complete() -> None:
     revisions = {
         vector["id"]: vector["pre_fix"]["revision"]
         for vector in ADVERSARIAL_VECTORS
-        if vector["id"] in REQUIRED_ADVERSARIAL_VECTORS
+        if vector["id"] in REQUIRED_ADVERSARIAL_VECTORS and "pre_fix" in vector
     }
     assert revisions == {
         "adversarial-reject-issuer-key-on-evidence-stream": "9e5904b",
@@ -527,6 +557,7 @@ def test_es_029_vector_manifest_is_closed_and_attack_complete() -> None:
     assert {vector["operation"] for vector in ADVERSARIAL_VECTORS} <= {
         "verify_stream",
         "verify_canonical_evidence_record",
+        "verify_bundle",
     }
     assert sum(not vector["expected"]["accepted"] for vector in VECTORS) > sum(
         vector["expected"]["accepted"] for vector in VECTORS
@@ -541,6 +572,44 @@ def test_adversarial_provenance_acceptance_is_implementation_neutral() -> None:
     probe["pre_fix"]["implementations"]["go"]["result"] = "accepted"
 
     _assert_adversarial_provenance(probe)
+
+
+def test_qa_019_declared_absence_is_counted_and_named() -> None:
+    coverage = DOCUMENT["requirement_coverage"]
+    absent = coverage["declared_absent"]
+    assert absent == sorted(set(absent))
+    assert coverage["declared_absent_count"] == len(absent)
+    assert absent, "an empty absence register would silently claim complete vector coverage"
+    assert all(isinstance(requirement, str) and requirement for requirement in absent)
+    covered = coverage["covered"]
+    assert not (set(covered) & set(absent))
+    vector_ids = {vector["id"] for vector in VECTORS}
+    assert all(set(ids) <= vector_ids and ids for ids in covered.values())
+
+
+def test_qa_019_assigned_bundle_requirements_are_no_longer_absent() -> None:
+    assigned = {
+        "AR-003",
+        "AR-009",
+        "AR-029",
+        "AR-030",
+        "AR-031",
+        "CM-008",
+        "CM-009",
+        "CM-013",
+        "CM-014",
+        "CM-025",
+        "ES-011",
+        "ES-012",
+        "ES-017",
+        "ES-034",
+        "ES-035",
+        "TM-013",
+        "TM-014",
+    }
+    coverage = DOCUMENT["requirement_coverage"]
+    assert assigned <= coverage["covered"].keys()
+    assert assigned.isdisjoint(coverage["declared_absent"])
 
 
 def test_stream_vector_keyring_refuses_to_invent_a_namespace() -> None:

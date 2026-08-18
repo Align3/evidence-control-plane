@@ -346,6 +346,14 @@ And it is not expressed as a reduction in the coverage percentage alone
 
 **CM-024** — Changes affecting admissibility (§6) or the taxonomy (§3) are material and require the change log to state the effect on existing attestations. From V2 onward these pass through the independent technical committee.
 
+**CM-025 — The published methodology versions are enumerated here.** CM-022 requires every attestation to record the methodology version it was computed under and CM-023 requires a verifier to support "every published version", but this document carried no version number anywhere in its body. Its only marker was the prose status line above — "Draft v0.1" — which is a different namespace from the `methodology_version` values attestations actually carry, so a verifier had nothing to check membership against.
+
+| `methodology_version` | Status | Notes |
+|---|---|---|
+| `1.0.0` | published | The methodology this document describes. Carried by every attestation in the normative corpus. |
+
+A verifier MUST reject a `methodology_version` absent from this table rather than apply its newest rules to an attestation computed under older ones — which is precisely what CM-023 forbids, arriving as an implementation default rather than as a decision. Adding a row is a material change under CM-024 and requires the change log to state its effect on existing attestations.
+
 ---
 
 ## 15. Open items requiring design-partner data
@@ -376,6 +384,15 @@ Cannot be closed solo. Each blocks a specific downstream section.
 | Class | Assigned class with evidence |
 | Trial | Window reconciled, match rate, unmatched-record explanations |
 | Validity | Qualification date, re-verification cadence, signature |
+
+### CM-S-011 — An unimplemented methodology version is refused *(CM-025)*
+
+```gherkin
+Given an attestation whose methodology_version is not in the CM-025 registry
+When the verifier validates it
+Then verification fails
+And the attestation is not recomputed under a different methodology version
+```
 
 ## Verification classifications
 

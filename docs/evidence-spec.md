@@ -201,11 +201,34 @@ Body: `gap_start`, `gap_end`, `affected_scope` (families, identities, systems), 
 
 ### 5.13 AttestationWindow
 
-Body: `boundary_ref`, `window_start`, `window_end`, `methodology_version`, `denominator_class`, `population_record_refs[]`, `coverage_level`, `verification_status` (`self_computed`|`independently_reproduced`), `coverage_ratio` (nullable), `counts` (matched, unmatched_with_evidence, unmatched_without_evidence, duplicate, ambiguous), `gaps[]`, `assertions[]`, `exclusions[]`, `relying_parties`, `validity_from`, `validity_until`, `liability_ref`, `issued_at`, `issuer`, `verifier_version`.
+Body: `boundary_ref`, `window_start`, `window_end`, `methodology_version`, `denominator_class`, `population_record_refs[]`, `coverage_level`, `capped_by_class`, `verification_status` (`self_computed`|`independently_reproduced`), `coverage_ratio` (nullable), `counts` (matched, unmatched_with_evidence, unmatched_without_evidence, duplicate, ambiguous, out_of_scope), `gaps[]`, `assertions[]`, `exclusions[]`, `relying_parties`, `validity_from`, `validity_until`, `liability_ref`, `issued_at`, `issuer`, `verifier_version`.
+
+**ES-036 — Assertion element routing (provisional under AG-018).** Every `assertions[]` element is an object whose required `assertion_id` string names one row of the closed AR-003 catalogue. A verifier MUST refuse an ID outside that catalogue. Until a normative payload schema defines the remaining members, a verifier MUST report an in-catalogue assertion payload as unchecked rather than claim its scope or count was reproduced.
+
+> **`out_of_scope` was missing from `counts` and is a correction, not a new rule.** CM-012 has defined six reconciliation classifications since it was written and ES-015 makes that enumeration closed with no residual bucket; this list enumerated five and omitted `out_of_scope`. The consequence was that a verifier could only ever check the counts as `≤` the population and never as `=`, because one of the six places a record may legitimately go had nowhere to be reported. CM-012 was already authoritative on the six. This entry catches up to it.
+
+> **`capped_by_class` is provisional under AG-018.** It is required from `schema_version` 2.0.0 and optional by presence at 1.0.0 (ES-002b: encode absence by omission, never as `null`).
 
 **ES-017** — `coverage_ratio` MUST be `null` where `denominator_class` is C4 or C5 (CM-009). Serializing zero, or omitting the field, are both non-conformant — the null is a claim about the world and must be explicit.
 
+**Where a ratio is emitted, it is computed and encoded as follows.**
+
+```
+coverage_ratio = counts.matched / (population − counts.out_of_scope)
+```
+
+- **The numerator is `counts.matched` and nothing else.** `unmatched_with_evidence` and `ambiguous` are evidence of real gaps, not partial coverage. Admitting them at any weight would be imputation, which CM-011 prohibits everywhere else in this methodology; the ratio does not get to be the one place it reappears.
+- **`out_of_scope` is excluded from the denominator.** The population is the set of actions the boundary claims to cover, and by CM-012's own definition an out-of-scope record is evidence for an action the boundary never claimed. Leaving it in would let the one number a relying party actually reads move up or down with activity the attestation makes no claim about. The count remains in `counts` as a transparency figure: visible, and non-contributing.
+- **`population` is the enumerated denominator** established by the referenced `PopulationRecord`s (§5.3). ES-011 and ES-012 already force the ratio to `null` where that enumeration was truncated or incomplete.
+- **Encoding is a decimal string with exactly four decimal places, always.** `"1.0000"`, never `"1"` or `"1.0"`; `"0.5000"`, never `"0.5"`. Trailing zeros are never stripped. ES-002 puts quantities in strings and ES-002a refuses any JSON number carrying a fraction, so a ratio cannot be a JSON number at all. A free scale would let two correct implementations compute the same ratio and serialize it differently, and QA-008 compares golden bundles byte-for-byte — the diff would then report a divergence that says nothing about either implementation. Four places rather than two because `matched / population` produces values like `1/3` that two places would round away real precision from, and because it is the basis-point convention that assurance and underwriting readers already use.
+- **Rounding truncates toward zero.** `2/3` encodes as `"0.6666"`, not `"0.6667"`. This decision is provisional under AG-018.
+- **A zero denominator yields `null`, not zero.** This decision is provisional under AG-018.
+
 **ES-018** — `coverage_level` MUST equal `min(evidence_supported_level, class_admissible_level)` per CM-008, and the record MUST include `capped_by_class` (boolean) so a relying party can see when the cap bound.
+
+**`capped_by_class` is true if and only if `class_admissible_level < evidence_supported_level`.** The comparison is strict: where the two are equal the flag is **false**.
+
+**A verifier can check this in one direction only, and MUST NOT claim the other.** Where the claimed level is strictly below the class-admissible level, `capped_by_class` MUST be `false`. Where the claimed level sits exactly at the ceiling, the verifier MUST report `capped_by_class` as unchecked until a normative record-to-`evidence_supported_level` derivation exists.
 
 ### 5.14 RevocationRecord
 
@@ -271,6 +294,15 @@ P2/P3 execution location does not alter origin. Issuer observation production in
 
 **ES-028** — A breaking change increments major and requires a new verifier release supporting both. Historical attestations remain verifiable under the version that produced them (CM-023).
 
+**ES-035 — The published schema versions are enumerated here.** ES-027 obliges a verifier to support "every published version", which is unsatisfiable while no document states what has been published: membership of a set nobody wrote down cannot be checked, and each independent implementer would otherwise infer the set from whichever records they happened to see. The registry is this table.
+
+| `schema_version` | Status | Notes |
+|---|---|---|
+| `1.0.0` | published | The version this document describes. Carried by every record in the normative corpus. |
+| `2.0.0` | reserved, not yet published | ES-031 changes the constitutive-record enumeration at this version. No implementation supports it and no vector carries it. |
+
+A verifier MUST reject a `schema_version` absent from this table rather than verify the record under a neighbouring version's rules, and MUST reject a version listed as reserved rather than guess at rules that are not yet written. Adding a row is a specification change that requires a vector, and the version an artifact was produced under is the version it is verified under (ES-028, CM-023).
+
 ---
 
 ## 10. Conformance
@@ -286,6 +318,25 @@ An implementation is conformant if it produces records that our reference verifi
 > **Why this is not simply ES-030 restated with a wider subject.** ES-030 is discharged by EV-27 over the ingestion path, and widening its text would retroactively make a landed story incomplete — the traceability matrix would then report a requirement as satisfied by a story that never covered half of it, which is the citation problem QA-018 names, arriving from the other direction. ES-032 carries the extension so that the obligation, its scenario, and its owning story stay attached to each other.
 
 > **The gap this closes, stated plainly.** EV-12 stores a boundary's recording time as a hosted observation with no issuer signature over it. AR-027 floors a boundary's effective interval at that value precisely so a boundary cannot be backdated into force — but an unsigned hosted claim is one the party the attestation is *about* can edit, so A-02 currently rests on trusting the issuer not to have moved it. The receipt mechanism exists to make our own observations checkable by someone who does not trust us, and leaving two record types outside it is an inconsistency rather than a scope boundary. Until this lands, AR-027's endpoints are only as good as our word.
+
+### 10.1 The attestation bundle
+
+**ES-034 — An attestation bundle is a JSON array of complete signed records.** The array is RFC 8785 canonical. Each element is one record in the exact wire form it was signed in, including its `signature` member. A bundle MUST contain exactly one `AttestationWindow` and at most one `AssuranceBoundary`. Every other §5 record type may appear any number of times. A record's role is read from its own `record_type` under the closed ES-033 dispatch and from nowhere else. The container carries no other members: no verdict, no status, no summary, no manifest.
+
+**Elements are ordered by their canonical bytes, lexicographic ascending.** The ordering is applied before the container is assembled, and a verifier MUST reject a bundle whose elements are not in that order.
+
+RFC 8785 sorts the members of an object; it does not reorder the elements of an array. Canonicalizing the container is therefore not sufficient to make a bundle byte-identical: the same record set emitted in two different orders yields two canonical, conformant bundles with different bytes and different digests. QA-008 requires fixed evidence fixtures to produce byte-identical attestation bundles and fails CI on any diff, so without a total order on elements that gate reports divergence between two implementations that agree about everything that matters. Comparing the canonical bytes themselves gives that order without depending on any member that a record type might omit.
+
+**Selective disclosure is preserved.** ES-026 requires that a relying party can be given a bundle proving a claim without receiving everything. A bundle is therefore expected to carry slices of streams rather than whole ones, and a verifier MUST NOT require a stream to be complete or anchored at sequence 1 within a bundle. Where two records of one stream sit at consecutive sequences, the ES-006a link between them is checkable and MUST be checked. Where the slice is non-contiguous, the link across the omission is not checkable from the bundle, and the verifier MUST report it as unchecked rather than as either verified or broken.
+
+### ES-S-025 — Assertion routing agrees across implementations *(ES-036, AR-003)*
+
+```gherkin
+Scenario: Assertion routing agrees across implementations
+  Given a signed bundle carrying an assertion_id outside the catalogue
+  When the same bundle bytes are verified by the Python and Go entry points
+  Then both refuse with assertion.outside_catalogue
+```
 
 ---
 
@@ -497,6 +548,34 @@ Given a stored PopulationRecord with result_cap_hit true or pagination_complete 
 When coverage is computed for its window
 Then coverage_ratio is null
 And coverage_ratio is not zero
+```
+
+### ES-S-022 — A record's role in a bundle comes from the record *(ES-034)*
+
+```gherkin
+Given a bundle carrying an attestation and a validly signed CoverageGap
+When the verifier parses the bundle
+Then the CoverageGap is classified as a gap
+And it is not classified as a population record
+And no position in the container can override its record_type
+```
+
+### ES-S-023 — A non-canonical bundle is refused *(ES-034)*
+
+```gherkin
+Given an attestation bundle that is not RFC 8785 canonical
+When the verifier parses it
+Then parsing fails
+And the failure names the canonical form rather than a signature
+```
+
+### ES-S-024 — An unpublished schema version is refused *(ES-035)*
+
+```gherkin
+Given an attestation whose schema_version is not in the ES-035 registry
+When the verifier validates it
+Then verification fails
+And the attestation is not verified under another version's rules
 ```
 
 ## Verification classifications

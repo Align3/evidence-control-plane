@@ -148,19 +148,21 @@ FastAPI. Validate schema, verify signature, check collector registration, check 
 
 ### Collection
 
-#### EV-08 — Python SDK: emission and buffering
-Public API for emitting each record type. Local signing with client-held keys. Bounded local buffer when ingestion is unreachable. Configurable per-family fail behaviour.
+#### EV-08 — Python SDK: emission, buffering, and buffer-exhaustion gaps
+Public API for emitting each record type. Local signing with client-held keys. Bounded local buffer when ingestion is unreachable, admission-controlled: the bound refuses the new record and never evicts a held one. Locally signed `CoverageGap` authored when the bound is reached. Configurable per-family fail behaviour.
 **Touches:** `sdk_python/client/`
 **Depends on:** EV-03, EV-07
-**Satisfies:** IN-009, IN-010, SE-005, SE-006
-**Acceptance:** IN-S-002 (buffer portion)
+**Satisfies:** IN-009, IN-010, IN-011 (buffer-exhaustion trigger — see note), SE-005, SE-006
+**Acceptance:** IN-S-002
 
-#### EV-09 — Offline gap markers
-Locally signed `CoverageGap` emission requiring no hosted connectivity. Buffer-exhaustion and silence-threshold triggers. Accepted on reconnection with original signature.
+#### EV-09 — Offline gap markers: silence threshold and replay
+Locally signed `CoverageGap` emission on the silence-threshold trigger, which fires on elapsed unreachability whether or not the buffer ever fills. Reconnection and replay behaviour for locally authored gaps crossing the ingestion boundary.
 **Touches:** `sdk_python/client/gaps.py`, `services/ingestion/`
 **Depends on:** EV-08
-**Satisfies:** ES-016, IN-011, TM-007
-**Acceptance:** ES-S-004, IN-S-002
+**Satisfies:** ES-016, IN-011 (silence-threshold trigger — see note), TM-007
+**Acceptance:** ES-S-004
+
+**Note on IN-011 and IN-S-002.** The original split gave EV-08 the buffer and EV-09 every gap trigger. That boundary did not survive implementation. The buffer-exhaustion gap is not a consumer of the buffer; it is part of what the bound *does*. Deciding what happens when the bound is reached is the same decision as deciding whether to evict, and the answer — refuse the new record, never evict a held one — is what makes the gap necessary and fixes what it can honestly say. A record already buffered is anchored: evicting the oldest destroys sequence 1 and leaves a stream that cannot be verified at all, so the loss is taken at the newest edge instead, where exactly one un-captured action can be described. A story owning the buffer but not the gap would have had to either leave the bound's behaviour undefined or define it and hand EV-09 a gap whose contents were already determined. The silence-threshold trigger is genuinely separable: it fires on elapsed time against a buffer that may never fill, it needs a timer EV-08 has no reason to own, and it can be built and tested without touching admission control. IN-011 is therefore split by trigger rather than assigned whole, and IN-S-002 — whose `Given` is the bound being reached — belongs to the story that owns the bound. This is the same treatment the AR-027 / AR-028 note above records: the requirement moves to where its deciding condition actually lives, which is not scope growth but a correction to a split that mislocated it.
 
 #### EV-10 — TypeScript SDK
 Server-side emission parity with Python. Review-surface instrumentation capturing what was **rendered client-side**, not server-reconstructed.
@@ -238,10 +240,14 @@ Revoke, supersede, expire. Relying-party notification status tracking. Late evid
 
 #### EV-19 — Go verifier: full validation
 Attestation bundle validation, coverage recomputation, lattice re-checking, qualification-date enforcement, revocation check with honest `unchecked` when offline.
-**Touches:** `verifier-go/`
+
+**This story also writes the requirements it needed and could not find.** Building it from the specification, as AG-017 requires, established that four things the verifier must do were not stated anywhere: what an attestation bundle *is* (ES-034, deferred to this story by DM-023 and never written), how a verifier asks the issuer about revocation and what the answers mean (AR-029 through AR-031), and which schema and methodology versions are published, where two requirements oblige a verifier to support "every published version" of sets no document enumerated (ES-035, CM-025). Each was invented independently by two builders working from the same corpus, which is how the absence surfaced. They are written here rather than left as implementation detail because the specification is the artifact third parties implement against, and an ambiguity that survives to publication becomes a breaking change rather than a clarification. `docs/` therefore appears in Touches.
+
+**One contradiction is deliberately left open.** ES-018 requires `capped_by_class` on every `AttestationWindow`; §5.13's body enumeration omits it, the normative vector omits it, and EV-05's verifier omits it. Three artifacts disagree with one requirement, ES-029 cannot arbitrate because no vector exercises it, and §7 of the working agreement says to stop rather than guess when one document contradicts another. It is filed as an issue, and the verifier reports the field as unchecked meanwhile.
+**Touches:** `verifier-go/`, `docs/evidence-spec.md`, `docs/attestation-reliance.md`, `docs/coverage-methodology.md`, `docs/testing-qa.md`, `docs/prd.md`, `tests/features/`, `tests/steps/`
 **Depends on:** EV-05, EV-17
-**Satisfies:** TM-013, TM-014, AR-009, QA-003
-**Acceptance:** TM-S-004, TM-S-005, AR-S-004
+**Satisfies:** TM-013, TM-014, AR-009, QA-003, ES-034, ES-035, AR-029, AR-030, AR-031, CM-025
+**Acceptance:** TM-S-004, TM-S-005, AR-S-004, ES-S-022, ES-S-023, ES-S-024, AR-S-009, AR-S-010, AR-S-011, CM-S-011
 
 ---
 
@@ -332,6 +338,20 @@ Extend the collector to attribute scenario tags from non-pytest suites, or defin
 **Depends on:** EV-22, EV-05
 **Satisfies:** QA-010
 **Acceptance:** a Go test demonstrating a scenario links to it in the generated matrix, and a scenario whose Go test fails is not reported as demonstrated.
+
+#### EV-41 — Python bundle verification and the vectors it unblocks
+The corpus has no coverage, attestation, bundle, revocation or qualification-date vector of any kind (QA-019). That is not an oversight in the corpus; it is a consequence of there being one implementation. An agreement vector pins behaviour *across* implementations, and only Go verifies a bundle today, so a vector published now would demonstrate agreement between the Go verifier and itself — the AG-017 failure relocated into the corpus, where ES-029 would then lend it authority over everyone implementing against it.
+
+This story builds the second implementation: a Python bundle entry point covering ES-034, the ES-035 and CM-025 registries, AR-029 through AR-031, and the coverage and assertion rules EV-19 implements in Go. **It MUST be built cold under AG-017** — from `docs/` and the vectors, by an agent that has not read `verifier-go/`. Transliterating the Go is the one approach that makes the whole exercise worthless, and it is also the fastest, so the constraint is stated here rather than assumed.
+
+Where the two implementations then agree, the vectors are published and ES-029 has something real to arbitrate with. Where they disagree, that is the finding, and the specification is amended from the vectors rather than from whichever implementation is more convenient. The declared-absence machinery QA-019 requires is built here too, so an uncovered requirement is counted and named rather than invisible.
+
+The adversarial provenance rule is also relaxed here, and only here. `tests/vectors/README.md` requires every refusal probe to record what each implementation did with the subject before the fix, with at least one having accepted it — a rule that cannot be satisfied for a check no implementation had, because the requirement did not exist. Splitting it into a regression probe, which keeps today's rule, and a new-rule probe, which names the requirement and the commit that introduced it instead, preserves the rule's purpose of preventing fabricated provenance. It is deliberately not done in EV-19: a rule amended by the change that benefits from it is not a rule.
+**Two ES-017 ratio vectors are specified and waiting.** EV-19 attempted to publish them and could not: `tests/vectors/test_vectors.py` requires every vector operation to have a Python runner and the corpus file to equal deterministic generation, so a Go-only vector cannot be added at all. That is QA-019 enforced mechanically rather than by convention, discovered by trying to violate it. The two cases are `matched 1, population 4, out_of_scope 1 → "0.3333"` (denominator exclusion and fixed scale together) and `matched 2, population 3, out_of_scope 0 → "0.6666"` (truncation, which half-up rounding would render `0.6667`). They are held as Go tests meanwhile and become publishable the moment a second implementation executes them.
+**Touches:** `sdk_python/`, `services/verification/`, `tests/vectors/`, `docs/testing-qa.md`
+**Depends on:** EV-19
+**Satisfies:** QA-019
+**Acceptance:** QA-S-011, ES-S-025; a bundle vector reproduced identically by both implementations, the two ES-017 ratio vectors above published and passing in both harnesses, a requirement with no vector reported by count and by name, and a refusal probe for a rule no implementation previously had.
 
 #### EV-30 — Close Python composition-path false acceptances and publish adversarial vectors
 EV-05's review identified two invalid subjects that the shipping Python entry

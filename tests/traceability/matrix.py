@@ -2073,6 +2073,44 @@ def _summarise(matrix: Matrix) -> dict[str, Any]:
     }
 
 
+def _read_vector_requirement_coverage(path: Path) -> dict[str, Any] | None:
+    """Read QA-019's register without turning an absent corpus into zero coverage.
+
+    ``None`` means this repository has no vector corpus at all (as in the small
+    matrix test fixtures). Once the corpus exists, a missing or malformed
+    register is explicitly ``unknown`` and is never rendered as an empty list.
+    """
+
+    if not path.parent.is_dir():
+        return None
+    try:
+        document = json.loads(path.read_text(encoding="utf-8"))
+        coverage = document["requirement_coverage"]
+        covered = coverage["covered"]
+        absent = coverage["declared_absent"]
+        count = coverage["declared_absent_count"]
+        if not isinstance(covered, dict):
+            raise ValueError("covered must be an object")
+        if not isinstance(absent, list) or not all(
+            isinstance(value, str) and value for value in absent
+        ):
+            raise ValueError("declared_absent must be a list of requirement IDs")
+        if absent != sorted(set(absent)):
+            raise ValueError("declared_absent must be sorted and duplicate-free")
+        if not isinstance(count, int) or isinstance(count, bool) or count != len(absent):
+            raise ValueError("declared_absent_count disagrees with the named list")
+        if set(covered) & set(absent):
+            raise ValueError("a requirement appears as both covered and absent")
+    except (OSError, KeyError, TypeError, ValueError, json.JSONDecodeError) as exc:
+        return {"status": "unknown", "detail": str(exc)}
+    return {
+        "status": "known",
+        "covered": len(covered),
+        "declared_absent": count,
+        "declared_absent_ids": absent,
+    }
+
+
 # --------------------------------------------------------------------------
 # Rendering
 # --------------------------------------------------------------------------
@@ -2128,6 +2166,16 @@ def render_markdown(matrix: Matrix) -> str:
         - s["otherwise_verified"] - s["deferred"]
     )
     add(f"| — neither (orphans) | {orphan_count} |")
+    vector_coverage = s.get("vector_requirement_coverage")
+    if vector_coverage is not None:
+        if vector_coverage["status"] == "known":
+            add(f"| Vector-covered requirements | {vector_coverage['covered']} |")
+            add(
+                "| — declared absent from vectors | "
+                f"{vector_coverage['declared_absent']} |"
+            )
+        else:
+            add("| Vector requirement coverage | unknown |")
     add(f"| Scenarios | {s['scenarios']} |")
     add(f"| — with a test | {s['scenarios_with_test']} |")
     add(f"| Tests collected | {s['tests']} |")
@@ -2135,6 +2183,15 @@ def render_markdown(matrix: Matrix) -> str:
     add(f"| Stories with a Satisfies field | {s['stories']} |")
     add(f"| — landed in reachable history | {len(s['landed_stories'])} |")
     add("")
+    if (
+        vector_coverage is not None
+        and vector_coverage["status"] == "known"
+    ):
+        add("**Requirements declared absent from vectors:** " + (
+            ", ".join(f"`{rid}`" for rid in vector_coverage["declared_absent_ids"])
+            or "none"
+        ))
+        add("")
     if s["excluded_citation_paths"]:
         add("One exclusion applies, stated here rather than buried in configuration: "
             "requirement")
@@ -2457,6 +2514,21 @@ def _print_report(matrix: Matrix) -> None:
     # reported.
     print()
     print(f"Orphans: {orphans} requirement(s) with no scenario and no exemption.")
+    vector_coverage = s.get("vector_requirement_coverage")
+    if vector_coverage is not None:
+        if vector_coverage["status"] == "known":
+            absent_ids = vector_coverage["declared_absent_ids"]
+            print(
+                "Vector absences: "
+                f"{vector_coverage['declared_absent']} requirement(s): "
+                + (", ".join(absent_ids) if absent_ids else "none")
+            )
+        else:
+            print(
+                "Vector absences: unknown ("
+                + vector_coverage["detail"]
+                + ")"
+            )
     counts = s["findings_by_severity"]
     print("Findings: " + ", ".join(f"{counts[k.value]} {k.value}" for k in Severity))
     print()
@@ -2622,6 +2694,20 @@ def main(
         requirement_baseline=requirement_baseline,
     )
 
+    vector_coverage = _read_vector_requirement_coverage(
+        root / "tests" / "vectors" / "vectors-v0.1.json"
+    )
+    if vector_coverage is not None and vector_coverage["status"] == "unknown":
+        matrix.findings.append(
+            Finding(
+                kind="VECTOR_COVERAGE_UNAVAILABLE",
+                severity=Severity.HIGH,
+                subject="requirement_coverage",
+                location="tests/vectors/vectors-v0.1.json",
+                detail=vector_coverage["detail"],
+            )
+        )
+
     if unverified_inputs:
         matrix.findings.append(
             Finding(
@@ -2633,8 +2719,10 @@ def main(
                        "caller redirected: " + ", ".join(unverified_inputs),
             )
         )
-        matrix.findings.sort(key=Finding.sort_key)
-        matrix.summary = _summarise(matrix)
+    matrix.findings.sort(key=Finding.sort_key)
+    matrix.summary = _summarise(matrix)
+    if vector_coverage is not None:
+        matrix.summary["vector_requirement_coverage"] = vector_coverage
 
     # The QA-011 ratchet, and the one place a date could ever weaken it.
     #

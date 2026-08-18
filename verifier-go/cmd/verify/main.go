@@ -6,13 +6,18 @@
 // implementations are genuinely independent, so everything below is built from
 // evidence-spec.md and the published vectors rather than ported.
 //
-// Scope is EV-05: canonicalisation, digests, signatures, chains, key
-// continuity, and receipts. Attestation bundle validation, coverage
-// recomputation and revocation checking are EV-19 and are deliberately absent —
-// the exit codes below never claim anything about them.
+// EV-05 built the primitives: canonicalisation, digests, signatures, chains,
+// key continuity, and receipts. EV-19 adds -mode bundle, which validates a
+// complete attestation bundle: both ES-023 signatures, schema and methodology
+// versions, the AR-009 validity period, TM-013 qualification dates, and the
+// four-state revocation check of TM-014.
+//
+// Whatever this command does not check, it says so in its own output rather
+// than leaving the omission to be inferred from a green exit code.
 package main
 
 import (
+	"context"
 	"crypto/ed25519"
 	"encoding/base64"
 	"encoding/hex"
@@ -20,9 +25,12 @@ import (
 	"flag"
 	"fmt"
 	"os"
+	"time"
 
+	"github.com/Align3/evidence-control-plane/verifier-go/internal/bundle"
 	"github.com/Align3/evidence-control-plane/verifier-go/internal/evidence"
 	"github.com/Align3/evidence-control-plane/verifier-go/internal/jcs"
+	"github.com/Align3/evidence-control-plane/verifier-go/internal/revocation"
 )
 
 const version = "0.1.0"
@@ -46,16 +54,27 @@ type keyEntry struct {
 func main() {
 	var (
 		keyringPath = flag.String("keyring", "", "JSON file of {key_id: {namespace, public_key}}")
-		mode        = flag.String("mode", "record", "record | stream | receipt | canonicalize")
+		mode        = flag.String("mode", "record", "record | bundle | stream | receipt | canonicalize")
 		showVersion = flag.Bool("version", false, "print verifier version and exit")
+		endpoint    = flag.String("revocation-endpoint", "",
+			"issuer revocation endpoint; without one, revocation reports unchecked")
+		offline = flag.Bool("offline", false,
+			"make no network request at all; revocation reports unchecked")
+		revTimeout = flag.Duration("revocation-timeout", 5*time.Second,
+			"how long to wait for the revocation endpoint before reporting unchecked")
+		asOf = flag.String("as-of", "",
+			"RFC 3339 instant to evaluate the validity period at (default: now)")
 	)
 	flag.Usage = func() {
 		fmt.Fprintf(os.Stderr,
-			"usage: verify [-mode record|stream|receipt|canonicalize] [-keyring FILE] <input.json>\n\n"+
-				"Scope: EV-05 primitives only. Attestation *bundle* validation,\n"+
-				"coverage recomputation, lattice re-checking and revocation are EV-19\n"+
-				"and are not performed. An AttestationWindow presented to -mode record\n"+
-				"has its two signatures checked (ES-023) and nothing else.\n\n")
+			"usage: verify [-mode record|bundle|stream|receipt|canonicalize] "+
+				"[-keyring FILE] <input.json>\n\n"+
+				"-mode record verifies one record's signatures and nothing else. An\n"+
+				"AttestationWindow presented there has its two ES-023 signatures\n"+
+				"checked; its coverage claim is not examined.\n\n"+
+				"-mode bundle verifies a complete attestation bundle. Without\n"+
+				"-revocation-endpoint, or with -offline, revocation_status is reported\n"+
+				"as unchecked and the verdict is never \"valid\" (TM-014).\n\n")
 		flag.PrintDefaults()
 	}
 	flag.Parse()
@@ -80,6 +99,8 @@ func main() {
 		runCanonicalize(data)
 	case "record":
 		runRecord(data, loadKeyring(*keyringPath))
+	case "bundle":
+		runBundle(data, loadKeyring(*keyringPath), *endpoint, *offline, *revTimeout, *asOf)
 	case "stream":
 		runStream(data, loadKeyring(*keyringPath))
 	case "receipt":
@@ -158,6 +179,106 @@ func runRecord(data []byte, keys map[string]evidence.RegisteredKey) {
 	fmt.Printf("VALID %s %s\n  signed by      %s (%s namespace)\n  record digest  %s\n",
 		verified.RecordType, rec.RecordID(), verified.KeyID,
 		keys[verified.KeyID].Namespace, digest)
+}
+
+// runBundle is the EV-19 entry point.
+//
+// The output is written so that the *absence* of a check is as visible as its
+// result. TM-S-004 requires that an offline run not state the attestation is
+// valid, and the way that requirement gets quietly broken is not by printing
+// the word — it is by printing a confident summary that a reader takes as one.
+// So every line here names what was established and by what, the verdict word
+// is never "valid" unless the issuer affirmatively answered, and the checks
+// that did not run are listed by name.
+func runBundle(data []byte, keys map[string]evidence.RegisteredKey,
+	endpoint string, offline bool, timeout time.Duration, asOf string) {
+	// -as-of exists because "is this attestation valid" is a question about an
+	// instant, and a relying party reconstructing a past decision needs to ask
+	// it about that instant rather than about today. It is not a test hook:
+	// QA-004 requires the artifact under test to be the shipped one, so the
+	// instant used is printed on every run and the default is the real clock.
+	now := time.Now
+	if asOf != "" {
+		at, err := time.Parse(time.RFC3339, asOf)
+		if err != nil {
+			fmt.Fprintf(os.Stderr, "-as-of %q is not RFC 3339: %v\n", asOf, err)
+			os.Exit(exitUsage)
+		}
+		now = func() time.Time { return at }
+	}
+
+	parsed, err := bundle.Parse(data)
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "INVALID %s\n", err)
+		os.Exit(exitInvalid)
+	}
+
+	checker := revocation.Checker{Offline: offline, IssuerKeys: keys, Now: now}
+	switch {
+	case offline:
+		// No fetcher is constructed at all, so an -offline run cannot reach the
+		// network even if an endpoint was also supplied.
+	case endpoint != "":
+		checker.Fetcher = revocation.NewHTTPFetcher(endpoint, timeout)
+	}
+
+	res := bundle.Verify(context.Background(), parsed, bundle.Options{
+		Keys:       keys,
+		Revocation: checker,
+		// EV-19's coverage recomputation, lattice re-checking and assertion
+		// catalogue register here. Until they do, the "NOT CHECKED" line below
+		// says so on every run.
+		Checks: registeredChecks(),
+		Now:    now,
+	})
+
+	out := os.Stdout
+	if res.Verdict != bundle.Valid {
+		out = os.Stderr
+	}
+	fmt.Fprintf(out, "VERDICT %s\n", res.Verdict)
+	fmt.Fprintf(out, "  attestation      %s\n", res.AttestationID)
+	fmt.Fprintf(out, "  evaluated at     %s\n", now().UTC().Format(time.RFC3339))
+	if res.EvidenceKeyID != "" {
+		fmt.Fprintf(out, "  customer key     %s\n", res.EvidenceKeyID)
+	}
+	if res.IssuerKeyID != "" {
+		fmt.Fprintf(out, "  issuer key       %s\n", res.IssuerKeyID)
+	}
+	fmt.Fprintf(out, "  revocation       %s (%s)\n",
+		res.Revocation.Status(), res.Revocation.Reason())
+	if d := res.Revocation.Detail(); d != "" {
+		fmt.Fprintf(out, "                   %s\n", d)
+	}
+	if res.Revocation.SupersededBy != "" {
+		fmt.Fprintf(out, "  superseded by    %s\n", res.Revocation.SupersededBy)
+	}
+	if len(res.ChecksRun) > 0 {
+		fmt.Fprintf(out, "  checks run       %v\n", res.ChecksRun)
+	}
+	for _, note := range res.Notes {
+		fmt.Fprintf(out, "  NOT CHECKED      %s\n", note)
+	}
+	// Unresolved items are printed unconditionally, whatever the verdict word
+	// turned out to be. Without this an offline run hides them completely: the
+	// unchecked-revocation verdict is reported first, and a coverage claim that
+	// could not be recomputed would leave no trace in the output at all.
+	for _, u := range res.Unresolved {
+		fmt.Fprintf(out, "  NOT CHECKED      %s\n", u)
+	}
+	for _, f := range res.Findings {
+		fmt.Fprintf(out, "  REFUSED          %s\n", f)
+	}
+
+	switch res.Verdict {
+	case bundle.Valid:
+		os.Exit(exitOK)
+	case bundle.UncheckedRevocation, bundle.Indeterminate:
+		// "I could not check" is not "this is invalid" (see the exit codes).
+		os.Exit(exitUncertain)
+	default:
+		os.Exit(exitInvalid)
+	}
 }
 
 func runStream(data []byte, keys map[string]evidence.RegisteredKey) {

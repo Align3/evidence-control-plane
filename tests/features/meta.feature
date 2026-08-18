@@ -5,7 +5,7 @@
 Feature: Test-system self-checks
 
   @QA-S-001 @QA-002
-  # source: testing-qa.md:179
+  # source: testing-qa.md:191
   Scenario: QA-S-001 Assertion without scenario fails CI
     Given a new assertion added to the catalogue
     And no scenario referencing it
@@ -14,7 +14,7 @@ Feature: Test-system self-checks
     And the failure names the unmapped assertion
 
   @QA-S-002 @QA-005
-  # source: testing-qa.md:189
+  # source: testing-qa.md:201
   Scenario: QA-S-002 Gap conservation holds, property 6
     Given any generated evidence set over window W
     When coverage is computed
@@ -23,7 +23,7 @@ Feature: Test-system self-checks
     And no interval is neither
 
   @QA-S-003 @QA-008
-  # source: testing-qa.md:199
+  # source: testing-qa.md:211
   Scenario: QA-S-003 Golden diff blocks merge
     Given a change to canonicalisation
     When golden attestations are regenerated
@@ -32,7 +32,7 @@ Feature: Test-system self-checks
     And the failure requires an explicit reviewed fixture update
 
   @QA-S-004 @QA-013
-  # source: testing-qa.md:209
+  # source: testing-qa.md:221
   Scenario: QA-S-004 Cross-implementation reproduction
     Given a PR touching the evidence schema
     When CI runs
@@ -40,7 +40,7 @@ Feature: Test-system self-checks
     And any divergence fails the build before merge
 
   @QA-S-005 @QA-003
-  # source: testing-qa.md:218
+  # source: testing-qa.md:230
   Scenario: QA-S-005 Acceptance tests assert through the verifier
     Given an acceptance test in layer L6
     When it is executed
@@ -48,7 +48,7 @@ Feature: Test-system self-checks
     And it does not reference internal computation state
 
   @QA-S-006 @QA-010
-  # source: testing-qa.md:227
+  # source: testing-qa.md:239
   Scenario: QA-S-006 The four-link chain is generated and published
     Given a requirement with a scenario, an implementing test, and an assertion citing it as basis
     When the traceability matrix is generated
@@ -56,7 +56,7 @@ Feature: Test-system self-checks
     And it is published in both human-readable and machine-readable form
 
   @QA-S-007 @QA-011
-  # source: testing-qa.md:236
+  # source: testing-qa.md:248
   Scenario: QA-S-007 An orphaned requirement fails the traceability check
     Given a requirement with no scenario and no non-testable marking
     When the traceability check runs with that severity enforced
@@ -64,7 +64,7 @@ Feature: Test-system self-checks
     And the failure names the requirement
 
   @QA-S-008 @QA-012
-  # source: testing-qa.md:245
+  # source: testing-qa.md:257
   Scenario: QA-S-008 The matrix is generated, never hand-maintained
     Given the traceability matrix generator
     When it runs twice over unchanged inputs
@@ -72,7 +72,7 @@ Feature: Test-system self-checks
     And neither run writes a matrix into the repository for a human to edit
 
   @QA-S-009 @QA-011
-  # source: testing-qa.md:254
+  # source: testing-qa.md:266
   Scenario: QA-S-009 A malformed non-testable marking exempts nothing
     Given a requirement with no scenario and a non-testable marking whose category is not in the closed enum
     When the traceability matrix is generated
@@ -80,7 +80,7 @@ Feature: Test-system self-checks
     And the requirement is still reported as an orphan
 
   @QA-S-010 @QA-011
-  # source: testing-qa.md:268
+  # source: testing-qa.md:290
   Scenario: QA-S-010 Every requirement and scenario is classified after triage
     Given the live corpus after triage
     When the traceability matrix is generated
@@ -89,3 +89,11 @@ Feature: Test-system self-checks
     And no requirement claimed by a story is reported without a scenario
     And no scenario is reported as having no Acceptance owner
     And untested scenarios owned by unlanded stories remain reported as roadmap debt
+
+  @QA-S-011 @QA-019
+  # source: testing-qa.md:280
+  Scenario: QA-S-011 Vector absences are counted and named in every report
+    Given a corpus with a machine-readable vector absence register
+    When the traceability report is generated
+    Then the report states the vector absence count
+    And the report names every requirement absent from vectors
