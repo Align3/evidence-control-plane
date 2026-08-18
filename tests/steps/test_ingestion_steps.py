@@ -40,6 +40,7 @@ from services.ledger import (
     tenant_connection,
 )
 from tests.ledger_support import TENANT_A, RecordFactory
+from tests.steps.asgi_support import asgi_post_async
 
 
 @scenario("architecture.feature", "AC-S-001 No queue in the write path")
@@ -144,63 +145,10 @@ class IngestionHarness:
 
     def submit(self, record: Any) -> Any:
         response = asyncio.run(
-            _asgi_post(self.app, "/v1/evidence", serialize_record(record))
+            asgi_post_async(self.app, "/v1/evidence", serialize_record(record))
         )
         return response
 
-
-@dataclass(frozen=True)
-class ASGIResponse:
-    status_code: int
-    body: bytes
-
-    @property
-    def text(self) -> str:
-        return self.body.decode("utf-8")
-
-    def json(self) -> Any:
-        return json.loads(self.body)
-
-
-async def _asgi_post(app: FastAPI, path: str, body: bytes) -> ASGIResponse:
-    messages: list[dict[str, Any]] = []
-    request_sent = False
-
-    async def receive() -> dict[str, Any]:
-        nonlocal request_sent
-        if not request_sent:
-            request_sent = True
-            return {"type": "http.request", "body": body, "more_body": False}
-        return {"type": "http.disconnect"}
-
-    async def send(message: dict[str, Any]) -> None:
-        messages.append(message)
-
-    await app(
-        {
-            "type": "http",
-            "asgi": {"version": "3.0", "spec_version": "2.5"},
-            "http_version": "1.1",
-            "method": "POST",
-            "scheme": "http",
-            "path": path,
-            "raw_path": path.encode("ascii"),
-            "query_string": b"",
-            "root_path": "",
-            "headers": [(b"content-type", b"application/json")],
-            "client": ("test", 123),
-            "server": ("testserver", 80),
-        },
-        receive,
-        send,
-    )
-    start = next(message for message in messages if message["type"] == "http.response.start")
-    response_body = b"".join(
-        message.get("body", b"")
-        for message in messages
-        if message["type"] == "http.response.body"
-    )
-    return ASGIResponse(status_code=start["status"], body=response_body)
 
 
 @pytest.fixture
@@ -485,7 +433,7 @@ def test_http_refuses_duplicate_envelope_members(
     ingestion_harness: IngestionHarness,
 ) -> None:
     response = asyncio.run(
-        _asgi_post(
+        asgi_post_async(
             ingestion_harness.app,
             "/v1/evidence",
             b'{"record_id":"first","record_id":"second"}',
@@ -497,7 +445,7 @@ def test_http_refuses_duplicate_envelope_members(
 
 def test_http_refuses_malformed_json(ingestion_harness: IngestionHarness) -> None:
     response = asyncio.run(
-        _asgi_post(ingestion_harness.app, "/v1/evidence", b'{"record_id":')
+        asgi_post_async(ingestion_harness.app, "/v1/evidence", b'{"record_id":')
     )
     assert response.status_code == 422
 
@@ -544,7 +492,7 @@ def test_http_reports_distinct_wire_and_integrity_error_codes(
         noncanonical_record.model_dump(mode="json", exclude_unset=True), indent=2
     ).encode()
     noncanonical_response = asyncio.run(
-        _asgi_post(ingestion_harness.app, "/v1/evidence", noncanonical)
+        asgi_post_async(ingestion_harness.app, "/v1/evidence", noncanonical)
     )
     assert noncanonical_response.status_code == 422
     assert noncanonical_response.json()["detail"]["code"] == "wire.non_canonical"
