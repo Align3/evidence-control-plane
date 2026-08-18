@@ -30,6 +30,18 @@ from .issuance import (
     assemble_attestation,
     issue_attestation,
 )
+from .lifecycle import (
+    AttestationLifecycleError,
+    LifecycleStatus,
+    LifecycleTransition,
+    NotificationSink,
+    NotificationStatus,
+    RevocationGround,
+    attestation_status,
+    record_attestation,
+    revoke_attestation,
+    supersede_attestation,
+)
 
 __all__ = [
     "A01EvidenceChainValid",
@@ -46,6 +58,7 @@ __all__ = [
     "AssertionScope",
     "AttestationAssembly",
     "AttestationInputError",
+    "AttestationLifecycleError",
     "AttestationRequest",
     "AttestationSource",
     "CatalogueAssertion",
@@ -53,9 +66,18 @@ __all__ = [
     "IssuerIdentity",
     "IssuedAttestation",
     "IssuerSigner",
+    "LifecycleStatus",
+    "LifecycleTransition",
+    "NotificationSink",
+    "NotificationStatus",
     "RelyingParty",
+    "RevocationGround",
     "StandingExclusion",
     "assemble_attestation",
+    "attestation_status",
     "assertion_payload",
     "issue_attestation",
+    "record_attestation",
+    "revoke_attestation",
+    "supersede_attestation",
 ]
