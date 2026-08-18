@@ -15,7 +15,7 @@ from enum import StrEnum
 from typing import Any, cast
 
 from cryptography.hazmat.primitives.asymmetric.ed25519 import Ed25519PublicKey
-from sqlalchemy import Connection, select
+from sqlalchemy import Connection, Engine, select
 
 from sdk_python.evidence.canonical import canonicalize
 from sdk_python.evidence.schema import (
@@ -331,15 +331,14 @@ def _record_transition(
     effective_at: datetime,
     signer: IssuerSigner,
     superseding_ref: str | None,
-    notify: NotificationSink | None,
+    notification_status: NotificationStatus = NotificationStatus.PENDING,
+    notified_at: datetime | None = None,
+    delivery_errors: tuple[str, ...] = (),
 ) -> LifecycleTransition:
     original_row = _attestation_row(
         connection, tenant_id=tenant_id, attestation_id=attestation_id
     )
     original = _attestation_record(original_row)
-    status, notified_at, delivery_errors = _notification_result(
-        original.body.relying_parties, notify
-    )
     sequence, prev_digest = _next_revocation_position(
         connection, tenant_id=tenant_id, attestation_id=attestation_id
     )
@@ -362,7 +361,7 @@ def _record_transition(
                 "issuer": original.body.issuer,
                 "effective_at": _timestamp(effective_at),
                 "superseding_ref": superseding_ref,
-                "relying_party_notification_status": status.value,
+                "relying_party_notification_status": notification_status.value,
             },
             "signature": {},
         }
@@ -409,7 +408,7 @@ def _record_transition(
             reason=reason,
             effective_at=parse_timestamp(record.body.effective_at),
             notified_at=notified_at,
-            notification_status=status.value,
+            notification_status=notification_status.value,
             issuer_key_id=signer.key_id,
             issuer_key_namespace="issuer",
             signature=record_signature_bytes(record),
@@ -420,8 +419,66 @@ def _record_transition(
     return LifecycleTransition(record=record, delivery_errors=delivery_errors)
 
 
+def _deliver_notifications(
+    engine: Engine,
+    *,
+    transition: LifecycleTransition,
+    signer: IssuerSigner,
+    notify: NotificationSink | None,
+) -> LifecycleTransition:
+    """Deliver only after the authoritative transition has committed.
+
+    The first RevocationRecord is always persisted with ``pending`` status.
+    Delivery then happens outside that transaction, and its outcome is appended
+    as a second signed record in the same lifecycle stream. This makes a notice
+    impossible unless the revocation or supersession it describes is already
+    durable, while keeping both the transition and its delivery history
+    immutable.
+    """
+
+    if notify is None:
+        return transition
+
+    seed = transition.record
+    with engine.connect() as connection:
+        persisted = connection.execute(
+            select(revocations.c.revocation_id).where(
+                revocations.c.tenant_id == seed.tenant_id,
+                revocations.c.revocation_id == uuid.UUID(seed.record_id),
+            )
+        ).scalar_one_or_none()
+        if persisted is None:  # pragma: no cover - transaction-owned API invariant
+            raise AttestationLifecycleError(
+                "cannot notify before the lifecycle transition is committed"
+            )
+        original = _attestation_record(
+            _attestation_row(
+                connection,
+                tenant_id=seed.tenant_id,
+                attestation_id=seed.body.attestation_ref,
+            )
+        )
+
+    status, notified_at, delivery_errors = _notification_result(
+        original.body.relying_parties, notify
+    )
+    with engine.begin() as connection:
+        return _record_transition(
+            connection,
+            tenant_id=seed.tenant_id,
+            attestation_id=seed.body.attestation_ref,
+            reason=seed.body.reason,
+            effective_at=parse_timestamp(seed.body.effective_at),
+            signer=signer,
+            superseding_ref=seed.body.superseding_ref,
+            notification_status=status,
+            notified_at=notified_at,
+            delivery_errors=delivery_errors,
+        )
+
+
 def revoke_attestation(
-    connection: Connection,
+    engine: Engine,
     *,
     tenant_id: str,
     attestation_id: str,
@@ -432,20 +489,23 @@ def revoke_attestation(
 ) -> LifecycleTransition:
     if not isinstance(ground, RevocationGround):
         raise AttestationLifecycleError("revocation ground is not permitted by AR-010")
-    return _record_transition(
-        connection,
-        tenant_id=tenant_id,
-        attestation_id=attestation_id,
-        reason=ground.value,
-        effective_at=effective_at,
-        signer=signer,
-        superseding_ref=None,
-        notify=notify,
+    with engine.begin() as connection:
+        transition = _record_transition(
+            connection,
+            tenant_id=tenant_id,
+            attestation_id=attestation_id,
+            reason=ground.value,
+            effective_at=effective_at,
+            signer=signer,
+            superseding_ref=None,
+        )
+    return _deliver_notifications(
+        engine, transition=transition, signer=signer, notify=notify
     )
 
 
 def supersede_attestation(
-    connection: Connection,
+    engine: Engine,
     *,
     tenant_id: str,
     original_attestation_id: str,
@@ -454,34 +514,43 @@ def supersede_attestation(
     signer: IssuerSigner,
     notify: NotificationSink | None = None,
 ) -> LifecycleTransition:
-    original_row = _attestation_row(
-        connection,
-        tenant_id=tenant_id,
-        attestation_id=original_attestation_id,
-    )
-    original = _attestation_record(original_row)
-    replacement = superseding_attestation
-    if replacement.tenant_id != tenant_id:
-        raise AttestationLifecycleError("superseding attestation must belong to same tenant")
-    if replacement.boundary_ref != original.boundary_ref:
-        raise AttestationLifecycleError("superseding attestation must retain same boundary")
-    if (
-        replacement.body.window_start != original.body.window_start
-        or replacement.body.window_end != original.body.window_end
-    ):
-        raise AttestationLifecycleError("superseding attestation must retain same window")
-    if replacement.record_id == original.record_id:
-        raise AttestationLifecycleError("an attestation cannot supersede itself")
-    record_attestation(connection, replacement)
-    return _record_transition(
-        connection,
-        tenant_id=tenant_id,
-        attestation_id=original_attestation_id,
-        reason=_TransitionReason.LATE_EVIDENCE.value,
-        effective_at=effective_at,
-        signer=signer,
-        superseding_ref=replacement.record_id,
-        notify=notify,
+    with engine.begin() as connection:
+        original_row = _attestation_row(
+            connection,
+            tenant_id=tenant_id,
+            attestation_id=original_attestation_id,
+        )
+        original = _attestation_record(original_row)
+        replacement = superseding_attestation
+        if replacement.tenant_id != tenant_id:
+            raise AttestationLifecycleError(
+                "superseding attestation must belong to same tenant"
+            )
+        if replacement.boundary_ref != original.boundary_ref:
+            raise AttestationLifecycleError(
+                "superseding attestation must retain same boundary"
+            )
+        if (
+            replacement.body.window_start != original.body.window_start
+            or replacement.body.window_end != original.body.window_end
+        ):
+            raise AttestationLifecycleError(
+                "superseding attestation must retain same window"
+            )
+        if replacement.record_id == original.record_id:
+            raise AttestationLifecycleError("an attestation cannot supersede itself")
+        record_attestation(connection, replacement)
+        transition = _record_transition(
+            connection,
+            tenant_id=tenant_id,
+            attestation_id=original_attestation_id,
+            reason=_TransitionReason.LATE_EVIDENCE.value,
+            effective_at=effective_at,
+            signer=signer,
+            superseding_ref=replacement.record_id,
+        )
+    return _deliver_notifications(
+        engine, transition=transition, signer=signer, notify=notify
     )
 
 

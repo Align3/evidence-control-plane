@@ -114,15 +114,15 @@ def attestation_pair(
     )
     with owner_engine.begin() as connection:
         record_attestation(connection, original)
-        transition = supersede_attestation(
-            connection,
-            tenant_id=TENANT_A,
-            original_attestation_id=original.record_id,
-            superseding_attestation=replacement,
-            effective_at=datetime.now(UTC),
-            signer=IssuerSigner(factory.receipt_key_id, factory.receipt_private_key),
-            notify=lambda _party: None,
-        )
+    transition = supersede_attestation(
+        owner_engine,
+        tenant_id=TENANT_A,
+        original_attestation_id=original.record_id,
+        superseding_attestation=replacement,
+        effective_at=datetime.now(UTC),
+        signer=IssuerSigner(factory.receipt_key_id, factory.receipt_private_key),
+        notify=lambda _party: None,
+    )
     return {"record": original, "replacement": replacement, "transition": transition}
 
 
@@ -210,16 +210,15 @@ def late_confirmation(
     owner_engine: Engine, lifecycle_context: dict[str, Any]
 ) -> None:
     factory = lifecycle_context["factory"]
-    with owner_engine.begin() as connection:
-        lifecycle_context["transition"] = supersede_attestation(
-            connection,
-            tenant_id=TENANT_A,
-            original_attestation_id=lifecycle_context["record"].record_id,
-            superseding_attestation=lifecycle_context["replacement"],
-            effective_at=datetime.now(UTC),
-            signer=IssuerSigner(factory.receipt_key_id, factory.receipt_private_key),
-            notify=lambda party: lifecycle_context["notified"].append(party["name"]),
-        )
+    lifecycle_context["transition"] = supersede_attestation(
+        owner_engine,
+        tenant_id=TENANT_A,
+        original_attestation_id=lifecycle_context["record"].record_id,
+        superseding_attestation=lifecycle_context["replacement"],
+        effective_at=datetime.now(UTC),
+        signer=IssuerSigner(factory.receipt_key_id, factory.receipt_private_key),
+        notify=lambda party: lifecycle_context["notified"].append(party["name"]),
+    )
 
 
 @then("attestation A is not modified")

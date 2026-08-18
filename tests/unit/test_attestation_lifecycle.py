@@ -5,6 +5,7 @@ from __future__ import annotations
 from datetime import UTC, datetime, timedelta
 
 import pytest
+from cryptography.hazmat.primitives.asymmetric.ed25519 import Ed25519PrivateKey
 from sqlalchemy import Engine, select, text
 from sqlalchemy.exc import DBAPIError
 
@@ -101,6 +102,89 @@ def test_tampered_counter_signature_is_refused_before_storage(
         ).first() is None
 
 
+def test_invalid_revocation_signer_cannot_notify_relying_parties(
+    owner_engine: Engine,
+    record_factories: dict[str, RecordFactory],
+    default_boundaries: dict[str, str],
+) -> None:
+    factory = record_factories[TENANT_A]
+    record = _attestation(
+        factory, default_boundaries[TENANT_A], suffix="612", sequence=612
+    )
+    notified: list[str] = []
+    with owner_engine.begin() as connection:
+        record_attestation(connection, record)
+
+    with pytest.raises(AttestationLifecycleError, match="revocation signature"):
+        revoke_attestation(
+            owner_engine,
+            tenant_id=TENANT_A,
+            attestation_id=record.record_id,
+            ground=RevocationGround.CUSTOMER_MISREPRESENTATION,
+            effective_at=datetime.now(UTC),
+            signer=IssuerSigner(
+                factory.receipt_key_id, Ed25519PrivateKey.generate()
+            ),
+            notify=lambda party: notified.append(str(party["name"])),
+        )
+
+    assert notified == []
+    with owner_engine.connect() as connection:
+        assert connection.execute(
+            select(revocations.c.revocation_id).where(
+                revocations.c.attestation_id == record.record_id
+            )
+        ).first() is None
+
+
+def test_notification_runs_only_after_pending_transition_is_committed(
+    owner_engine: Engine,
+    record_factories: dict[str, RecordFactory],
+    default_boundaries: dict[str, str],
+) -> None:
+    factory = record_factories[TENANT_A]
+    record = _attestation(
+        factory, default_boundaries[TENANT_A], suffix="613", sequence=613
+    )
+    with owner_engine.begin() as connection:
+        record_attestation(connection, record)
+
+    statuses_seen_by_notifier: list[list[str]] = []
+
+    def notify(_party: object) -> None:
+        with owner_engine.connect() as connection:
+            statuses_seen_by_notifier.append(
+                list(
+                    connection.execute(
+                        select(revocations.c.notification_status)
+                        .where(revocations.c.attestation_id == record.record_id)
+                        .order_by(revocations.c.sequence)
+                    ).scalars()
+                )
+            )
+
+    transition = revoke_attestation(
+        owner_engine,
+        tenant_id=TENANT_A,
+        attestation_id=record.record_id,
+        ground=RevocationGround.CUSTOMER_MISREPRESENTATION,
+        effective_at=datetime.now(UTC),
+        signer=IssuerSigner(factory.receipt_key_id, factory.receipt_private_key),
+        notify=notify,
+    )
+
+    assert statuses_seen_by_notifier == [["pending"]]
+    assert transition.record.body.relying_party_notification_status == "notified"
+    with owner_engine.connect() as connection:
+        assert list(
+            connection.execute(
+                select(revocations.c.notification_status)
+                .where(revocations.c.attestation_id == record.record_id)
+                .order_by(revocations.c.sequence)
+            ).scalars()
+        ) == ["pending", "notified"]
+
+
 def test_supersession_preserves_original_and_notifies_named_parties(
     owner_engine: Engine,
     record_factories: dict[str, RecordFactory],
@@ -122,15 +206,16 @@ def test_supersession_preserves_original_and_notifies_named_parties(
                 attestations.c.attestation_id == original.record_id
             )
         ).scalar_one()
-        transition = supersede_attestation(
-            connection,
-            tenant_id=TENANT_A,
-            original_attestation_id=original.record_id,
-            superseding_attestation=replacement,
-            effective_at=datetime.now(UTC),
-            signer=IssuerSigner(factory.receipt_key_id, factory.receipt_private_key),
-            notify=lambda party: notified.append(str(party["name"])),
-        )
+    transition = supersede_attestation(
+        owner_engine,
+        tenant_id=TENANT_A,
+        original_attestation_id=original.record_id,
+        superseding_attestation=replacement,
+        effective_at=datetime.now(UTC),
+        signer=IssuerSigner(factory.receipt_key_id, factory.receipt_private_key),
+        notify=lambda party: notified.append(str(party["name"])),
+    )
+    with owner_engine.connect() as connection:
         after = connection.execute(
             select(attestations.c.canonical_bytes).where(
                 attestations.c.attestation_id == original.record_id
@@ -170,15 +255,15 @@ def test_cross_boundary_supersession_is_refused(
     )
     with owner_engine.begin() as connection:
         record_attestation(connection, original)
-        with pytest.raises(AttestationLifecycleError, match="same boundary"):
-            supersede_attestation(
-                connection,
-                tenant_id=TENANT_A,
-                original_attestation_id=original.record_id,
-                superseding_attestation=replacement,
-                effective_at=datetime.now(UTC),
-                signer=IssuerSigner(factory.receipt_key_id, factory.receipt_private_key),
-            )
+    with pytest.raises(AttestationLifecycleError, match="same boundary"):
+        supersede_attestation(
+            owner_engine,
+            tenant_id=TENANT_A,
+            original_attestation_id=original.record_id,
+            superseding_attestation=replacement,
+            effective_at=datetime.now(UTC),
+            signer=IssuerSigner(factory.receipt_key_id, factory.receipt_private_key),
+        )
 
 
 def test_future_revocation_does_not_retroactively_change_status(
@@ -193,14 +278,15 @@ def test_future_revocation_does_not_retroactively_change_status(
     )
     with owner_engine.begin() as connection:
         record_attestation(connection, record)
-        revoke_attestation(
-            connection,
-            tenant_id=TENANT_A,
-            attestation_id=record.record_id,
-            ground=RevocationGround.DISCOVERED_COMPUTATION_DEFECT,
-            effective_at=now + timedelta(days=1),
-            signer=IssuerSigner(factory.receipt_key_id, factory.receipt_private_key),
-        )
+    revoke_attestation(
+        owner_engine,
+        tenant_id=TENANT_A,
+        attestation_id=record.record_id,
+        ground=RevocationGround.DISCOVERED_COMPUTATION_DEFECT,
+        effective_at=now + timedelta(days=1),
+        signer=IssuerSigner(factory.receipt_key_id, factory.receipt_private_key),
+    )
+    with owner_engine.connect() as connection:
         assert attestation_status(
             connection,
             tenant_id=TENANT_A,
@@ -244,15 +330,15 @@ def test_database_blocks_deletion_until_covering_attestation_is_revoked(
             )
     assert "covering attestation must be revoked first" in str(caught.value.orig)
 
+    revoke_attestation(
+        owner_engine,
+        tenant_id=TENANT_B,
+        attestation_id=attestation.record_id,
+        ground=RevocationGround.EVIDENCE_INTEGRITY_FAILURE,
+        effective_at=datetime.now(UTC) - timedelta(seconds=1),
+        signer=IssuerSigner(factory.receipt_key_id, factory.receipt_private_key),
+    )
     with owner_engine.begin() as connection:
-        revoke_attestation(
-            connection,
-            tenant_id=TENANT_B,
-            attestation_id=attestation.record_id,
-            ground=RevocationGround.EVIDENCE_INTEGRITY_FAILURE,
-            effective_at=datetime.now(UTC) - timedelta(seconds=1),
-            signer=IssuerSigner(factory.receipt_key_id, factory.receipt_private_key),
-        )
         deleted = connection.execute(
             text(
                 "DELETE FROM evidence_records "
@@ -293,14 +379,14 @@ def test_lifecycle_relations_refuse_update_and_delete(
     )
     with owner_engine.begin() as connection:
         record_attestation(connection, record)
-        revoke_attestation(
-            connection,
-            tenant_id=TENANT_A,
-            attestation_id=record.record_id,
-            ground=RevocationGround.CUSTOMER_MISREPRESENTATION,
-            effective_at=datetime.now(UTC),
-            signer=IssuerSigner(factory.receipt_key_id, factory.receipt_private_key),
-        )
+    revoke_attestation(
+        owner_engine,
+        tenant_id=TENANT_A,
+        attestation_id=record.record_id,
+        ground=RevocationGround.CUSTOMER_MISREPRESENTATION,
+        effective_at=datetime.now(UTC),
+        signer=IssuerSigner(factory.receipt_key_id, factory.receipt_private_key),
+    )
     identifier = record.record_id
     if table == "revocations":
         with owner_engine.connect() as connection:
