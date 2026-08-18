@@ -64,7 +64,7 @@ Sizing target: one to five days for a competent agent with review. Anything larg
 
 ### Story-ID allocation register
 
-Story IDs are claimed in integer order by the commit that adds the complete story below. An ID is never reserved, pre-allocated, or held for a branch: concurrent authors rebase and claim the next integer above the current head. The last ID claimed in this document is EV-40; the next author computes its successor only when adding that story's full purpose, Touches, dependencies, Satisfies, and Acceptance record.
+Story IDs are claimed in integer order by the commit that adds the complete story below. An ID is never reserved, pre-allocated, or held for a branch: concurrent authors rebase and claim the next integer above the current head. The last ID claimed in this document is EV-42; the next author computes its successor only when adding that story's full purpose, Touches, dependencies, Satisfies, and Acceptance record.
 
 ---
 
@@ -461,6 +461,18 @@ Replace the false two-category assumption that every evidence record is customer
 **Depends on:** EV-05, EV-13, EV-27, EV-30
 **Satisfies:** ES-033, SE-001, SE-002, SE-003, DM-008
 **Acceptance:** ES-S-019, SE-S-008
+
+#### EV-42 — Salesforce conditional-C1 connector
+Implement the first real EV-13 destination connector for Salesforce `record.create` on the Case object, using the standard REST/SOQL API and OAuth 2.0 JWT bearer flow through an External Client App. Enumeration is scoped in one query by `CreatedDate` and the integration user's `CreatedById`, follows every `nextRecordsUrl`, and reports `totalSize`, `done`, `pagination_complete`, and `result_cap_hit` without converting an incomplete query into a denominator. Confirmation retrieves one Case by Id. The capability description records that confirmation and enumeration share the same API surface and credential rather than presenting confirmation as operationally independent.
+
+Salesforce's `PermissionsCreateAuditFields` capability makes C1 conditional: a user holding it can forge the identity and authoritative-time fields on insert without a per-record trace. Qualification and revalidation therefore use a first-class, repeatable permission-state check. A current grant, an indeterminate permission result, or loss of permission-query access refuses C1 and downgrades the connector to C5; a later clean result cannot upgrade an earlier window retroactively. The connector exposes the check and its observation time for monitoring, but IN-017/IN-018 scheduling and alert delivery remain separate infrastructure work.
+
+Authentication uses an injected JWT-signing capability. The connector does not generate or persist an RSA private key and does not silently default to hosted key custody; client-held custody is the default posture, while any hosted KMS signer is an explicit P1 deployment choice that must be disclosed consistently with SE-006.
+
+**Touches:** `services/connectors/`, connector tests, Salesforce qualification documentation
+**Depends on:** EV-13, EV-40
+**Satisfies:** AC-008, CM-004, CM-005, CM-006, CM-010, DP-003
+**Acceptance:** against the qualified Salesforce Developer Edition org, a real API integration test isolates the known agent-created Cases from human-created Cases, retrieves a Case independently by Id, and exercises multi-page traversal with honest completion metadata; qualification and repeatable revalidation refuse C1 when the integration user holds `PermissionsCreateAuditFields` and fail closed when permission state cannot be established; capability output records the shared Salesforce access path; JWT authentication accepts a client-held signer without connector-side private-key generation or persistence.
 
 ---
 
