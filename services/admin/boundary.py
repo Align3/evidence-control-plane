@@ -34,16 +34,24 @@ from datetime import datetime
 from typing import Any
 
 from sqlalchemy import Connection, select
+from sqlalchemy.engine import RowMapping
 
-from sdk_python.evidence.schema import AssuranceBoundaryRecord
+from sdk_python.evidence.canonical import canonicalize
+from sdk_python.evidence.schema import AssuranceBoundaryRecord, IngestionReceipt
 from sdk_python.evidence.signing import (
     InvalidSignatureError,
+    SignatureError,
     record_signature_bytes,
     verify_record_signature_bytes,
 )
+from services.ingestion.receipts import (
+    SignedIngestionReceipt,
+    parse_timestamp,
+    verify_ingestion_receipt,
+)
 
 from .schema import boundaries, boundary_action_families
-from .trust import registered_evidence_keyring
+from .trust import registered_evidence_keyring, registered_receipt_keyring
 
 #: Keys required on every `action_families[]` entry. `evidence-spec.md` §5.1
 #: names the list and ES-009 names `qualification_ref`; the entry shape itself
@@ -74,6 +82,10 @@ class BoundaryRefMismatchError(BoundaryError):
     """The envelope's `boundary_ref` disagrees with the signed body."""
 
 
+class UnattestedRecordingTimeError(BoundaryError):
+    """A boundary interval cannot be derived from an unsigned hosted time."""
+
+
 @dataclass(frozen=True, slots=True)
 class DeclaredFamily:
     """One `action_families[]` entry, after ES-009 validation."""
@@ -96,6 +108,7 @@ class BoundaryVersion:
     window_end: datetime
     recorded_at: datetime
     families: tuple[DeclaredFamily, ...]
+    recording_time_attested: bool = True
 
     @property
     def declared_families(self) -> frozenset[str]:
@@ -149,7 +162,7 @@ class IntervalCoverage:
     """
 
     boundary_ref: str
-    effective: EffectiveInterval
+    effective: EffectiveInterval | None
     window_start: datetime
     window_end: datetime
     uncovered: tuple[tuple[datetime, datetime], ...]
@@ -286,15 +299,14 @@ def record_boundary(
     record: AssuranceBoundaryRecord,
     canonical_bytes: bytes,
     signature: bytes,
-    recorded_at: datetime,
+    receipt: SignedIngestionReceipt,
 ) -> str:
     """Store a signed `AssuranceBoundary` version. Returns its `boundary_ref`.
 
-    `recorded_at` is the hosted service's observation and is supplied by the
-    caller rather than read from the signed body. AR-027 floors the effective
-    interval at it precisely so that a boundary recorded late cannot claim to
-    have been in force early, and a value the signer chose would defeat that
-    (the same reasoning ES-019 applies to `ingest_time`).
+    `recorded_at` is derived only from the verified issuer receipt. AR-027
+    floors the effective interval at it precisely so that a boundary recorded
+    late cannot claim to have been in force early; accepting a caller-supplied
+    timestamp would defeat that rule.
 
     There is no `update_boundary`. A change is a new version.
     """
@@ -309,6 +321,15 @@ def record_boundary(
         raise InvalidSignatureError(
             "detached signature does not match the supplied record"
         )
+    receipt_payload = verify_ingestion_receipt(
+        receipt,
+        record=record,
+        verification_keys=registered_receipt_keyring(
+            connection,
+            tenant_id=record.tenant_id,
+            key_id=receipt.key_id,
+        ),
+    )
     families = declared_families(record)
 
     tenant, name, version = parse_boundary_ref(record.boundary_ref)
@@ -348,7 +369,12 @@ def record_boundary(
             "signature": signature,
             "window_start": window_start,
             "window_end": window_end,
-            "recorded_at": recorded_at,
+            "recorded_at": parse_timestamp(receipt_payload.ingest_time),
+            "receipt_key_id": receipt.key_id,
+            "receipt_key_namespace": "issuer",
+            "receipt_signature": receipt.signature,
+            "receipt_canonical_bytes": receipt.canonical_bytes,
+            "received_wire_bytes": canonicalize(record),
         },
     )
     # One statement per family, in the same transaction. The composite foreign
@@ -373,6 +399,48 @@ def record_boundary(
 
 def _parse_timestamp(value: str) -> datetime:
     return datetime.fromisoformat(value.replace("Z", "+00:00"))
+
+
+def _recording_time_is_attested(
+    connection: Connection, row: RowMapping
+) -> bool:
+    """Re-verify the stored ES-032 receipt before AR-027 uses its time."""
+
+    required = (
+        "receipt_key_id",
+        "receipt_key_namespace",
+        "receipt_signature",
+        "receipt_canonical_bytes",
+        "received_wire_bytes",
+    )
+    if any(row[field] is None for field in required):
+        return False
+    try:
+        received_wire = bytes(row["received_wire_bytes"])
+        record = AssuranceBoundaryRecord.model_validate_json(received_wire)
+        receipt_bytes = bytes(row["receipt_canonical_bytes"])
+        receipt = SignedIngestionReceipt(
+            payload=IngestionReceipt.model_validate_json(receipt_bytes),
+            canonical_bytes=receipt_bytes,
+            key_id=str(row["receipt_key_id"]),
+            signature=bytes(row["receipt_signature"]),
+        )
+        payload = verify_ingestion_receipt(
+            receipt,
+            record=record,
+            verification_keys=registered_receipt_keyring(
+                connection,
+                tenant_id=str(row["tenant_id"]),
+                key_id=receipt.key_id,
+            ),
+            received_wire_bytes=received_wire,
+        )
+    except (TypeError, ValueError, SignatureError):
+        return False
+    recorded_at = row["recorded_at"]
+    return isinstance(recorded_at, datetime) and (
+        parse_timestamp(payload.ingest_time) == recorded_at
+    )
 
 
 def boundary_versions(
@@ -427,6 +495,7 @@ def boundary_versions(
                     key=lambda family: family.action_family,
                 )
             ),
+            recording_time_attested=_recording_time_is_attested(connection, row),
         )
         for row in rows
     )
@@ -440,6 +509,14 @@ def effective_interval(
     Pure, so the rule can be exercised without a database and reproduced by
     the verifier from the same inputs.
     """
+    if not version.recording_time_attested:
+        raise UnattestedRecordingTimeError(
+            f"{version.boundary_ref!r} has no issuer-attested recording time"
+        )
+    if successor is not None and not successor.recording_time_attested:
+        raise UnattestedRecordingTimeError(
+            f"successor {successor.boundary_ref!r} has no issuer-attested recording time"
+        )
     start = max(version.window_start, version.recorded_at)
     end = version.window_end
     if successor is not None:
@@ -483,7 +560,20 @@ def interval_coverage(
             f"{[item.boundary_ref for item in ordered]}"
         )
     successor = ordered[index + 1] if index + 1 < len(ordered) else None
-    effective = effective_interval(ordered[index], successor=successor)
+    try:
+        effective = effective_interval(ordered[index], successor=successor)
+    except UnattestedRecordingTimeError:
+        # ES-032: a stored hosted timestamp has no standing without the
+        # issuer receipt that authenticates it.  Return an explicitly
+        # unresolved interval and withhold the whole requested window rather
+        # than feeding the unattested value into AR-027 arithmetic.
+        return IntervalCoverage(
+            boundary_ref=boundary_ref,
+            effective=None,
+            window_start=window_start,
+            window_end=window_end,
+            uncovered=((window_start, window_end),),
+        )
 
     uncovered: list[tuple[datetime, datetime]] = []
     if effective.is_empty:
@@ -515,6 +605,7 @@ __all__ = [
     "EffectiveInterval",
     "IntervalCoverage",
     "UnqualifiedActionFamilyError",
+    "UnattestedRecordingTimeError",
     "boundary_versions",
     "declared_families",
     "effective_interval",
