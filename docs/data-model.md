@@ -393,6 +393,13 @@ Derived and rebuildable. Not evidence.
 | `notified_at` | timestamptz null | AR-012 |
 | `notification_status` | enum | |
 
+Revocation and supersession are committed first with notification status
+`pending`. Delivery happens only after that transaction commits, and its
+`notified` or `failed` outcome is appended as another issuer-signed
+`RevocationRecord` in the same lifecycle stream. The original transition and
+its notification history therefore remain immutable, and no relying party can
+receive a notice for a transition that later fails validation or rolls back.
+
 ### 2.12 `admin_audit_log`
 
 | Column | Type | Notes |
