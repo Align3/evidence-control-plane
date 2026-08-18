@@ -16,6 +16,7 @@ from sdk_python.evidence.schema import (
 from services.connectors.base import (
     ActionReference,
     AttributionSurface,
+    ConfirmationAccessPath,
     ConfirmationObservation,
     ConnectorCapabilities,
     ConnectorCapabilityError,
@@ -60,6 +61,7 @@ class MockConnectorConfig:
     authoritative_time: bool = True
     settlement_lag: timedelta = timedelta(0)
     attribution_surface: AttributionSurface | None = None
+    confirmation_access: ConfirmationAccessPath | None = None
     silent_truncate_to: int | None = None
     result_cap_hit: bool = False
     pagination_complete: bool = True
@@ -89,6 +91,29 @@ class MockConnectorConfig:
             raise ValueError(
                 "confirmation-only mock must use ENUMERATION_UNAVAILABLE attribution"
             )
+        if self.confirmation_access is None:
+            access = (
+                ConfirmationAccessPath.INDEPENDENT
+                if self.confirmation
+                else ConfirmationAccessPath.NOT_AVAILABLE
+            )
+            object.__setattr__(self, "confirmation_access", access)
+        elif not self.confirmation:
+            if self.confirmation_access is not ConfirmationAccessPath.NOT_AVAILABLE:
+                raise ValueError(
+                    "confirmation access must be not_available when confirmation is absent"
+                )
+        elif self.confirmation_access is ConfirmationAccessPath.NOT_AVAILABLE:
+            raise ValueError(
+                "confirmation access must be described when confirmation is available"
+            )
+        if (
+            self.confirmation_access is ConfirmationAccessPath.SHARED_WITH_ENUMERATION
+            and not self.enumeration
+        ):
+            raise ValueError(
+                "confirmation access cannot be shared when enumeration is unavailable"
+            )
 
 
 class SilentTruncationError(ConnectorCapabilityError):
@@ -115,13 +140,16 @@ class _MockCore:
 
     def capabilities(self) -> ConnectorCapabilities:
         attribution_surface = self._config.attribution_surface
+        confirmation_access = self._config.confirmation_access
         assert attribution_surface is not None  # normalized in MockConnectorConfig
+        assert confirmation_access is not None  # normalized in MockConnectorConfig
         return ConnectorCapabilities(
             enumeration=self._config.enumeration,
             confirmation=self._config.confirmation,
             authoritative_time=self._config.authoritative_time,
             settlement_lag=(self._config.settlement_lag if self._config.enumeration else None),
             attribution_surface=attribution_surface,
+            confirmation_access=confirmation_access,
         )
 
     def _source(self) -> JsonObject:
