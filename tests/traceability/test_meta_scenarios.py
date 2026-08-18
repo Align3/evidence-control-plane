@@ -52,6 +52,11 @@ def test_qa_s_009_malformed_marking_exempts_nothing() -> None:
     """QA-015."""
 
 
+@scenario("meta.feature", "QA-S-011 Vector absences are counted and named in every report")
+def test_qa_s_011_vector_absences_are_counted_and_named() -> None:
+    """QA-019."""
+
+
 @scenario("meta.feature", "QA-S-001 Assertion without scenario fails CI")
 def test_qa_s_001_assertion_without_scenario_fails_ci() -> None:
     """QA-002, bound properly now that meta.feature parses.
@@ -255,6 +260,52 @@ def _still_an_orphan(generated: dict[str, object]) -> None:
     }
     assert "MALFORMED_EXEMPTION" in kinds
     assert any(k.startswith("REQUIREMENT_NO_SCENARIO") for k in kinds)
+
+
+# --- QA-S-011: vector absences are visible -------------------------------
+
+
+@given(
+    "a corpus with a machine-readable vector absence register",
+    target_fixture="vector_coverage_corpus",
+)
+def _vector_coverage_corpus(tmp_path: Path) -> Path:
+    root = _corpus(tmp_path, "orphan_only")
+    vector_dir = root / "tests" / "vectors"
+    vector_dir.mkdir(parents=True)
+    (vector_dir / "vectors-v0.1.json").write_text(
+        json.dumps(
+            {
+                "vectors": [],
+                "adversarial_vectors": [],
+                "requirement_coverage": {
+                    "covered": {},
+                    "declared_absent": ["CM-401", "QA-019"],
+                    "declared_absent_count": 2,
+                },
+            }
+        ),
+        encoding="utf-8",
+    )
+    return root
+
+
+@when("the traceability report is generated", target_fixture="vector_coverage_report")
+def _generate_vector_coverage_report(
+    vector_coverage_corpus: Path, capsys: pytest.CaptureFixture[str]
+) -> str:
+    run_default(vector_coverage_corpus)
+    return capsys.readouterr().out
+
+
+@then("the report states the vector absence count")
+def _reports_vector_absence_count(vector_coverage_report: str) -> None:
+    assert "Vector absences: 2 requirement(s)" in vector_coverage_report
+
+
+@then("the report names every requirement absent from vectors")
+def _reports_vector_absence_ids(vector_coverage_report: str) -> None:
+    assert "CM-401, QA-019" in vector_coverage_report
 
 
 # --- QA-S-001: a new assertion with no scenario ---------------------------

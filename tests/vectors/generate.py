@@ -5,6 +5,7 @@ from __future__ import annotations
 import argparse
 import base64
 import json
+import re
 from copy import deepcopy
 from pathlib import Path
 from typing import Any
@@ -20,6 +21,12 @@ from sdk_python.evidence.signing import (
     sign_record,
     signing_digest,
 )
+from services.verification.bundle import RevocationResponse
+from tests.ev41_bundle_support import (
+    build_bundle,
+    coverage_gap_record,
+    revocation_record,
+)
 
 VECTOR_PATH = Path(__file__).with_name("vectors-v0.1.json")
 TS = "2026-08-01T12:00:00.000+01:00"
@@ -28,6 +35,36 @@ SEEDS = {
     "K2": bytes(range(0x20, 0x40)),
     "KX": bytes(range(0x40, 0x60)),
     "ISSUER1": bytes(range(0x60, 0x80)),
+}
+
+REQUIREMENT_DEFINITION = re.compile(
+    r"\*\*(?P<rid>(?:AC|AP|AR|CM|DE|DM|DP|ES|IN|QA|RC|SE|TM)-\d{3}[a-z]?)"
+    r"(?:\*\*|\s+[—-]\s)"
+)
+DOCS_ROOT = Path(__file__).parents[2] / "docs"
+EXCLUDED_COVERAGE_DOCS = {
+    "agent-working-agreement.md",
+    "decision-log.md",
+    "prd.md",
+}
+LEGACY_OPERATION_REQUIREMENTS: dict[str, tuple[str, ...]] = {
+    "canonicalize": ("ES-001", "ES-002", "ES-002a", "ES-003"),
+    "sign_record": ("ES-003", "ES-005", "ES-021"),
+    "verify_signature": ("ES-021",),
+    "verify_attestation_signatures": ("ES-021", "ES-023"),
+    "verify_stream": ("ES-006", "ES-006a", "ES-007", "ES-008", "ES-024", "ES-033"),
+    "validate_record": ("ES-002", "ES-005", "ES-019"),
+    "verify_ingestion_receipt": ("ES-019", "ES-020", "ES-030", "DM-023", "SE-003"),
+    "verify_evidence_record_signature": ("ES-021", "ES-033", "SE-003"),
+    "verify_record_origin_signature": ("ES-021", "ES-033", "SE-003"),
+    "verify_canonical_evidence_record": (
+        "DM-023",
+        "ES-001",
+        "ES-021",
+        "ES-023",
+        "ES-033",
+        "SE-003",
+    ),
 }
 
 
@@ -1397,6 +1434,269 @@ def _adversarial_vectors() -> list[dict[str, Any]]:
     return [issuer_stream, missing_counter_signature]
 
 
+def _bundle_expected(
+    *,
+    accepted: bool = True,
+    verdict: str = "unchecked_revocation",
+    revocation_status: str = "unchecked",
+    coverage_ratio: str | None = "0.3333",
+    unchecked: list[str] | None = None,
+    error_code: str | None = None,
+    pending_effective_at: str | None = None,
+    superseding_ref: str | None = None,
+) -> dict[str, Any]:
+    result: dict[str, Any] = {
+        "accepted": accepted,
+        "verdict": verdict,
+        "evaluated_at": "2026-10-01T00:00:00.000Z",
+        "revocation_status": revocation_status,
+        "coverage_ratio": coverage_ratio,
+        "unchecked": unchecked or [],
+    }
+    if accepted or error_code != "bundle.container_invalid":
+        result["attestation_id"] = _record_id(404)
+    if error_code is not None:
+        result["error_codes"] = [error_code]
+        if error_code.startswith("bundle.") or error_code == "schema.version_unsupported":
+            result.pop("attestation_id", None)
+    if pending_effective_at is not None:
+        result["pending_revocation_effective_at"] = pending_effective_at
+    if superseding_ref is not None:
+        result["superseding_ref"] = superseding_ref
+    return result
+
+
+def _bundle_vector(
+    vector_id: str,
+    fixture: Any,
+    *,
+    requirements: tuple[str, ...],
+    expected: dict[str, Any],
+    revocation_response: RevocationResponse | None = None,
+) -> dict[str, Any]:
+    vector: dict[str, Any] = {
+        "id": vector_id,
+        "operation": "verify_bundle",
+        "requirements": list(requirements),
+        "bundle_utf8_hex": fixture.wire.hex(),
+        "verification_keys": _registered_keyring(K1="evidence", ISSUER1="issuer"),
+        "evaluated_at": "2026-10-01T00:00:00.000Z",
+        "expected": expected,
+    }
+    if revocation_response is not None:
+        vector["revocation_response"] = {
+            "status_code": revocation_response.status_code,
+            "body_utf8_hex": (
+                revocation_response.body.hex()
+                if revocation_response.body is not None
+                else None
+            ),
+        }
+    return vector
+
+
+def _bundle_vectors() -> list[dict[str, Any]]:
+    gap = coverage_gap_record()
+    gap_body = gap.body.model_dump(mode="json", exclude_unset=True)
+    return [
+        _bundle_vector(
+            "bundle-valid-offline",
+            build_bundle(),
+            requirements=("ES-034", "CM-013", "TM-014"),
+            expected=_bundle_expected(),
+        ),
+        _bundle_vector(
+            "coverage-ratio-excludes-out-of-scope-fixed-scale",
+            build_bundle(population_count=4, matched=1, out_of_scope=1, ratio="0.3333"),
+            requirements=("ES-017", "CM-011"),
+            expected=_bundle_expected(),
+        ),
+        _bundle_vector(
+            "coverage-ratio-truncates-two-thirds",
+            build_bundle(population_count=3, matched=2, out_of_scope=0, ratio="0.6666"),
+            requirements=("ES-017", "CM-011"),
+            expected=_bundle_expected(coverage_ratio="0.6666"),
+        ),
+        _bundle_vector(
+            "coverage-ratio-null-on-result-cap",
+            build_bundle(result_cap_hit=True, ratio=None),
+            requirements=("ES-011",),
+            expected=_bundle_expected(coverage_ratio=None),
+        ),
+        _bundle_vector(
+            "coverage-ratio-null-on-incomplete-pagination",
+            build_bundle(pagination_complete=False, ratio=None),
+            requirements=("ES-012",),
+            expected=_bundle_expected(coverage_ratio=None),
+        ),
+        _bundle_vector(
+            "coverage-class-caps-level-and-withholds-ratio",
+            build_bundle(
+                denominator_class="C4",
+                coverage_level="observed",
+                ratio=None,
+                capped_by_class=True,
+            ),
+            requirements=("CM-008", "CM-009"),
+            expected=_bundle_expected(
+                coverage_ratio=None,
+                unchecked=[
+                    "coverage.capped_by_class",
+                    "coverage.count_conservation",
+                ],
+            ),
+        ),
+        _bundle_vector(
+            "coverage-gap-is-an-explicit-interval",
+            build_bundle(gap_record=gap, announced_gaps=[gap_body]),
+            requirements=("CM-014",),
+            expected=_bundle_expected(),
+        ),
+        _bundle_vector(
+            "reject-assertion-outside-catalogue",
+            build_bundle(assertions=[{"assertion_id": "A-11"}]),
+            requirements=("AR-003", "ES-036"),
+            expected=_bundle_expected(
+                accepted=False,
+                verdict="invalid",
+                coverage_ratio=None,
+                error_code="assertion.outside_catalogue",
+            ),
+        ),
+        _bundle_vector(
+            "reject-qualification-at-window-boundary",
+            build_bundle(qualified_at="2026-08-01T00:00:00.000Z"),
+            requirements=("TM-013",),
+            expected=_bundle_expected(
+                accepted=False,
+                verdict="invalid",
+                coverage_ratio=None,
+                error_code="qualification.postdates_window",
+            ),
+        ),
+        _bundle_vector(
+            "attestation-expired-at-evaluation-instant",
+            build_bundle(validity_until="2026-09-30T00:00:00.000Z"),
+            requirements=("AR-009",),
+            expected=_bundle_expected(verdict="expired"),
+        ),
+        _bundle_vector(
+            "reject-unpublished-schema-version",
+            build_bundle(schema_version="9.9.9"),
+            requirements=("ES-035",),
+            expected=_bundle_expected(
+                accepted=False,
+                verdict="invalid",
+                coverage_ratio=None,
+                error_code="schema.version_unsupported",
+            ),
+        ),
+        _bundle_vector(
+            "reject-unpublished-methodology-version",
+            build_bundle(methodology_version="9.9.9"),
+            requirements=("CM-025",),
+            expected=_bundle_expected(
+                accepted=False,
+                verdict="invalid",
+                coverage_ratio=None,
+                error_code="methodology.version_unsupported",
+            ),
+        ),
+        _bundle_vector(
+            "revocation-unauthenticated-answer-is-unchecked",
+            build_bundle(),
+            requirements=("AR-029",),
+            revocation_response=RevocationResponse(200, b"<html>captive portal</html>"),
+            expected=_bundle_expected(),
+        ),
+        _bundle_vector(
+            "revocation-superseding-reference-is-distinct",
+            build_bundle(),
+            requirements=("AR-030",),
+            revocation_response=RevocationResponse(
+                200,
+                revocation_record(
+                    effective_at="2026-09-01T00:00:00.000Z",
+                    superseding_ref="attestation-2",
+                ),
+            ),
+            expected=_bundle_expected(
+                verdict="superseded",
+                revocation_status="superseded",
+                superseding_ref="attestation-2",
+            ),
+        ),
+        _bundle_vector(
+            "revocation-pending-by-one-millisecond",
+            build_bundle(),
+            requirements=("AR-031",),
+            revocation_response=RevocationResponse(
+                200,
+                revocation_record(
+                    effective_at="2026-10-01T00:00:00.001Z",
+                    superseding_ref=None,
+                ),
+            ),
+            expected=_bundle_expected(
+                verdict="valid",
+                revocation_status="valid",
+                pending_effective_at="2026-10-01T00:00:00.001Z",
+            ),
+        ),
+    ]
+
+
+def _new_rule_adversarial_vectors() -> list[dict[str, Any]]:
+    vector = _bundle_vector(
+        "reject-bundle-object-container",
+        type("Fixture", (), {"wire": canonicalize({"records": []})})(),
+        requirements=("ES-034",),
+        expected=_bundle_expected(
+            accepted=False,
+            verdict="invalid",
+            coverage_ratio=None,
+            error_code="bundle.container_invalid",
+        ),
+    )
+    vector["new_rule"] = {
+        "requirement": "ES-034",
+        "introduced_by": "2b4b6a7260de04d4c2cfb13c743d1f12a7396815",
+    }
+    return [vector]
+
+
+def _defined_requirements() -> set[str]:
+    requirements: set[str] = set()
+    for path in sorted(DOCS_ROOT.glob("*.md")):
+        if path.name in EXCLUDED_COVERAGE_DOCS:
+            continue
+        requirements.update(
+            match.group("rid")
+            for match in REQUIREMENT_DEFINITION.finditer(path.read_text(encoding="utf-8"))
+        )
+    return requirements
+
+
+def _requirement_coverage(vectors: list[dict[str, Any]]) -> dict[str, Any]:
+    covered: dict[str, list[str]] = {}
+    for vector in vectors:
+        requirements = vector.get(
+            "requirements", LEGACY_OPERATION_REQUIREMENTS.get(vector["operation"], ())
+        )
+        for requirement in requirements:
+            covered.setdefault(requirement, []).append(vector["id"])
+    covered = {
+        requirement: sorted(vector_ids)
+        for requirement, vector_ids in sorted(covered.items())
+    }
+    absent = sorted(_defined_requirements() - covered.keys())
+    return {
+        "covered": covered,
+        "declared_absent": absent,
+        "declared_absent_count": len(absent),
+    }
+
+
 def vector_document() -> dict[str, Any]:
     vectors = [
         *_canonicalization_vectors(),
@@ -1405,10 +1705,16 @@ def vector_document() -> dict[str, Any]:
         *_stream_shape_vectors(),
         *_receipt_vectors(),
         *_record_origin_vectors(),
+        *_bundle_vectors(),
+    ]
+    adversarial_vectors = [
+        *_adversarial_vectors(),
+        *_record_origin_adversarial_vectors(),
+        *_new_rule_adversarial_vectors(),
     ]
     return {
         "format": "evidence-control-plane-conformance-vectors",
-        "format_version": "1.2.0",
+        "format_version": "1.3.0",
         "spec_version": "0.1",
         "encoding": {
             "json": "UTF-8",
@@ -1416,10 +1722,8 @@ def vector_document() -> dict[str, Any]:
             "digest": "sha256:<lowercase-hex>",
         },
         "vectors": vectors,
-        "adversarial_vectors": [
-            *_adversarial_vectors(),
-            *_record_origin_adversarial_vectors(),
-        ],
+        "adversarial_vectors": adversarial_vectors,
+        "requirement_coverage": _requirement_coverage([*vectors, *adversarial_vectors]),
     }
 
 

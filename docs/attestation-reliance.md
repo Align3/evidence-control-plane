@@ -105,6 +105,27 @@ Present on every attestation, adjacent to the assertions, not in an appendix.
 
 **AR-013** — The verifier MUST check revocation online where possible and MUST report `unchecked` rather than `valid` when offline (TM-014).
 
+**AR-029 — The revocation endpoint protocol.** A verifier MUST use this protocol:
+
+```
+GET {endpoint}/revocations/{attestation record_id}
+  404                    -> the issuer published nothing        -> checked
+  200 + RevocationRecord -> authenticated, then classified      -> checked
+  any other response     -> nothing was established             -> unchecked
+```
+
+The 200 body MUST be a complete `RevocationRecord` in canonical wire form, carrying the primary `issuer`-namespace signature ES-033 requires of that type, and its `attestation_ref` MUST name the attestation asked about. A response failing any of those establishes nothing and MUST be reported `unchecked`.
+
+**AR-030 — `superseding_ref` distinguishes supersession from revocation.** A `RevocationRecord` whose `superseding_ref` names another attestation reports `superseded`; one whose `superseding_ref` is `null` reports `revoked`. ES-002b makes the member required and nullable, so an *absent* `superseding_ref` is a non-conformant record and MUST be rejected rather than read as either state.
+
+**AR-031 — A revocation takes effect at `effective_at`, not at publication.** Where an authenticated `RevocationRecord` has an `effective_at` later than the verifier's evaluation instant, the attestation is not yet revoked and the status is `valid`.
+
+**The comparison is on parsed instants, never on strings.** Both values MUST be parsed to instants and compared as instants.
+
+**The boundary is exact.** Where `effective_at` equals the evaluation instant, the revocation **is** in effect and the status is `revoked`; only a strictly later `effective_at` leaves the attestation valid. The verifier MUST surface the pending revocation and its `effective_at` alongside that status.
+
+The verifier MUST make the evaluation instant explicit in its output and MUST accept it as an input.
+
 ---
 
 ## 6. Liability
@@ -266,6 +287,36 @@ When the attestation is generated
 Then A-09 is withheld unless R is restated as R - S
 And the named source is identified in the attestation
 And an unnamed or absent source withholds A-09 outright
+```
+
+### AR-S-009 — An answer the verifier cannot authenticate establishes nothing *(AR-029)*
+
+```gherkin
+Given a revocation endpoint that does not answer with an authenticated RevocationRecord
+When the verifier checks revocation for an attestation
+Then revocation_status is reported as "unchecked"
+And it is not reported as "valid"
+And it is not reported as "revoked"
+```
+
+### AR-S-010 — Supersession is distinguished from revocation *(AR-030)*
+
+```gherkin
+Given an authenticated RevocationRecord naming a superseding attestation
+When the verifier checks revocation
+Then revocation_status is reported as "superseded"
+And the superseding attestation is identified
+And an otherwise identical record with no superseding_ref reports "revoked"
+```
+
+### AR-S-011 — A revocation before its effective date does not revoke *(AR-031)*
+
+```gherkin
+Given an authenticated RevocationRecord whose effective_at is later than the evaluation instant
+When the verifier checks revocation
+Then revocation_status is reported as "valid"
+And the pending revocation and its effective_at are surfaced
+And the evaluation instant appears in the output
 ```
 
 ## Verification classifications
