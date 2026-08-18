@@ -80,9 +80,11 @@ class RecordingBackend:
         return self._record("supersede", tenant_id, {**payload, "id": attestation_id})
 
 
-def _principal(role: AdminRole, *, tenant: str = "acme") -> AdminPrincipal:
+def _principal(*roles: AdminRole, tenant: str = "acme") -> AdminPrincipal:
     return AdminPrincipal.from_roles(
-        subject=f"test:{role.value}", tenants=[tenant], roles=[role]
+        subject=":".join(("test", *(role.value for role in roles))),
+        tenants=[tenant],
+        roles=roles,
     )
 
 
@@ -208,9 +210,18 @@ def test_se_020_engineering_role_cannot_issue_or_revoke() -> None:
         credential="engineering",
         payload=forged,
     )
+    # Supersession records a replacement attestation, so it is an issuance
+    # route and SE-020 must close it against engineering too.
+    supersede = _post(
+        app,
+        "/api/admin/acme/attestations/a-1/supersessions",
+        credential="engineering",
+        payload=forged,
+    )
 
     assert issue.status_code == 403
     assert revoke.status_code == 403
+    assert supersede.status_code == 403
     assert backend.calls == []
 
 
@@ -236,6 +247,63 @@ def test_each_capability_dispatches_only_its_own_operation() -> None:
         assert response.status_code == 201, response.body
 
     assert [call[0] for call in backend.calls] == [item[2] for item in probes]
+
+    # Supersession is the fifth write endpoint and spans two capabilities, so
+    # no single-capability role may reach it. Asserting that here keeps this
+    # test an exhaustive statement about the write surface rather than a
+    # sample of it.
+    before = len(backend.calls)
+    for credential in principals:
+        refused = _post(
+            app,
+            "/api/admin/acme/attestations/a-1/supersessions",
+            credential=credential,
+            payload={"command": "supersede"},
+        )
+        assert refused.status_code == 403, (credential, refused.body)
+    assert len(backend.calls) == before
+
+
+def test_supersession_requires_issuance_and_revocation_together() -> None:
+    """SE-019/SE-020: superseding records a new attestation (AR-011).
+
+    Gating it on revocation alone would hand a revocation operator the
+    issuer's authority by another route, so neither half may reach it and
+    the refusals must land before the backend is touched.
+    """
+
+    backend = RecordingBackend()
+    principals = {
+        "revoker": _principal(AdminRole.REVOCATION_OPERATOR),
+        "issuer": _principal(AdminRole.ATTESTATION_ISSUER),
+        "both": _principal(
+            AdminRole.ATTESTATION_ISSUER, AdminRole.REVOCATION_OPERATOR
+        ),
+    }
+    app = create_admin_app(backend, authenticate=_auth(principals))
+    path = "/api/admin/acme/attestations/a-1/supersessions"
+
+    for credential in ("revoker", "issuer"):
+        refused = _post(
+            app, path, credential=credential, payload={"forged": credential}
+        )
+        assert refused.status_code == 403, (credential, refused.body)
+    assert backend.calls == []
+
+    allowed = _post(app, path, credential="both", payload={"command": "supersede"})
+    assert allowed.status_code == 201, allowed.body
+    assert [call[0] for call in backend.calls] == ["supersede"]
+
+    # The revoker keeps its own operation; requiring both capabilities for
+    # supersession must not have widened or narrowed plain revocation.
+    revoked = _post(
+        app,
+        "/api/admin/acme/attestations/a-1/revocations",
+        credential="revoker",
+        payload={"command": "revoke"},
+    )
+    assert revoked.status_code == 201, revoked.body
+    assert [call[0] for call in backend.calls] == ["supersede", "revoke"]
 
 
 def test_console_overview_exposes_status_gaps_and_unmatched_without_write_access() -> None:

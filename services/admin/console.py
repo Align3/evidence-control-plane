@@ -82,8 +82,16 @@ def create_admin_app(
     assets = static_root or Path(__file__).resolve().parents[2] / "web" / "admin"
 
     def require(
-        capability: Capability | None,
+        *capabilities: Capability,
     ) -> Callable[[Request, str], AdminPrincipal]:
+        """Require the exact tenant grant, and every capability named.
+
+        Passing no capability authorizes on the tenant grant alone. Passing
+        more than one requires *all* of them, which is what an operation
+        whose effect spans two capabilities needs: holding either half must
+        not be enough to reach it.
+        """
+
         def dependency(request: Request, tenant_id: str) -> AdminPrincipal:
             try:
                 principal = authenticate(request)
@@ -93,11 +101,13 @@ def create_admin_app(
                     detail=str(exc),
                 ) from exc
             try:
-                authorize(
-                    principal,
-                    tenant_id=tenant_id,
-                    capability=capability,
-                )
+                authorize(principal, tenant_id=tenant_id)
+                for capability in capabilities:
+                    authorize(
+                        principal,
+                        tenant_id=tenant_id,
+                        capability=capability,
+                    )
             except AuthorizationError as exc:
                 raise HTTPException(
                     status_code=status.HTTP_403_FORBIDDEN,
@@ -107,11 +117,22 @@ def create_admin_app(
 
         return dependency
 
-    overview_access = Depends(require(None))
+    # SE-019 grants four capabilities; the read-only overview deliberately
+    # requires none of them beyond the tenant grant (see decision log).
+    overview_access = Depends(require())
     boundary_access = Depends(require(Capability.MANAGE_BOUNDARIES))
     qualification_access = Depends(require(Capability.MANAGE_QUALIFICATIONS))
     issuance_access = Depends(require(Capability.ISSUE_ATTESTATIONS))
     revocation_access = Depends(require(Capability.REVOKE_ATTESTATIONS))
+    # Supersession both issues a replacement attestation (AR-011: the
+    # superseding record is recorded through the same append path as any
+    # other issuance) and retires the original. Gating it on revocation
+    # alone would let a revocation operator issue attestations without
+    # holding `attestation.issue`, which is exactly the separation SE-019
+    # draws and SE-020 relies on. It therefore requires both halves.
+    supersession_access = Depends(
+        require(Capability.ISSUE_ATTESTATIONS, Capability.REVOKE_ATTESTATIONS)
+    )
 
     @app.get("/api/admin/{tenant_id}/overview")
     def overview(
@@ -187,7 +208,7 @@ def create_admin_app(
         tenant_id: str,
         attestation_id: str,
         payload: dict[str, Any],
-        _principal: AdminPrincipal = revocation_access,
+        _principal: AdminPrincipal = supersession_access,
     ) -> JsonObject:
         return backend.supersede_attestation(
             tenant_id=tenant_id,
