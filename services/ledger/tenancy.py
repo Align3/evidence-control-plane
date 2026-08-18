@@ -212,7 +212,14 @@ def deprovision_tenant(connection: Connection, *, tenant_id: str) -> None:
     Present for test teardown and migration downgrade only. It deletes
     evidence, so it is not reachable from any application role. When the
     EV-18 lifecycle relation exists, deletion is refused while any live
-    attestation remains effective (SE-017, DM-012).
+    attestation remains effective (DM-012, and the first half of SE-017).
+
+    SE-017 also sets a retention *floor* of the attestation validity period
+    plus the dispute window, which DM-014 puts at a configurable 12 months
+    by default. That half is not implemented here or anywhere else yet: the
+    moment an attestation expires this guard stops refusing, so expiry --
+    not the retention floor -- is currently what bounds deletion. EV-42
+    owns closing it. Do not read this function as satisfying SE-017 whole.
     """
     validate_tenant_id(tenant_id)
     partition = partition_name(tenant_id)
