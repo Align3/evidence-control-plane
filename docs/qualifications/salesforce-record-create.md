@@ -17,7 +17,7 @@ substitute for it.
 | `destination_system` | Salesforce (Developer Edition; production orgs may differ — see Open Items) |
 | `deployment` | Standalone Case object, no managed package customisation |
 | `qualified_at` | 2026-08-18 |
-| `revalidation_cadence` | **Not yet decided — open item, see below** |
+| `revalidation_cadence` | `PT1H`, plus an uncached preflight before every enumeration/attestation window |
 
 ---
 
@@ -66,7 +66,7 @@ substitute for it.
 |---|---|
 | API | SOQL retrieve by `Id` — same endpoint family as enumeration |
 | Permission required | Standard object read access; nothing beyond enumeration |
-| Independent of enumeration? | **No** — flagged as a deviation from the abstract two-capability model. For this connector, enumeration and confirmation share one API surface and one credential; they differ only in query shape, not in access path. Worth noting explicitly rather than silently claiming independence the architecture assumed but this destination doesn't provide. |
+| Independent of enumeration? | **No.** The connector reports confirmation as supported with `confirmation_access = shared_with_enumeration`; enumeration and confirmation share one API surface and credential and differ only in query shape. |
 
 ---
 
@@ -113,6 +113,10 @@ Per §6's admissibility lattice: this class permits `reconciled` coverage and a 
 ## Open items — the connector story should resolve these, not assume them
 
 1. **`CreatedDate`/`SystemModstamp` override under the audit-fields permission** — untested. If either is forgeable alongside `CreatedById`, the temporal-authority claim in §4 needs the same conditional treatment as identity isolation.
-2. **Revalidation cadence** — not decided. Given the permission check is a single cheap SOQL query, a short cadence (daily, or even per-attestation-window) is architecturally free to run. This is a real design choice, not a default to inherit silently.
-3. **Production org differences** — this trial ran against a Developer Edition org. Governor limits, `SLA`/workflow trigger behaviour (visible in the trial's debug logs, e.g. `WF_RULE_EVAL_BEGIN`), and permission-set behaviour may differ in a real customer's production org. Do not treat this qualification as portable without re-verification against the first real design partner's org.
-4. **Confirmation independence** — §3's finding that enumeration and confirmation share one API surface should be checked against whether this matters for the coverage engine's admissibility logic, or whether it's a distinction without a difference for Salesforce specifically.
+2. **Production org differences** — this trial ran against a Developer Edition org. Governor limits, `SLA`/workflow trigger behaviour (visible in the trial's debug logs, e.g. `WF_RULE_EVAL_BEGIN`), and permission-set behaviour may differ in a real customer's production org. Do not treat this qualification as portable without re-verification against the first real design partner's org.
+
+### Resolved by EV-42
+
+- **Revalidation cadence:** `PT1H`, with an additional uncached permission preflight before every enumeration/attestation window. A grant or failed check at T2 after a clean check at T1 makes T1–T2 unknown and triggers review of overlapping issued attestations.
+- **Permission outcome:** `confirmed-clean`, `confirmed-granted`, and `check-failed` remain three distinct values. Only the first is C1-eligible; the second caps at C5; the third is unqualified rather than being mislabeled as either definite state.
+- **Confirmation independence:** confirmation remains a supported capability, but its access relationship is explicitly `shared_with_enumeration`.

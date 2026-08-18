@@ -469,10 +469,10 @@ Salesforce's `PermissionsCreateAuditFields` capability makes C1 conditional: a u
 
 Authentication uses an injected JWT-signing capability. The connector does not generate or persist an RSA private key and does not silently default to hosted key custody; client-held custody is the default posture, while any hosted KMS signer is an explicit P1 deployment choice that must be disclosed consistently with SE-006.
 
-**Touches:** `services/connectors/`, connector tests, Salesforce qualification documentation
+**Touches:** `services/connectors/`, `services/admin/qualification.py`, evidence and coverage methodology documentation, connector and qualification tests, Salesforce qualification documentation
 **Depends on:** EV-13, EV-40
-**Satisfies:** AC-008, CM-004, CM-005, CM-006, CM-010, DP-003
-**Acceptance:** against the qualified Salesforce Developer Edition org, a real API integration test isolates the known agent-created Cases from human-created Cases, retrieves a Case independently by Id, and exercises multi-page traversal with honest completion metadata; qualification and repeatable revalidation refuse C1 when the integration user holds `PermissionsCreateAuditFields` and fail closed when permission state cannot be established; capability output records the shared Salesforce access path; JWT authentication accepts a client-held signer without connector-side private-key generation or persistence.
+**Satisfies:** AC-008, CM-004, CM-005, CM-006, CM-010, CM-016, DP-003, ES-037
+**Acceptance:** CM-S-012, CM-S-013, ES-S-026; against the qualified Salesforce Developer Edition org, a real API integration test isolates the known agent-created Cases from human-created Cases, retrieves a Case independently by Id, and exercises multi-page traversal with honest completion metadata; qualification and repeatable revalidation refuse C1 when the integration user holds `PermissionsCreateAuditFields` and preserve a failed query as an unknown third state; capability output records the shared Salesforce access path; JWT authentication accepts a client-held signer without connector-side private-key generation or persistence.
 
 ---
 

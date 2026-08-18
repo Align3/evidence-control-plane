@@ -12,9 +12,12 @@ from dataclasses import dataclass
 from datetime import UTC, datetime, timedelta
 
 import pytest
+from cryptography.hazmat.primitives import hashes, serialization
+from cryptography.hazmat.primitives.asymmetric import padding, rsa
 
 from services.connectors.salesforce import (
     CredentialKeyCustody,
+    FileRs256Signer,
     HostedCredentialCustodyError,
     SalesforceJwtBearerAuth,
     SalesforceJwtBearerConfig,
@@ -92,6 +95,58 @@ def test_jwt_auth_rejects_non_https_authorization_server() -> None:
             subject="agent@example.test",
             audience="http://login.salesforce.com",
         )
+
+
+def test_full_token_endpoint_is_split_from_the_jwt_audience() -> None:
+    config = SalesforceJwtBearerConfig.from_token_endpoint(
+        client_id="client",
+        subject="agent@example.test",
+        token_endpoint=(  # noqa: S106 -- endpoint URL, not a password
+            "https://example-dev-ed.develop.my.salesforce.com/services/oauth2/token"
+        ),
+    )
+
+    assert config.audience == "https://example-dev-ed.develop.my.salesforce.com"
+    assert config.token_endpoint == (
+        "https://example-dev-ed.develop.my.salesforce.com/services/oauth2/token"  # noqa: S105 -- URL
+    )
+
+
+def test_file_signer_uses_rs256_without_exposing_private_material(tmp_path: object) -> None:
+    # Generated at runtime; no private key is committed as a fixture.
+    from pathlib import Path
+
+    directory = Path(str(tmp_path))
+    key_path = directory / "salesforce.key"
+    private_key = rsa.generate_private_key(public_exponent=65537, key_size=2048)
+    key_path.write_bytes(
+        private_key.private_bytes(
+            serialization.Encoding.PEM,
+            serialization.PrivateFormat.PKCS8,
+            serialization.NoEncryption(),
+        )
+    )
+    key_path.chmod(0o600)
+    signer = FileRs256Signer(key_path)
+
+    message = b"header.claims"
+    signature = signer.sign_rs256(message)
+
+    private_key.public_key().verify(signature, message, padding.PKCS1v15(), hashes.SHA256())
+    assert signer.custody is CredentialKeyCustody.CLIENT_HELD
+    assert signer.key_reference == str(key_path)
+    assert "PRIVATE KEY" not in repr(signer)
+
+
+def test_file_signer_refuses_group_or_world_readable_key(tmp_path: object) -> None:
+    from pathlib import Path
+
+    key_path = Path(str(tmp_path)) / "salesforce.key"
+    key_path.write_text("not read because permissions fail", encoding="utf-8")
+    key_path.chmod(0o644)
+
+    with pytest.raises(ValueError, match="group or other permissions"):
+        FileRs256Signer(key_path)
 
 
 @pytest.mark.parametrize(

@@ -95,7 +95,7 @@ No enumerable population exists for the action family in this deployment.
 
 **CM-003** — Every assurance boundary declares, per action family, the denominator source and its class. An attestation cannot be issued for a family whose denominator class is undeclared.
 
-**CM-004** — Denominator class is established by evidence at qualification time (§7), re-verified on a declared cadence, and recorded in the attestation. A class may be downgraded mid-window; it may never be upgraded retroactively.
+**CM-004** — Denominator class is established by evidence at qualification time (§7), re-verified on a declared cadence, and recorded in the attestation. A class may be downgraded mid-window; it may never be upgraded retroactively. A qualification condition check has three outcomes: confirmed clean, confirmed disqualifying state, or check failed. The third is an unknown observation and MUST remain distinct from either definite state.
 
 ---
 
@@ -188,7 +188,7 @@ Run per *(action family, destination system, deployment)* before any attestation
 
 **CM-015** — A fail-open interval produces a signed gap record. The window containing it cannot claim enforced coverage for that interval. Actions executing during the gap are classified unknown unless subsequently reconciled against the destination, in which case they may reach reconciled but never enforced.
 
-**CM-016** — Loss of the denominator source for part of a window renders that part unknown. The remainder may still carry its supported level, with the unknown interval stated adjacently — never in a footnote.
+**CM-016** — Loss of the denominator source for part of a window renders that part unknown. The remainder may still carry its supported level, with the unknown interval stated adjacently — never in a footnote. Where a periodic check first observes a disqualifying or failed state at T2 after a confirmed-clean observation at T1, the whole T1–T2 interval is unknown; the downgrade is not merely prospective from T2. An already-issued attestation overlapping that interval must be revisited through revocation or supersession.
 
 **CM-017** — A chain break (missing sequence, unverifiable signature, key rotation without continuity proof) terminates the window at the break. Evidence after the break belongs to a new window.
 
@@ -334,6 +334,30 @@ When the attestation is rendered
 Then the unknown interval appears adjacent to the coverage claim
 And it is expressed as a time range with cause and affected scope
 And it is not expressed as a reduction in the coverage percentage alone
+```
+
+### CM-S-012 — Conditional qualification failure is retroactive to the last clean check *(CM-004, CM-016)*
+
+```gherkin
+Given the Salesforce audit-field permission was confirmed clean at T1
+And the permission is confirmed granted at T2
+When conditional denominator qualification is revalidated
+Then the outcome is "confirmed-granted"
+And the full interval T1 through T2 is marked unknown
+And an issued attestation overlapping that interval requires revocation or supersession review
+And the unknown interval does not begin merely at T2
+```
+
+### CM-S-013 — A failed qualification check remains unknown *(CM-004, CM-016)*
+
+```gherkin
+Given the Salesforce audit-field permission was confirmed clean at T1
+And the permission query fails at T2
+When conditional denominator qualification is revalidated
+Then the outcome is "check-failed"
+And it is not reported as "confirmed-clean"
+And it is not reported as "confirmed-granted"
+And the full interval T1 through T2 is marked unknown
 ```
 
 ---
