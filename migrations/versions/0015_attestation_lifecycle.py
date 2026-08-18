@@ -1,10 +1,15 @@
-"""EV-18 0015: persistent attestation lifecycle and retention guard.
+"""EV-18 0015: persistent attestation lifecycle and live-attestation guard.
 
 Attestations and issuer-signed revocation records are append-only.  Lifecycle
 state is derived from those immutable rows; no status column on an issued
 attestation can be rewritten.  A database trigger refuses deletion of evidence
 covered by a live attestation until an effective revocation or supersession
-exists (SE-017 / DM-012).
+exists (DM-012).
+
+This migration does not implement the SE-017 / DM-014 retention floor --
+attestation validity plus the dispute window.  The trigger stops refusing at
+expiry, so nothing here retains evidence *after* an attestation lapses.  EV-42
+owns that.
 
 Revision ID: 0015
 Revises: 0014
