@@ -45,4 +45,7 @@ strict = true
 [tool.pytest.ini_options]
 testpaths = ["tests"]
 bdd_features_base_dir = "tests/features"
-markers = ["adversarial: threat-model attack scenarios"]
+markers = [
+    "adversarial: threat-model attack scenarios",
+    "integration: opt-in tests against real external systems",
+]
