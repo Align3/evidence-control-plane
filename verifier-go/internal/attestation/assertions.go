@@ -38,13 +38,9 @@ func (s AssertionSet) Has(id AssertionID) bool {
 // (`verify-customer-and-issuer-signatures`) has `"assertions": []`. There is
 // therefore no normative shape to implement.
 //
-// Two encodings are read, because both are unambiguous about which catalogue
-// row is meant: a bare string naming the ID, and an object carrying an `id`
-// string member alongside whatever scope and counts AR-004 requires. Anything
-// else is recorded in Undetermined and makes the recomputation unreproducible
-// — an honest "I could not check this", never a pass. Inventing a third
-// reading would be reconstructing the issuer rather than implementing the
-// specification (AG-017).
+// ES-036 defines the routing member as `assertion_id`. The remaining payload
+// schema is not yet normative, so a catalogued object remains undetermined
+// after its ID is checked; an off-catalogue ID is a determinate refusal.
 func ReadAssertions(body *jcs.Object) (AssertionSet, error) {
 	var set AssertionSet
 	raw, ok := body.Get("assertions")
@@ -59,11 +55,16 @@ func ReadAssertions(body *jcs.Object) (AssertionSet, error) {
 	}
 	seen := map[string]bool{}
 	for i, item := range items {
-		code, determined := assertionCode(item)
-		if !determined {
-			set.Undetermined = append(set.Undetermined,
-				describeUndetermined(i, item))
-			continue
+		value, ok := item.(*jcs.Object)
+		if !ok {
+			return AssertionSet{}, errf(CodeAssertionInvalid,
+				"assertions[%s] must be an object carrying assertion_id", itoa(i))
+		}
+		raw, present := value.Get("assertion_id")
+		code, ok := raw.(string)
+		if !present || !ok || code == "" {
+			return AssertionSet{}, errf(CodeAssertionInvalid,
+				"assertions[%s].assertion_id must be a non-empty string", itoa(i))
 		}
 		id, err := ParseAssertionID(code)
 		if err != nil {
@@ -78,39 +79,10 @@ func ReadAssertions(body *jcs.Object) (AssertionSet, error) {
 		}
 		seen[code] = true
 		set.IDs = append(set.IDs, id)
+		set.Undetermined = append(set.Undetermined,
+			"assertion payload "+code+" has no normative scope-and-count schema")
 	}
 	return set, nil
-}
-
-// assertionCode reads the catalogue code out of the two determined encodings.
-func assertionCode(item jcs.Value) (string, bool) {
-	switch v := item.(type) {
-	case string:
-		return v, true
-	case *jcs.Object:
-		raw, ok := v.Get("id")
-		if !ok {
-			return "", false
-		}
-		s, ok := raw.(string)
-		if !ok {
-			return "", false
-		}
-		return s, true
-	}
-	return "", false
-}
-
-func describeUndetermined(index int, item jcs.Value) string {
-	switch item.(type) {
-	case *jcs.Object:
-		return "assertions[" + itoa(index) + "]: object without a string id member"
-	case []jcs.Value:
-		return "assertions[" + itoa(index) + "]: array"
-	case nil:
-		return "assertions[" + itoa(index) + "]: null"
-	}
-	return "assertions[" + itoa(index) + "]: unrecognised encoding"
 }
 
 func itoa(n int) string {

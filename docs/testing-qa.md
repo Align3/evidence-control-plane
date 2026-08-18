@@ -154,7 +154,11 @@ EV-19 made the cost concrete. Its entire subject — CM-008, CM-009, CM-013, CM-
 
 The corpus MUST therefore carry a machine-readable statement of the requirements it does not cover, and that count MUST be reported alongside the QA-011 orphan counts at every stage. Reporting is unconditional; what fails the build follows the same staged schedule, because a gate that cannot pass on the day it lands is switched off rather than satisfied.
 
+The corpus statement is `requirement_coverage`. Its `covered` object maps a requirement ID to the non-empty list of vector IDs attributed to it; `declared_absent` is the sorted, duplicate-free complement over defined requirements; and `declared_absent_count` MUST equal the length of that list. A consumer MUST reject a requirement named in both collections, an attributed vector ID absent from the corpus, or a count that disagrees with the named collection. An absent register is unknown, not zero.
+
 **This does not license a substitute.** A vector executed by one implementation is not an agreement vector and MUST NOT be published as one. Agreement demonstrated against a single implementation is agreement with itself — the failure `agent-working-agreement.md` AG-017 exists to prevent, relocated from source code into the corpus — and it is worse there, because a published vector carries the authority of ES-029 to everyone who later implements against it. Where only one implementation exists the honest record is the declared absence above, and the vector waits for the second implementation rather than being manufactured from the first.
+
+Refusal-probe provenance has two closed forms. A **regression probe** records the prior result from each implementation against a named revision and requires at least one shipping entry point to have accepted the subject. A **new-rule probe** is permitted only where the check did not exist before its requirement: it records that requirement ID and the full commit that introduced it instead. Requiring a fabricated prior acceptance for a rule that was not then normative would make the provenance tidier and false. Every refusal probe carries exactly one form; neither an unproven regression label nor an unbound new-rule label is accepted.
 
 **QA-012** — The matrix is generated, never hand-maintained. A hand-maintained traceability matrix is wrong within a month and worse than none, because it invites misplaced confidence.
 
@@ -273,6 +277,16 @@ Then the marking exempts nothing
 And the requirement is still reported as an orphan
 ```
 
+### QA-S-011 — Vector absences are counted and named in every report *(QA-019)*
+
+```gherkin
+Scenario: Vector absences are counted and named in every report
+  Given a corpus with a machine-readable vector absence register
+  When the traceability report is generated
+  Then the report states the vector absence count
+  And the report names every requirement absent from vectors
+```
+
 ### QA-S-010 — Every requirement and scenario is classified after triage *(QA-011)*
 
 EV-26's acceptance. It is about the outcome of triage — that nothing is left
@@ -356,8 +370,6 @@ when the missing rule is common input to both implementations.
 **Requirement classification has the same forward gate.** Every requirement is exactly one of three classes. Scenario-bearing requirements describe runtime behaviour and require Gherkin; while backlogged they name a real PRD story that claims them. Otherwise-verified requirements are objectively testable through a structural, database, CI, deployment, or artefact assertion and name the exact substitute pytest check; naming no check, or a check that does not resolve, does not discharge them. Non-testable requirements are process, governance, or documentation and state why executable verification would be dishonest. A new or materially rewritten requirement without its complete classification fails immediately as `NEW_REQUIREMENT_UNCLASSIFIED`, outside the staged backlog schedule. This comparison uses the same fail-closed merge base and non-weakening input rules as QA-S-001.
 
 ## Verification classifications
-
-> **Verification for QA-019 — scenario-bearing; deferred EV-41.** This is externally observable tooling behaviour; EV-41 owns its missing Gherkin scenario and executable acceptance proof, because the second implementation it builds is what makes the declared absences resolvable rather than permanent.
 
 > **Verification for QA-001 — otherwise-verified; deferred EV-38.** `pytest:tests/traceability/test_policy_coverage.py::test_qa_001_each_level_class_and_assertion_has_a_withholding_scenario` — This requirement is verified by a structural, database, CI, or artifact check rather than a Gherkin product scenario.
 

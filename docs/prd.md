@@ -349,7 +349,7 @@ The adversarial provenance rule is also relaxed here, and only here. `tests/vect
 **Touches:** `sdk_python/`, `services/verification/`, `tests/vectors/`, `docs/testing-qa.md`
 **Depends on:** EV-19
 **Satisfies:** QA-019
-**Acceptance:** a bundle vector reproduced identically by both implementations, the two ES-017 ratio vectors above published and passing in both harnesses, a requirement with no vector reported by count and by name, and a refusal probe for a rule no implementation previously had.
+**Acceptance:** QA-S-011, ES-S-025; a bundle vector reproduced identically by both implementations, the two ES-017 ratio vectors above published and passing in both harnesses, a requirement with no vector reported by count and by name, and a refusal probe for a rule no implementation previously had.
 
 #### EV-30 — Close Python composition-path false acceptances and publish adversarial vectors
 EV-05's review identified two invalid subjects that the shipping Python entry

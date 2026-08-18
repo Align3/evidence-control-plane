@@ -57,8 +57,17 @@ Every entry is **UNCONFIRMED** until a second independent implementation is buil
 | AR-030 | `attestation-reliance.md` §5 | EV-19 | UNCONFIRMED |
 | AR-031 | `attestation-reliance.md` §5 | EV-19 | UNCONFIRMED |
 | CM-025 | `coverage-methodology.md` §14 | EV-19 | UNCONFIRMED |
+| ES-036 | `evidence-spec.md` §5.13 | EV-41 | UNCONFIRMED |
 
 Two further decisions were originated under AG-018 inside requirements that already existed, and are recorded here for the same reason: ES-017's rounding direction and its zero-denominator rule, and §5.13's schema version for `capped_by_class`.
+
+## ES-036 — assertion element routing
+
+The Go verifier accepted a bare assertion ID or an object member named `id`; the cold Python verifier read an object member named `assertion_id`. The documents named `assertions[]` and required per-assertion scope and counts but specified no wire member that selected the catalogue row. The EV-41 agreement vector exposed the divergence.
+
+The routing member is `assertion_id`, matching the catalogue term and avoiding a generic `id` whose namespace is unclear inside an open payload object. Only routing and catalogue closure are decided. The remaining payload stays unchecked until its schema is specified, so this decision cannot promote an uninterpreted assertion to a verified claim.
+
+**Rejected:** retain both the bare-string and `{\"id\": ...}` encodings. Multiple encodings would give the same assertion more than one canonical wire shape and would preserve rather than settle the cross-implementation divergence.
 
 ---
 

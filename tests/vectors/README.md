@@ -15,10 +15,13 @@ The two collections answer different questions:
 - `adversarial_vectors` are refusal probes, held separately so their purpose
   cannot be mistaken for divergence detection. They are created by attempting
   to make a complete public entry point accept an invalid artifact, especially
-  where a correct primitive can be bypassed by a weaker composition path. Every
-  entry must expect refusal and must record, per implementation and against a
-  named revision, what each did with the same subject before the fix. At least
-  one must have accepted it.
+  where a correct primitive can be bypassed by a weaker composition path. A
+  **regression probe** must record, per implementation and against a named
+  revision, what each did with the same subject before the fix; at least one
+  must have accepted it. A **new-rule probe** cannot truthfully record a prior
+  acceptance because no implementation was then obliged to perform the check.
+  It instead records the requirement ID and the full commit that introduced
+  that requirement. A probe must carry exactly one of those provenance forms.
 
 The corpus deliberately contains private Ed25519 seeds. They are deterministic
 test material only, never deployment keys. Including them lets an independent
@@ -50,12 +53,24 @@ Operations:
 - `verify_canonical_evidence_record`: run the complete canonical-wire,
   record-origin, and type-specific signature path. Adversarial namespace
   substitutions use this operation rather than stopping at a primitive.
+- `verify_bundle`: validate an ES-034 bundle from the exact UTF-8 bytes in
+  `bundle_utf8_hex`, at the explicit evaluation instant, and reproduce the
+  complete structured verdict. Optional `revocation_response` contains the
+  issuer endpoint's HTTP status and exact response bytes.
 
-Each adversarial vector carries structured `pre_fix.implementations` results.
-Every result states the shipping entry point, whether it accepted, and the
-observed result at `pre_fix.revision`. At least one shipping entry point must
-have accepted the subject. Harness-only observations are recorded separately
-and do not satisfy that provenance requirement.
+Regression adversarial vectors carry structured `pre_fix.implementations`
+results. Every result states the shipping entry point, whether it accepted,
+and the observed result at `pre_fix.revision`. At least one shipping entry
+point must have accepted the subject. Harness-only observations are recorded
+separately and do not satisfy that provenance requirement. New-rule probes
+carry `new_rule.requirement` and `new_rule.introduced_by` instead.
+
+`requirement_coverage` is the QA-019 declared-absence register. `covered` maps
+each attributed requirement to the vectors that exercise it;
+`declared_absent` names every defined requirement with no attributed vector,
+and `declared_absent_count` repeats the count so a consumer can report it
+without silently treating an omitted collection as zero. The test harness
+recomputes and checks all three.
 
 Rejected vectors return stable dotted `error_code` values, not Python exception
 names or English messages. The first component identifies the rule family

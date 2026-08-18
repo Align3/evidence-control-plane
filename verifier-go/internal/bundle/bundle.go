@@ -140,7 +140,7 @@ func Parse(data []byte) (*Bundle, error) {
 	if err := json.Unmarshal(data, &raw); err != nil {
 		return nil, fmt.Errorf(
 			"%s: bundle must be a JSON array of complete evidence records "+
-				"(ES-034): %v", CodeBundleMalformed, err)
+				"(ES-034): %v", CodeBundleContainer, err)
 	}
 	if len(raw) == 0 {
 		return nil, fmt.Errorf("%s: bundle is empty", CodeBundleMalformed)

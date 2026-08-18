@@ -13,7 +13,7 @@ import (
 // `capped_by_class` too; a verifier that read either and reported it would be
 // restating the claim under a different name. What is checked here instead is
 // the entitlement: does a correctly signed QualificationRecord exist, for this
-// tenant, assigning this class, dated no later than the window start?
+// tenant, assigning this class, dated strictly before the window start?
 //
 // The failure this defends against is the one in threat-model §4.10 and
 // CM-S-009. A connector is improved in September, the customer is re-qualified
@@ -93,7 +93,7 @@ func checkQualification(b *Bundle) []Finding {
 			continue
 		}
 
-		if qualifiedAt.After(windowStart) {
+		if !qualifiedAt.Before(windowStart) {
 			// The message wording is pinned by TM-S-005, which requires
 			// verification to fail with "qualification postdates window".
 			out = append(out, finding(CodeQualificationPostdates,
@@ -116,7 +116,7 @@ func checkQualification(b *Bundle) []Finding {
 		return out
 	}
 	return append(out, finding(CodeQualificationMissing,
-		"no QualificationRecord in the bundle assigns class %s on or before the "+
+		"no QualificationRecord in the bundle assigns class %s before the "+
 			"window start %s; the claimed class cannot be verified independently "+
 			"and is therefore not accepted (TM-013)", claimed, windowStartStr))
 }
