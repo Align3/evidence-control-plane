@@ -5,6 +5,7 @@ from __future__ import annotations
 import asyncio
 import json
 from dataclasses import dataclass, field
+from pathlib import Path
 from typing import Any
 
 from fastapi import FastAPI, Request
@@ -17,6 +18,8 @@ from services.admin import (
     Capability,
     create_admin_app,
 )
+
+ADMIN_ROOT = Path(__file__).resolve().parents[2] / "web" / "admin"
 
 
 @dataclass(frozen=True, slots=True)
@@ -304,6 +307,16 @@ def test_supersession_requires_issuance_and_revocation_together() -> None:
     )
     assert revoked.status_code == 201, revoked.body
     assert [call[0] for call in backend.calls] == ["supersede", "revoke"]
+
+
+def test_console_hides_supersession_without_both_capabilities() -> None:
+    html = (ADMIN_ROOT / "index.html").read_text(encoding="utf-8")
+    javascript = (ADMIN_ROOT / "admin.js").read_text(encoding="utf-8")
+
+    assert 'data-lifecycle="supersessions"' in html
+    assert 'data-capabilities="attestation.issue attestation.revoke"' in html
+    assert 'document.querySelectorAll("[data-capabilities]")' in javascript
+    assert "required.every((capability) => granted.has(capability))" in javascript
 
 
 def test_console_overview_exposes_status_gaps_and_unmatched_without_write_access() -> None:

@@ -65,7 +65,10 @@
           <textarea name="payload" spellcheck="false" required>{}</textarea>
           <button type="submit">Revoke</button>
         </form>
-        <form data-lifecycle="supersessions">
+        <form
+          data-lifecycle="supersessions"
+          data-capabilities="attestation.issue attestation.revoke"
+        >
           <input name="attestation_id" required placeholder="Original attestation UUID">
           <textarea name="payload" spellcheck="false" required>{}</textarea>
           <button type="submit">Supersede</button>

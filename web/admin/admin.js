@@ -26,6 +26,10 @@ function applyCapabilities(capabilities) {
   document.querySelectorAll("[data-capability]").forEach((section) => {
     section.hidden = !granted.has(section.dataset.capability);
   });
+  document.querySelectorAll("[data-capabilities]").forEach((control) => {
+    const required = control.dataset.capabilities.split(/\s+/).filter(Boolean);
+    control.hidden = !required.every((capability) => granted.has(capability));
+  });
 }
 
 async function openWorkspace(event) {
