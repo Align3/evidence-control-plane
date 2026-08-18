@@ -10,6 +10,7 @@
 package conformance
 
 import (
+	"context"
 	"crypto/ed25519"
 	"encoding/base64"
 	"encoding/hex"
@@ -17,10 +18,17 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"reflect"
+	"sort"
+	"strings"
 	"testing"
+	"time"
 
+	"github.com/Align3/evidence-control-plane/verifier-go/internal/bundle"
+	"github.com/Align3/evidence-control-plane/verifier-go/internal/bundle/checks"
 	"github.com/Align3/evidence-control-plane/verifier-go/internal/evidence"
 	"github.com/Align3/evidence-control-plane/verifier-go/internal/jcs"
+	"github.com/Align3/evidence-control-plane/verifier-go/internal/revocation"
 )
 
 type vectorFile struct {
@@ -212,7 +220,7 @@ func TestVectors(t *testing.T) {
 	if vf.Format != "evidence-control-plane-conformance-vectors" {
 		t.Fatalf("unexpected corpus format %q", vf.Format)
 	}
-	if vf.FormatVersion != "1.2.0" {
+	if vf.FormatVersion != "1.3.0" {
 		t.Fatalf("unexpected corpus format version %q", vf.FormatVersion)
 	}
 	seen := map[string]bool{}
@@ -254,9 +262,173 @@ func runVector(t *testing.T, id, op string, v map[string]any) {
 		runVerifyRecordOriginSignature(t, id, v)
 	case "verify_canonical_evidence_record":
 		runVerifyCanonicalWire(t, id, v)
+	case "verify_bundle":
+		runVerifyBundle(t, id, v)
 	default:
 		t.Fatalf("%s: unimplemented vector operation %q — a conformance runner "+
 			"that skips an operation reports a pass it did not earn", id, op)
+	}
+}
+
+type fixedResponse struct {
+	status int
+	body   []byte
+}
+
+func (r fixedResponse) Fetch(context.Context, string) (int, []byte, error) {
+	return r.status, r.body, nil
+}
+
+func bundleErrorCode(err error) string {
+	if err == nil {
+		return ""
+	}
+	code, _, _ := strings.Cut(err.Error(), ":")
+	return code
+}
+
+func normalizedVerdict(v bundle.Verdict) string {
+	if v == bundle.Indeterminate {
+		return "unchecked"
+	}
+	return v.String()
+}
+
+func normalizedUnchecked(values []string) []string {
+	out := map[string]bool{}
+	for _, value := range values {
+		switch {
+		case strings.Contains(value, "capped_by_class"):
+			out["coverage.capped_by_class"] = true
+		case strings.Contains(value, "count_conservation"):
+			out["coverage.count_conservation"] = true
+		case strings.Contains(value, "assertions:"):
+			for i := 1; i <= 10; i++ {
+				id := fmt.Sprintf("A-%02d", i)
+				if strings.Contains(value, id) {
+					out["assertion.payload:"+id] = true
+				}
+			}
+		}
+	}
+	result := make([]string, 0, len(out))
+	for value := range out {
+		result = append(result, value)
+	}
+	sort.Strings(result)
+	return result
+}
+
+func decodedExpected(t *testing.T, value map[string]any) map[string]any {
+	t.Helper()
+	raw, err := json.Marshal(value)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var out map[string]any
+	if err := json.Unmarshal(raw, &out); err != nil {
+		t.Fatal(err)
+	}
+	return out
+}
+
+func runVerifyBundle(t *testing.T, id string, v map[string]any) {
+	t.Helper()
+	hexWire, ok := v["bundle_utf8_hex"].(string)
+	if !ok {
+		t.Fatalf("%s: verify_bundle carries no bundle_utf8_hex", id)
+	}
+	wire, err := hex.DecodeString(hexWire)
+	if err != nil {
+		t.Fatalf("%s: bundle_utf8_hex: %v", id, err)
+	}
+	evaluated, ok := v["evaluated_at"].(string)
+	if !ok {
+		t.Fatalf("%s: verify_bundle carries no evaluated_at", id)
+	}
+	at, err := time.Parse(time.RFC3339, evaluated)
+	if err != nil {
+		t.Fatalf("%s: evaluated_at: %v", id, err)
+	}
+
+	got := map[string]any{
+		"accepted":          false,
+		"verdict":           "invalid",
+		"evaluated_at":      at.UTC().Format("2006-01-02T15:04:05.000Z"),
+		"revocation_status": "unchecked",
+		"coverage_ratio":    nil,
+		"unchecked":         []string{},
+	}
+	parsed, parseErr := bundle.Parse(wire)
+	if parseErr != nil {
+		got["error_codes"] = []string{bundleErrorCode(parseErr)}
+		compareBundleVectorResult(t, id, got, expectedOf(v))
+		return
+	}
+
+	checker := revocation.Checker{IssuerKeys: registeredKeyring(t, v["verification_keys"]),
+		Now: func() time.Time { return at }}
+	if response, ok := v["revocation_response"].(map[string]any); ok {
+		status, statusOK := response["status_code"].(float64)
+		if !statusOK {
+			t.Fatalf("%s: revocation_response has no numeric status_code", id)
+		}
+		var body []byte
+		if bodyHex, ok := response["body_utf8_hex"].(string); ok {
+			body, err = hex.DecodeString(bodyHex)
+			if err != nil {
+				t.Fatalf("%s: revocation body hex: %v", id, err)
+			}
+		}
+		checker.Fetcher = fixedResponse{status: int(status), body: body}
+	}
+	result := bundle.Verify(context.Background(), parsed, bundle.Options{
+		Keys:       registeredKeyring(t, v["verification_keys"]),
+		Revocation: checker,
+		Checks:     checks.All(),
+		Now:        func() time.Time { return at },
+	})
+	got["accepted"] = result.Verdict != bundle.Invalid
+	got["verdict"] = normalizedVerdict(result.Verdict)
+	got["revocation_status"] = result.Revocation.Status().String()
+	got["unchecked"] = normalizedUnchecked(result.Unresolved)
+
+	if body, bodyErr := parsed.Attestation.Body(); bodyErr == nil {
+		if ratio, present := body.Get("coverage_ratio"); present && result.Verdict != bundle.Invalid {
+			got["coverage_ratio"] = ratio
+		}
+	}
+	findings := make([]string, 0, len(result.Findings))
+	seen := map[string]bool{}
+	for _, finding := range result.Findings {
+		if !seen[finding.Code] {
+			findings = append(findings, finding.Code)
+			seen[finding.Code] = true
+		}
+	}
+	if len(findings) > 0 {
+		got["error_codes"] = findings
+	}
+	if !seen[bundle.CodeSchemaUnsupported] {
+		got["attestation_id"] = result.AttestationID
+	}
+	if result.Revocation.EffectiveAt != "" &&
+		result.Revocation.Reason() == revocation.ReasonNotYetEffective {
+		got["pending_revocation_effective_at"] = result.Revocation.EffectiveAt
+	}
+	if result.Revocation.SupersededBy != "" {
+		got["superseding_ref"] = result.Revocation.SupersededBy
+	}
+	compareBundleVectorResult(t, id, got, expectedOf(v))
+}
+
+func compareBundleVectorResult(t *testing.T, id string, got, expected map[string]any) {
+	t.Helper()
+	normalized := decodedExpected(t, got)
+	if !reflect.DeepEqual(normalized, expected) {
+		gotJSON, _ := json.MarshalIndent(normalized, "", "  ")
+		wantJSON, _ := json.MarshalIndent(expected, "", "  ")
+		t.Fatalf("%s: structured result differs\n got: %s\nwant: %s", id, gotJSON, wantJSON)
 	}
 }
 

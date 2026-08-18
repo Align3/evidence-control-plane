@@ -148,6 +148,18 @@ On a normal project this matrix is internal QA hygiene. Here it is **evidence fo
 
 **No caller-supplied input may produce a more permissive verdict than the default invocation.** This covers command-line arguments and the Python-callable seams alike: redirecting the corpus, supplying a collection, choosing a different baseline ref, or supplying a calendar date. A supplied date may only bring a stage forward; a supplied baseline ref adds a comparison and never replaces the default one; a supplied collection is reported and published but does not clear a scenario's missing-test finding. There is no longer any input, from either surface, that skips the QA-S-001 regression gate. Where the tool cannot compare a run against the default invocation it withholds the verdict and fails, rather than reporting the run as clean. A corpus that is empty, or implausibly small beside the floor recorded from the last known good run, is an unknown and not a pass: the generator applies CM-001 and CM-009 to itself exactly as the coverage engine applies them to evidence. The property is asserted over the argument space, not argued from the list of flags that currently exist.
 
+**QA-019 — A requirement with no vector coverage is recorded, not silently absent.** ES-029 makes the published vectors normative and makes them the authority where prose and implementation disagree. A requirement no vector exercises therefore has nothing behind it, and today that fact is invisible: the corpus states what it covers and says nothing about what it does not, so an uncovered requirement is indistinguishable from a covered one by inspection.
+
+EV-19 made the cost concrete. Its entire subject — CM-008, CM-009, CM-013, CM-014, ES-017, ES-011/012, AR-003, TM-013, TM-014, AR-009, and ES-034, ES-035, AR-029 through AR-031 and CM-025 as added — has **no** vector coverage whatever. Both halves of it rest on prose alone, and ES-029 cannot arbitrate a disagreement between them because there is nothing to arbitrate with. That was discovered by building, not by reading, which is the definition of a gap the tooling should have surfaced.
+
+The corpus MUST therefore carry a machine-readable statement of the requirements it does not cover, and that count MUST be reported alongside the QA-011 orphan counts at every stage. Reporting is unconditional; what fails the build follows the same staged schedule, because a gate that cannot pass on the day it lands is switched off rather than satisfied.
+
+The corpus statement is `requirement_coverage`. Its `covered` object maps a requirement ID to the non-empty list of vector IDs attributed to it; `declared_absent` is the sorted, duplicate-free complement over defined requirements; and `declared_absent_count` MUST equal the length of that list. A consumer MUST reject a requirement named in both collections, an attributed vector ID absent from the corpus, or a count that disagrees with the named collection. An absent register is unknown, not zero.
+
+**This does not license a substitute.** A vector executed by one implementation is not an agreement vector and MUST NOT be published as one. Agreement demonstrated against a single implementation is agreement with itself — the failure `agent-working-agreement.md` AG-017 exists to prevent, relocated from source code into the corpus — and it is worse there, because a published vector carries the authority of ES-029 to everyone who later implements against it. Where only one implementation exists the honest record is the declared absence above, and the vector waits for the second implementation rather than being manufactured from the first.
+
+Refusal-probe provenance has two closed forms. A **regression probe** records the prior result from each implementation against a named revision and requires at least one shipping entry point to have accepted the subject. A **new-rule probe** is permitted only where the check did not exist before its requirement: it records that requirement ID and the full commit that introduced it instead. Requiring a fabricated prior acceptance for a rule that was not then normative would make the provenance tidier and false. Every refusal probe carries exactly one form; neither an unproven regression label nor an unbound new-rule label is accepted.
+
 **QA-012** — The matrix is generated, never hand-maintained. A hand-maintained traceability matrix is wrong within a month and worse than none, because it invites misplaced confidence.
 
 ---
@@ -263,6 +275,16 @@ Given a requirement with no scenario and a non-testable marking whose category i
 When the traceability matrix is generated
 Then the marking exempts nothing
 And the requirement is still reported as an orphan
+```
+
+### QA-S-011 — Vector absences are counted and named in every report *(QA-019)*
+
+```gherkin
+Scenario: Vector absences are counted and named in every report
+  Given a corpus with a machine-readable vector absence register
+  When the traceability report is generated
+  Then the report states the vector absence count
+  And the report names every requirement absent from vectors
 ```
 
 ### QA-S-010 — Every requirement and scenario is classified after triage *(QA-011)*
