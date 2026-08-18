@@ -89,6 +89,16 @@ def evaluate_oversight(
     Counts are by action, not by record: repeated reviews cannot inflate P or
     Q.  Individual late/weaker records remain visible in ``evaluations`` even
     when another review for the same action was effective.
+
+    ``required_action_ids`` is the caller's assertion about which actions
+    required human review, and nothing here can check it: this function sees
+    the reviews that happened, never the actions that should have had one.
+    Passing an action's id is what makes a missing review reportable, so an
+    id left out is an action whose absent review is silently not missing.
+    The caller must derive the list from the action population in scope, not
+    from the reviews it happens to hold -- deriving it from the reviews would
+    make ``missing_action_ids`` unconditionally empty and the A-07/A-08
+    claims self-confirming.
     """
 
     if not required_action_ids or any(not action_id for action_id in required_action_ids):

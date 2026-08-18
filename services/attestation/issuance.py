@@ -310,6 +310,17 @@ def assemble_attestation(request: AttestationRequest) -> AttestationAssembly:
         raise AttestationInputError(
             "human_reviews cannot support a claim without review_action_ids"
         )
+    # The reverse case -- no review_action_ids and no reviews -- is not an
+    # error, and is the one shape that carries no oversight statement at all:
+    # A-07 and A-08 are absent, and so is any `human_review_missing`
+    # exclusion, because there is no declared action for a review to be
+    # missing against. That is honest for a window in which nothing required
+    # human review, and it is the caller's assertion that this was such a
+    # window. Nothing here can verify that assertion, so an issuer that
+    # derived `review_action_ids` from the reviews it holds rather than from
+    # the actions in scope would emit an attestation that is silent about
+    # oversight instead of one that reports it missing. EV-11's caller
+    # contract, not this function, is where that has to be got right.
     outcome = _outcome_assertion(
         scope=scope,
         counts=counts,
