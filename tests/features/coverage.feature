@@ -96,3 +96,11 @@ Feature: Coverage and assurance methodology
     Then the unknown interval appears adjacent to the coverage claim
     And it is expressed as a time range with cause and affected scope
     And it is not expressed as a reduction in the coverage percentage alone
+
+  @CM-S-011 @CM-025
+  # source: coverage-methodology.md:388
+  Scenario: CM-S-011 An unimplemented methodology version is refused
+    Given an attestation whose methodology_version is not in the CM-025 registry
+    When the verifier validates it
+    Then verification fails
+    And the attestation is not recomputed under a different methodology version

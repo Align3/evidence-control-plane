@@ -10,4 +10,6 @@ dist/
 verifier-go/verify
 .env
 .DS_Store
+
+# Subagent worktrees; each is its own checkout, never part of this tree.
 .claude/worktrees/
