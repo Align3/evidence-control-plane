@@ -160,7 +160,7 @@ export function verifyStream(records: JsonObject[], keyring: VerificationKeyring
   };
 }
 
-function verifyContinuity(value: JsonValue, record: JsonObject, predecessorKeyId: string, newKeyId: string, keyring: VerificationKeyring, namespace: PrimarySignerNamespace): void {
+export function verifyContinuity(value: JsonValue, record: JsonObject, predecessorKeyId: string, newKeyId: string, keyring: VerificationKeyring, namespace: PrimarySignerNamespace): void {
   if (!isObject(value)) refuse("continuity.missing_member", "continuity must be an object");
   for (const key of Object.keys(value)) {
     if (!CONTINUITY_ALLOWED.has(key)) refuse("continuity.unknown_member", `unknown continuity member: ${key}`);
