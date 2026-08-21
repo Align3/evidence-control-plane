@@ -1,3 +1,4 @@
+import { toVectorResult, verifyAttestationBundle, type RevocationResponse } from "./attestation.ts";
 import { digestBytes } from "./crypto.ts";
 import { EvidenceError, refuse } from "./errors.ts";
 import { canonicalize, canonicalizeJson, canonicalStringify, type JsonObject } from "./json.ts";
@@ -11,6 +12,30 @@ export interface ConformanceVector extends JsonObject {
   operation: string;
   expected: JsonObject;
 }
+
+/**
+ * Every ES-029 operation this runner dispatches.
+ *
+ * Published as data so a corpus operation with no TypeScript runner is a
+ * named failure rather than a silent one. An unimplemented operation
+ * otherwise refuses with `vector.operation_unknown`, which reads as one
+ * vector disagreeing about a result rather than as an entry point that was
+ * never built — which is how an entire operation stayed missing here while
+ * the corpus grew around it.
+ */
+export const CONFORMANCE_OPERATIONS: readonly string[] = Object.freeze([
+  "canonicalize",
+  "sign_record",
+  "verify_signature",
+  "verify_attestation_signatures",
+  "verify_stream",
+  "verify_ingestion_receipt",
+  "verify_evidence_record_signature",
+  "verify_record_origin_signature",
+  "verify_canonical_evidence_record",
+  "verify_bundle",
+  "validate_record",
+]);
 
 /** Execute one language-neutral ES-029 vector through the public primitives. */
 export function runConformanceVector(vector: ConformanceVector): JsonObject {
@@ -80,6 +105,16 @@ export function runConformanceVector(vector: ConformanceVector): JsonObject {
         const result = verifyCanonicalEvidenceRecordWire(Buffer.from(requiredString(vector, "received_wire_utf8_hex"), "hex"), requiredObject(vector, "verification_keys") as never);
         return { accepted: true, record_digest: result.recordDigest };
       }
+      case "verify_bundle": {
+        // The bundle entry point reports a complete verdict rather than
+        // throwing, because "refused" is one of its answers and carries the
+        // same evaluation instant and revocation status as an acceptance.
+        return toVectorResult(verifyAttestationBundle(hexBytes(vector, "bundle_utf8_hex"), {
+          verificationKeys: requiredObject(vector, "verification_keys") as never,
+          evaluatedAt: requiredString(vector, "evaluated_at"),
+          revocationResponse: revocationResponse(vector),
+        }));
+      }
       case "validate_record":
         validateRecord(requiredObject(vector, "record"), { validateBody: false });
         return { accepted: true };
@@ -90,6 +125,25 @@ export function runConformanceVector(vector: ConformanceVector): JsonObject {
     if (error instanceof EvidenceError) return { accepted: false, error_code: error.code, ...error.details } as JsonObject;
     throw error;
   }
+}
+
+function hexBytes(object: JsonObject, key: string): Uint8Array {
+  const value = requiredString(object, key);
+  if (!/^(?:[0-9a-f]{2})*$/.test(value)) refuse("vector.invalid", `${key} must be lowercase hex`);
+  return new Uint8Array(Buffer.from(value, "hex"));
+}
+
+/** An AR-029 answer the vector already fetched; absent means the verifier was offline. */
+function revocationResponse(vector: ConformanceVector): RevocationResponse | undefined {
+  const encoded = vector.revocation_response;
+  if (encoded === undefined) return undefined;
+  if (!isObjectValue(encoded)) refuse("vector.invalid", "revocation_response must be an object");
+  const statusCode = encoded.status_code;
+  if (typeof statusCode !== "number") refuse("vector.invalid", "revocation_response.status_code must be a number");
+  return {
+    status_code: statusCode,
+    body: Object.hasOwn(encoded, "body_utf8_hex") ? hexBytes(encoded, "body_utf8_hex") : undefined,
+  };
 }
 
 function requiredString(object: JsonObject, key: string): string {

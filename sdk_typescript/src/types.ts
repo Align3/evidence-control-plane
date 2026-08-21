@@ -148,15 +148,15 @@ export type EvidenceShownProvenance = "client_rendered" | "server_reconstructed"
 
 export interface HumanReviewBody extends JsonObject {
   action_id: string;
-  reviewer_identity: JsonValue;
-  reviewer_authority: JsonValue;
-  surface: JsonValue;
+  reviewer_identity: string;
+  reviewer_authority: JsonObject;
+  surface: JsonObject;
   evidence_shown: Digest;
-  evidence_shown_refs: JsonValue[];
+  evidence_shown_refs: string[];
   options_offered: ReviewOption[];
   time_available_ms: number;
   time_taken_ms: number;
-  decision: JsonValue;
+  decision: string;
   modifications: JsonValue;
   action_state_at_review: ReviewActionState;
   decided_at: Rfc3339Timestamp;
