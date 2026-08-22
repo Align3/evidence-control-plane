@@ -262,7 +262,7 @@ func timestamp(obj *jcs.Object, key string) (time.Time, error) {
 //
 // The class-admissible level is recomputed from denominator_class through the
 // §6 table. The record's own `capped_by_class` is never consulted: the flag is
-// the issuer's account of whether the cap bound, and taking the issuer's word
+// the issuer's account of whether the cap bound applied, and taking the issuer's word
 // for whether the issuer's cap applied is the one thing CM-008 says must be
 // "enforced in code, not by convention".
 //
@@ -312,7 +312,7 @@ func recheckLattice(r *Result, body *jcs.Object) {
 		r.unresolved(
 			"capped_by_class: the claim sits exactly at the class-admissible " +
 				"level, and the evidence-supported level is not derivable from " +
-				"the bundle, so whether the cap bound cannot be recomputed")
+				"the bundle, so the verifier cannot determine whether the cap bound applied")
 	}
 
 	declared, present := body.Get("capped_by_class")

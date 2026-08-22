@@ -64,7 +64,7 @@ Sizing target: one to five days for a competent agent with review. Anything larg
 
 ### Story-ID allocation register
 
-Story IDs are claimed in integer order by the commit that adds the complete story below. An ID is never reserved, pre-allocated, or held for a branch: concurrent authors rebase and claim the next integer above the current head. The last ID claimed in this document is EV-42; the next author computes its successor only when adding that story's full purpose, Touches, dependencies, Satisfies, and Acceptance record.
+Story IDs are claimed in integer order by the commit that adds the complete story below. An ID is never reserved, pre-allocated, or held for a branch: concurrent authors rebase and claim the next integer above the current head. The last ID claimed in this document is EV-43; the next author computes its successor only when adding that story's full purpose, Touches, dependencies, Satisfies, and Acceptance record.
 
 ---
 
@@ -238,7 +238,7 @@ Revoke, supersede, expire. Relying-party notification status tracking. Late evid
 **Satisfies:** AR-010…013, CM-020
 **Acceptance:** AR-S-004, AR-S-005, SE-S-004, CM-S-006
 
-**Note on SE-017.** This story claimed SE-017 and delivers only half of it. SE-017 states two obligations: evidence supporting a live attestation cannot be deleted, *and* retention has a floor of the attestation validity period plus the dispute window. EV-18 builds the first — in the service path and again as a database trigger — and nothing in it retains evidence once an attestation expires, which is the moment the floor is supposed to start mattering. The claim is moved to EV-42, which completes the requirement, rather than being left here where a landed story would report SE-017 satisfied while the floor does not exist. SE-S-004 stays with EV-18: that scenario exercises the deletion refusal, which is the half built here.
+**Note on SE-017.** This story claimed SE-017 and delivers only half of it. SE-017 states two obligations: evidence supporting a live attestation cannot be deleted, *and* retention has a floor of the attestation validity period plus the dispute window. EV-18 builds the first — in the service path and again as a database trigger — and nothing in it retains evidence once an attestation expires, which is the moment the floor is supposed to start mattering. The claim is moved to EV-43, which completes the requirement, rather than being left here where a landed story would report SE-017 satisfied while the floor does not exist. SE-S-004 stays with EV-18: that scenario exercises the deletion refusal, which is the half built here.
 
 #### EV-19 — Go verifier: full validation
 Attestation bundle validation, coverage recomputation, lattice re-checking, qualification-date enforcement, revocation check with honest `unchecked` when offline.
@@ -355,7 +355,7 @@ The adversarial provenance rule is also relaxed here, and only here. `tests/vect
 **Satisfies:** QA-019
 **Acceptance:** QA-S-011, ES-S-025; a bundle vector reproduced identically by both implementations, the two ES-017 ratio vectors above published and passing in both harnesses, a requirement with no vector reported by count and by name, and a refusal probe for a rule no implementation previously had.
 
-#### EV-42 — Retention floor and the dispute window
+#### EV-43 — Retention floor and the dispute window
 EV-18 refuses to delete evidence while a covering attestation is live, and stops refusing the moment that attestation expires. SE-017 asks for more than that: retention has a floor of the attestation validity period **plus the dispute window**, which DM-014 puts at a configurable 12 months by default. Between expiry and the end of the dispute window there is currently nothing holding the evidence at all — the period in which a relying party is most likely to come back and ask what an attestation was based on is the period the system is least able to answer for.
 
 The gap is a false-negative risk rather than a false claim: no attestation asserts anything untrue because retention is short. It matters because the assertion is unreproducible afterwards, and AR-024's dispute path assumes the evidence is still there to re-examine. A tenant that deletes on expiry is inside the configured policy and outside SE-017.
