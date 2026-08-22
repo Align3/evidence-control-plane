@@ -23,6 +23,7 @@ from services.attestation import (
     A09OutcomesConfirmed,
     A10Reproducible,
     AttestationInputError,
+    AttestationRequest,
     CatalogueAssertion,
     EvidenceSigner,
     IssuerSigner,
@@ -241,3 +242,43 @@ def test_signer_roles_cannot_be_swapped() -> None:
 def test_assertion_scope_refuses_action_family_outside_boundary() -> None:
     with pytest.raises(AttestationInputError, match="outside the boundary"):
         assemble_attestation(attestation_request(action_families=("refund.cancel",)))
+
+
+def test_a02_is_never_emitted_while_es_032_minting_does_not_exist() -> None:
+    """Unconditional withholding, including where AR-027 would be satisfied.
+
+    This is the case every attempted gate got wrong: the boundary *did*
+    enclose the window, so any check resting on a caller-supplied token of
+    attestation emitted A-02 here. Nothing this system can mint attests the
+    recording time, so the assertion is unavailable however good the interval
+    looks.
+    """
+    assembly = assemble_attestation(attestation_request())
+
+    # The interval is fine. The instant underneath it is what is unattested.
+    assert assembly.boundary_coverage.covered
+    assert not any(isinstance(item, A02BoundaryInForce) for item in assembly.assertions)
+    # AR-027 forbids a narrower restatement in its place.
+    assert all(item.assertion_id != "A-02" for item in assembly.assertions)
+
+
+def test_no_request_field_can_re_enable_a02() -> None:
+    """There is nothing for a caller to supply, correctly or otherwise.
+
+    Successive gates were defeated through the very parameter that enabled
+    them: a boolean is a claim, and a receipt carried with its own trust roots
+    proves only that the caller signed with the caller's key. The absence of
+    the parameter is the property worth pinning, because it is the one that
+    cannot be got wrong.
+    """
+    import dataclasses
+
+    fields = {field.name for field in dataclasses.fields(AttestationRequest)}
+    assert "boundary_recording_attested" not in fields
+    assert "boundary_recording" not in fields
+    assert not any("attest" in name for name in fields)
+
+    # No combination of the fields that do exist produces it either.
+    for version in (boundary_version(), boundary_version(recorded_at=at(7))):
+        assembly = assemble_attestation(attestation_request(version=version))
+        assert all(item.assertion_id != "A-02" for item in assembly.assertions)

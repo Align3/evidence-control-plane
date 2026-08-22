@@ -530,3 +530,20 @@ def test_a_signing_identity_cannot_be_serialized(identity: SigningIdentity) -> N
 def _key_material(identity: SigningIdentity) -> str:
     raw = identity.private_key.private_bytes_raw()
     return base64.b64encode(raw).decode()
+
+
+def test_emitted_records_carry_a_published_schema_version() -> None:
+    """ES-035: an unpublished version makes every emitted record unusable.
+
+    The failure is silent at emission -- the record validates, signs, and
+    ingests -- and only appears when a relying party's verifier refuses the
+    bundle it ends up in. Checking it here fails at the source instead.
+    """
+    from sdk_python.client.records import SCHEMA_VERSION
+    from sdk_python.evidence.versions import (
+        SCHEMA_VERSION_REGISTRY,
+        require_published_schema_version,
+    )
+
+    assert require_published_schema_version(SCHEMA_VERSION) == SCHEMA_VERSION
+    assert SCHEMA_VERSION_REGISTRY[SCHEMA_VERSION] == "published"

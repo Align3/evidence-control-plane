@@ -10,7 +10,7 @@ from __future__ import annotations
 from collections.abc import Mapping
 from dataclasses import dataclass
 from datetime import datetime, timedelta
-from decimal import Decimal, localcontext
+from decimal import ROUND_DOWN, Decimal, localcontext
 from enum import StrEnum
 from typing import Any
 
@@ -51,6 +51,11 @@ class RatioState(StrEnum):
     POPULATION_NOT_ENUMERABLE = "population_not_enumerable"
     DIGEST_ONLY_POPULATION = "digest_only_population"
     EMPTY_POPULATION = "empty_population"
+    # ES-017's zero denominator, reached by exclusion rather than by an empty
+    # enumeration. Kept distinct from EMPTY_POPULATION because the two are
+    # different facts about the destination: nothing was returned, versus
+    # everything returned was outside the boundary's claim.
+    DENOMINATOR_EMPTY_AFTER_EXCLUSIONS = "denominator_empty_after_exclusions"
 
 
 class GapActionClassification(StrEnum):
@@ -229,9 +234,13 @@ class CoverageReport:
         """Return a JSON-ready value with ``coverage_ratio`` always present."""
         ratio = None
         if self.coverage_ratio is not None:
-            ratio = format(self.coverage_ratio, "f").rstrip("0").rstrip(".")
-            if not ratio:
-                ratio = "0"
+            # ES-017 fixes the scale at exactly four places and forbids
+            # stripping trailing zeros: "1.0000", never "1"; "0.5000", never
+            # "0.5". A free scale lets two correct implementations serialize
+            # the same ratio differently, and QA-008 compares golden bundles
+            # byte-for-byte -- the diff would then report a divergence that
+            # says nothing about either implementation.
+            ratio = format(self.coverage_ratio, "f")
         return {
             "population_ref": self.population_ref,
             "boundary_ref": self.boundary_ref,
@@ -438,6 +447,7 @@ def _ratio_state(
     denominator_class: DenominatorClass,
     enumeration_capable: bool,
     inline_population: bool,
+    out_of_scope: int,
 ) -> RatioState:
     # The static decisions are read from EV-12. There is no local class table.
     if not denominator_class.emits_ratio:
@@ -450,6 +460,8 @@ def _ratio_state(
         return RatioState.DIGEST_ONLY_POPULATION
     if population.body.count == 0:
         return RatioState.EMPTY_POPULATION
+    if population.body.count - out_of_scope <= 0:
+        return RatioState.DENOMINATOR_EMPTY_AFTER_EXCLUSIONS
     return RatioState.AVAILABLE
 
 
@@ -685,12 +697,24 @@ def compute_coverage(
         denominator_class=denominator_class,
         enumeration_capable=enumeration_capable,
         inline_population=inline_population,
+        out_of_scope=classification_counts.out_of_scope,
     )
+    # ES-017: the denominator is the enumerated population less out-of-scope
+    # records. The boundary never claimed those actions, so leaving them in
+    # would let the one number a relying party reads move with activity the
+    # attestation makes no claim about. The count stays in `counts` as a
+    # transparency figure: visible, and non-contributing.
+    ratio_denominator = population.body.count - classification_counts.out_of_scope
     ratio: Decimal | None = None
     if state is RatioState.AVAILABLE:
         with localcontext() as context:
             context.prec = 28
-            ratio = Decimal(numerator_count) / Decimal(population.body.count)
+            # ES-017 truncates toward zero: 2/3 encodes as "0.6666", never
+            # "0.6667". Quantizing with ROUND_DOWN at four places does both
+            # the scale and the rounding in one step.
+            ratio = (
+                Decimal(numerator_count) / Decimal(ratio_denominator)
+            ).quantize(Decimal("0.0001"), rounding=ROUND_DOWN)
 
     independently_enumerable = (
         enumeration_capable

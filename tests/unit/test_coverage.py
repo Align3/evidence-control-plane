@@ -80,8 +80,57 @@ def test_zero_ratio_remains_distinct_from_null() -> None:
     )
 
     assert report.coverage_ratio == Decimal("0")
-    assert report.to_payload()["coverage_ratio"] == "0"
+    # ES-017 fixes the scale at four places and forbids stripping trailing
+    # zeros, so an honest zero is "0.0000". It stays distinct from the null
+    # that a withheld ratio carries.
+    assert report.to_payload()["coverage_ratio"] == "0.0000"
+    assert report.to_payload()["coverage_ratio"] is not None
     assert report.ratio_state is RatioState.AVAILABLE
+
+
+def test_es_017_ratio_is_four_places_and_truncates_toward_zero() -> None:
+    # 2/3 encodes as "0.6666"; half-up rounding would render "0.6667".
+    report = _compute(
+        DenominatorClass.C1,
+        [
+            ReconciliationStatus.MATCHED,
+            ReconciliationStatus.MATCHED,
+            ReconciliationStatus.UNMATCHED_WITHOUT_EVIDENCE,
+        ],
+    )
+
+    assert report.to_payload()["coverage_ratio"] == "0.6666"
+
+
+def test_es_017_a_fully_excluded_population_reports_why_the_ratio_is_null() -> None:
+    """ES-017: a zero denominator yields null -- and the state must say which
+    zero it was. An enumeration returning one out-of-scope record is not an
+    empty enumeration, and reporting `available` beside a null ratio would be
+    the report contradicting itself."""
+    report = _compute(DenominatorClass.C1, [ReconciliationStatus.OUT_OF_SCOPE])
+
+    assert report.coverage_ratio is None
+    assert report.to_payload()["coverage_ratio"] is None
+    assert report.ratio_state is RatioState.DENOMINATOR_EMPTY_AFTER_EXCLUSIONS
+    assert report.ratio_state is not RatioState.AVAILABLE
+    assert report.ratio_state is not RatioState.EMPTY_POPULATION
+
+
+def test_es_017_out_of_scope_is_excluded_from_the_denominator() -> None:
+    # matched 1, population 4, one out-of-scope: the boundary never claimed
+    # the out-of-scope action, so the denominator is 3 and the ratio 0.3333
+    # rather than 0.2500.
+    report = _compute(
+        DenominatorClass.C1,
+        [
+            ReconciliationStatus.MATCHED,
+            ReconciliationStatus.UNMATCHED_WITHOUT_EVIDENCE,
+            ReconciliationStatus.UNMATCHED_WITHOUT_EVIDENCE,
+            ReconciliationStatus.OUT_OF_SCOPE,
+        ],
+    )
+
+    assert report.to_payload()["coverage_ratio"] == "0.3333"
 
 
 @pytest.mark.parametrize(

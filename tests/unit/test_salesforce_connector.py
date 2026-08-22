@@ -8,12 +8,14 @@ import pytest
 
 from services.connectors import (
     AttributionSurface,
+    AuditFieldPermissionOutcome,
     ConfirmationAccessPath,
     EnumerationWindow,
     SalesforceAccessToken,
     SalesforceApiError,
     SalesforceConnector,
     SalesforceConnectorConfig,
+    SalesforceQueryPage,
     SalesforceRestClient,
 )
 from services.connectors.salesforce import _case_enumeration_soql
@@ -90,3 +92,42 @@ def test_next_records_url_cannot_escape_the_configured_query_api() -> None:
 
     with pytest.raises(SalesforceApiError, match="invalid nextRecordsUrl"):
         client.next_query_page("https://attacker.example/steal")
+
+
+def test_permission_revalidation_is_org_wide_not_integration_user_scoped(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    client = _client()
+    queries: list[str] = []
+
+    def query_page(soql: str) -> SalesforceQueryPage:
+        queries.append(soql)
+        return SalesforceQueryPage(
+            total_size=1,
+            done=True,
+            records=(
+                {
+                    "AssigneeId": "005000000000002AAA",
+                    "PermissionSetId": "0PS000000000001AAA",
+                },
+            ),
+            next_records_url=None,
+        )
+
+    monkeypatch.setattr(client, "query_page", query_page)
+    connector = SalesforceConnector(
+        client=client,
+        config=SalesforceConnectorConfig(
+            api_version="v66.0", integration_user_id=USER_ID
+        ),
+        now=lambda: WINDOW.end,
+    )
+
+    result = connector.revalidate_qualification()
+
+    assert result.outcome is AuditFieldPermissionOutcome.CONFIRMED_GRANTED
+    assert queries == [
+        "SELECT AssigneeId, PermissionSetId FROM PermissionSetAssignment "
+        "WHERE PermissionSet.PermissionsCreateAuditFields = true"
+    ]
+    assert f"AssigneeId = '{USER_ID}'" not in queries[0]

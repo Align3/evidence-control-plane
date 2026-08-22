@@ -1,0 +1,23 @@
+[
+  {
+    "body": {
+      "action_id": "584753ab-70c2-4e6d-834c-4ec2fa1658de",
+      "authoritative_timestamp": "2026-08-22T10:28:01.000Z",
+      "destination_record_digest": "sha256:29d54e2c46f3d058f3150211f4bec24fea96d681ed5a007ebb03cbca32d45adb",
+      "destination_record_id": "500ak000039SA7OAAW",
+      "destination_system": "salesforce",
+      "reconciliation_status": "matched",
+      "retrieved_at": "2026-08-22T10:29:46.113Z"
+    },
+    "clocks": {
+      "authoritative_time": "2026-08-22T10:28:01.000Z",
+      "source_time": "2026-08-22T10:29:46.113Z"
+    },
+    "source": {
+      "api_version": "v67.0",
+      "connector": "salesforce",
+      "destination_system": "salesforce",
+      "sobject": "Case"
+    }
+  }
+]

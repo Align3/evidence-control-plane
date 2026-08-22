@@ -682,10 +682,13 @@ class SalesforceConnector:
         self, *, last_confirmed_clean_at: datetime | None = None
     ) -> SalesforcePermissionCheck:
         checked_at = self._aware_now()
-        soql = (  # noqa: S608 -- ID is closed by Salesforce-ID grammar in config
-            "SELECT AssigneeId FROM PermissionSetAssignment "  # noqa: S608
-            f"WHERE AssigneeId = '{self._config.integration_user_id}' "  # noqa: S608
-            "AND PermissionSet.PermissionsCreateAuditFields = true"
+        # Any principal with this permission can insert a Case whose
+        # CreatedById names the integration user. Limiting the check to the
+        # integration user therefore misses the exact cross-principal forgery
+        # the conditional qualification is meant to exclude.
+        soql = (
+            "SELECT AssigneeId, PermissionSetId FROM PermissionSetAssignment "
+            "WHERE PermissionSet.PermissionsCreateAuditFields = true"
         )
         try:
             records, complete, total_size = self._traverse_query(soql)

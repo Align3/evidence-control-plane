@@ -56,7 +56,7 @@ substitute for it.
   ```
   confirmed working against the live trial org, correctly returning the one user holding the grant.
 
-**Consequence for CM-005/CM-006:** the isolation attribute is forgeable, but the forgery *capability* is monitorable. This is not the unconditional pass Phase A hoped for, and it is not a fallback to C3 — it's C1 with a standing precondition: **the integration user must not hold `PermissionsCreateAuditFields`, checked at qualification and re-checked on a cadence.**
+**Consequence for CM-005/CM-006:** the isolation attribute is forgeable, but the forgery *capability* is monitorable. This is not the unconditional pass Phase A hoped for, and it is not a fallback to C3 — it's C1 with a standing precondition: **no Case-creating principal may hold `PermissionsCreateAuditFields`, checked at qualification and re-checked on a cadence.**
 
 ---
 
@@ -93,9 +93,12 @@ substitute for it.
 
 ## 6. Assigned class
 
-**C1, conditional on `PermissionsCreateAuditFields` not being granted to the integration user.**
+**C1, conditional on `PermissionsCreateAuditFields` not being granted to any
+principal that can create a Case.** A different user holding the permission
+can set `CreatedById` to the integration user's Id, so checking only the
+integration user's assignments does not protect the isolation attribute.
 
-Per §6's admissibility lattice: this class permits `reconciled` coverage and a coverage ratio, same as an unconditional C1. The condition does not weaken the *class*, it constrains the *population of valid deployments* — any deployment where the integration user holds the permission must downgrade immediately, not at the next scheduled check.
+Per §6's admissibility lattice: this class permits `reconciled` coverage and a coverage ratio, same as an unconditional C1. The condition does not weaken the *class*, it constrains the *population of valid deployments* — any deployment where a Case-creating principal holds the permission must downgrade immediately, not at the next scheduled check.
 
 ---
 
@@ -103,9 +106,9 @@ Per §6's admissibility lattice: this class permits `reconciled` coverage and a 
 
 | Metric | Value |
 |---|---|
-| Trial window | Single day, 2026-08-18 |
-| Population | 20 records (10 agent, 10 human), plus 3 forged/probe records excluded from the isolation count |
-| Match rate | 100% — isolation query returned exactly the agent-created 10, zero false positives, zero false negatives |
+| Trial window | Clean fixture window `[2026-08-18T08:55Z, 08:56Z)`; broader probe day 2026-08-18 |
+| Population | Clean window: 10 agent Cases. Broader day: 20 controlled Cases plus 3 forged/probe Cases and one lag probe. |
+| Isolation result | Clean window: exactly 10 agent Cases. Broader-day `CreatedById` query: 13 rows because it correctly demonstrates that the three forged creators are indistinguishable without the permission condition. |
 | Unmatched explanations | N/A — controlled trial, not a production reconciliation run |
 
 ---

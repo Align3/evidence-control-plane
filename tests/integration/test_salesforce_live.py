@@ -96,8 +96,8 @@ def test_live_case_enumeration_and_confirmation(
         config.scope_parameters,
     )
     window = EnumerationWindow(
-        datetime(2026, 8, 18, tzinfo=UTC),
-        datetime(2026, 8, 19, tzinfo=UTC),
+        datetime(2026, 8, 18, 8, 55, tzinfo=UTC),
+        datetime(2026, 8, 18, 8, 56, tzinfo=UTC),
     )
 
     population = connector.enumerate(scope, window)
@@ -109,7 +109,12 @@ def test_live_case_enumeration_and_confirmation(
         "confirmed-clean"
     )
     identifiers = population.body.record_identifiers or []
-    assert identifiers, "the committed qualification records known Case data on 2026-08-18"
+    assert len(identifiers) == 10
+    attribution = (population.body.model_extra or {})["attribution_observations"]
+    assert all(
+        observation["actor_attribute"] == config.integration_user_id
+        for observation in attribution
+    )
     confirmation = connector.confirm(
         ActionReference(
             action_id="ev42-live-read-only-confirmation",

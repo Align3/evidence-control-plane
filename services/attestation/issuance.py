@@ -19,7 +19,6 @@ from services.admin.boundary import BoundaryVersion, IntervalCoverage, interval_
 from services.computation.coverage import CoverageReport, RatioState
 
 from .assertions import (
-    A02BoundaryInForce,
     A03DenominatorQualified,
     A04PopulationMatched,
     A05UnknownIntervals,
@@ -238,8 +237,36 @@ def assemble_attestation(request: AttestationRequest) -> AttestationAssembly:
     )
     counts = _assertion_counts(coverage)
     assertions: list[CatalogueAssertion] = []
-    if boundary_result.covered:
-        assertions.append(A02BoundaryInForce(scope=scope, counts=counts))
+    # A-02 IS NOT EMITTED, unconditionally, and there is no parameter to
+    # change that.
+    #
+    # AR-027 floors a boundary's effective interval at its *recording* time so
+    # a boundary cannot be backdated into force, and ES-032 requires that
+    # instant to be attested by an issuer receipt -- withholding A-02 rather
+    # than computing it from an unattested one. Nothing in this system mints
+    # those receipts yet: `record_boundary` produces none, and the conformance
+    # corpus declares ES-032 absent.
+    #
+    # Three attempts to gate the assertion on a caller-supplied token of
+    # attestation were each defeated, and the reason is structural rather than
+    # a matter of finding the right parameter. Everything the caller hands in
+    # is caller-controlled: a boolean is simply a claim, and a receipt carried
+    # alongside its own trust roots proves that the caller's signature matches
+    # the caller's key. `boundary_result` is still computed and returned, so
+    # the uncovered interval is reported -- but nothing here turns it into an
+    # assertion.
+    #
+    # Restoring A-02 requires ES-032 minting to exist, and then all of:
+    #
+    #   1. trust roots from service configuration, never from the request;
+    #   2. verification of the AssuranceBoundary's own evidence-origin
+    #      signature, not only the issuer receipt over it;
+    #   3. the evaluated window and declared families derived from that
+    #      verified record, so a receipt for one boundary body cannot
+    #      timestamp a different projection sharing its `boundary_ref`.
+    #
+    # Until then this is the only honest behaviour, and being unable to state
+    # A-02 is the correct outcome rather than a limitation to work around.
     assertions.extend(
         (
             A03DenominatorQualified(
