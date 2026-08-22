@@ -1,0 +1,20 @@
+{
+  "effective_action_ids": [
+    "2276cbeb-927a-498e-a30d-a74e73df9cc0"
+  ],
+  "evaluations": [
+    {
+      "action_id": "2276cbeb-927a-498e-a30d-a74e73df9cc0",
+      "effective": true,
+      "reason": "effective oversight",
+      "record_id": "01a02a3c-e2d1-7297-9f83-a622bf6f31ff"
+    }
+  ],
+  "missing_action_ids": [],
+  "required_action_ids": [
+    "2276cbeb-927a-498e-a30d-a74e73df9cc0"
+  ],
+  "reviewed_action_ids": [
+    "2276cbeb-927a-498e-a30d-a74e73df9cc0"
+  ]
+}

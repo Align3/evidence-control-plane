@@ -1,0 +1,73 @@
+[
+  {
+    "body": {
+      "action_family": "refund.issue",
+      "action_id": "a47211df-5763-47db-ba6a-c0a206788492",
+      "parameters_digest": "sha256:48fe3aa5f9d6483637aa9d10e8ea0c7561a93205581cf4ce1de8af01423b6593",
+      "proposed_at": "2026-08-22T16:10:28.762Z",
+      "purpose": "return a duplicate charge to the customer",
+      "risk_class": "requires_human_review",
+      "target_ref": "customer:demo-1",
+      "tool": "refunds.issue"
+    },
+    "boundary_ref": "oversight_late_7b4e0ce5:refund-issue:1",
+    "clocks": {
+      "source_time": "2026-08-22T16:10:28.762Z"
+    },
+    "prev_digest": null,
+    "record_id": "01a02a3c-e41a-7a1b-b620-454155aecc38",
+    "record_type": "ActionProposal",
+    "schema_version": "1.0.0",
+    "sequence": 1,
+    "signature": {
+      "alg": "ed25519",
+      "key_id": "oversight_late_7b4e0ce5-evidence-dev-1",
+      "sig": "3pQrMu4HGhJ-Ls8YS9ml0uieG6pNTF7sFmMpZ-Ip2FmnmYlfX1ZxkZeyrNsAF2QBQdhAcl2Nq8dbUnaemfRUBA",
+      "signed_digest": "sha256:56868b9ac21008c233cda3c743fd396d189d51bdced3f78ec7b6c66d8394b1a0"
+    },
+    "source": {
+      "collector_id": "oversight_late_7b4e0ce5-collector-1",
+      "deployment": "demo",
+      "implementation": "sdk-python",
+      "version": "0.1.0"
+    },
+    "stream_id": "oversight_late_7b4e0ce5:oversight_late_7b4e0ce5-collector-1:1",
+    "tenant_id": "oversight_late_7b4e0ce5"
+  },
+  {
+    "body": {
+      "action_id": "a47211df-5763-47db-ba6a-c0a206788492",
+      "connector_identity": "mock-refunds",
+      "connector_version": "mock-0.1.0",
+      "destination_record_ref": "mock-d608142d1dc9",
+      "destination_response_digest": "sha256:d1f67e9b471b0bb0317256e2e522a102d753f3d5cc18bbe4b40916cafcfecd99",
+      "dispatch_attempt": 1,
+      "dispatched_at": "2026-08-22T16:10:28.802Z",
+      "responded_at": "2026-08-22T16:10:28.802Z",
+      "status": "committed"
+    },
+    "boundary_ref": "oversight_late_7b4e0ce5:refund-issue:1",
+    "clocks": {
+      "source_time": "2026-08-22T16:10:28.802Z"
+    },
+    "prev_digest": "sha256:82e47229a887c3cf6eaf83ec2e5de8fc119de95c50a4f6e65b0fd6cae1e3834c",
+    "record_id": "01a02a3c-e442-7c5a-b1f5-e76fbed7d2c7",
+    "record_type": "ExecutionReceipt",
+    "schema_version": "1.0.0",
+    "sequence": 2,
+    "signature": {
+      "alg": "ed25519",
+      "key_id": "oversight_late_7b4e0ce5-evidence-dev-1",
+      "sig": "fZfa8R8uEAKv9n3QRLtBIshfcDGEmvAHiCkDvh-Db_Bhy8p-crc9Q7rmoR2vn-qomIm9Go1UYGgEriMlFjojAQ",
+      "signed_digest": "sha256:b98284ce83edd12c6765e87416855b28ff72e3769bf7ff6c9bf8e00639678b94"
+    },
+    "source": {
+      "collector_id": "oversight_late_7b4e0ce5-collector-1",
+      "deployment": "demo",
+      "implementation": "sdk-python",
+      "version": "0.1.0"
+    },
+    "stream_id": "oversight_late_7b4e0ce5:oversight_late_7b4e0ce5-collector-1:1",
+    "tenant_id": "oversight_late_7b4e0ce5"
+  }
+]

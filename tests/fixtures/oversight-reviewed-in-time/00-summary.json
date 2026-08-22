@@ -1,0 +1,27 @@
+{
+  "action_state_at_review": "proposed",
+  "assertion_ids": [
+    "A-02",
+    "A-03",
+    "A-04",
+    "A-06",
+    "A-07",
+    "A-08"
+  ],
+  "counts": {
+    "ambiguous": 0,
+    "duplicate": 0,
+    "matched": 1,
+    "out_of_scope": 0,
+    "unmatched_with_evidence": 0,
+    "unmatched_without_evidence": 0
+  },
+  "coverage_ratio": "1.0000",
+  "effective_action_ids": [
+    "2276cbeb-927a-498e-a30d-a74e73df9cc0"
+  ],
+  "oversight_exclusions": [],
+  "review_point": "before_dispatch",
+  "tenant_id": "oversight_intime_7b4e0ce5",
+  "variant": "oversight-reviewed-in-time"
+}

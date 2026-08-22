@@ -1,0 +1,40 @@
+[
+  {
+    "body": {
+      "action_id": "a47211df-5763-47db-ba6a-c0a206788492",
+      "authoritative_timestamp": "2026-08-22T16:10:28.802Z",
+      "destination_record_digest": "sha256:2f02e1ead30312acb710ad0f39b40affdcfe6468518652899c4f6bd95e43b73b",
+      "destination_record_id": "mock-d608142d1dc9",
+      "destination_system": "mock-refunds",
+      "reconciliation_status": "matched",
+      "retrieved_at": "2026-08-22T16:10:28.824Z"
+    },
+    "boundary_ref": "oversight_late_7b4e0ce5:refund-issue:1",
+    "clocks": {
+      "authoritative_time": "2026-08-22T16:10:28.802Z",
+      "source_time": "2026-08-22T16:10:28.824Z"
+    },
+    "prev_digest": null,
+    "record_id": "01a02a3c-e49a-7e51-9f57-a5f9338a2a8f",
+    "record_type": "ExternalConfirmation",
+    "schema_version": "1.0.0",
+    "sequence": 1,
+    "signature": {
+      "alg": "ed25519",
+      "key_id": "oversight_late_7b4e0ce5-issuer-dev-1",
+      "sig": "pLPWBqBWqUbjqzg03jj1AO5_3J6JkeY9SkIrDmq56qCNShkxqS0BbZynQEo86pu16aYN1P5USvvns-yRQdPJAg",
+      "signed_digest": "sha256:54a20ef48220a36c3342c612449636007babd4ae0b46912a3748531f639b2f8a"
+    },
+    "source": {
+      "connector": {
+        "connector": "mock",
+        "destination_system": "mock-refunds",
+        "version": "0.1.0"
+      },
+      "implementation": "oversight-contrast-fixture-generator",
+      "version": "0.1.0"
+    },
+    "stream_id": "oversight_late_7b4e0ce5:issuer:mock:confirmation",
+    "tenant_id": "oversight_late_7b4e0ce5"
+  }
+]
