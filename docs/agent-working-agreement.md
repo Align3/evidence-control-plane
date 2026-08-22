@@ -9,12 +9,13 @@
 ## 1. The loop
 
 1. **Pick a story** from `docs/prd.md` by ID (`EV-nn`). Check its **Touches** set does not overlap any story currently in flight.
-2. **Read the requirements** it declares under **Satisfies**, in the owning document. Not the summary — the actual requirement text.
-3. **Run the scenarios and watch them fail.** They already exist, generated into `tests/features/`. Do not write them; find them by tag.
-4. **Write step definitions** in `tests/steps/`. These are the only test code you author for acceptance.
-5. **Implement** until the scenarios pass.
-6. **Add unit and property tests** for anything the scenarios do not reach.
-7. **Open a PR.** Independent review before merge.
+2. **Sync with `origin/develop`** before any design work begins. Fetch, diff, and rebase or update if behind (`AG-019`).
+3. **Read the requirements** it declares under **Satisfies**, in the owning document. Not the summary — the actual requirement text.
+4. **Run the scenarios and watch them fail.** They already exist, generated into `tests/features/`. Do not write them; find them by tag.
+5. **Write step definitions** in `tests/steps/`. These are the only test code you author for acceptance.
+6. **Implement** until the scenarios pass.
+7. **Add unit and property tests** for anything the scenarios do not reach.
+8. **Open a PR.** Independent review before merge.
 
 ```bash
 # Find the scenarios for your story
@@ -71,6 +72,10 @@ What a brief MAY contain: the requirement IDs to implement, the documents to rea
 Where a defect must be guarded against regardless, the place for it is the **required tests**, phrased as an obligation over the requirement's own normative text rather than as a warning about a known failure. "Construct an adversarial input that attempts to violate this requirement, and show it is refused" commissions the same test without naming the shape that failed.
 
 **This has now happened twice, and neither occurrence was foreseen.** The first cold build reported that its assigned reading had defeated the experiment before it wrote a line of code, which is why the rationale moved to a separate file. The second reported that the brief had reproduced the file's contents in prose, and recorded the consequence in its own words: *it could not have arrived at the rejected design after reading the brief, so its not arriving at one is worth nothing as evidence.* Both times the leak was introduced by someone trying to be helpful. Assume the next one will be too, and apply the test above rather than relying on intent.
+
+**AG-019 — Sync with `origin/develop` before the first design decision, not before the PR.** Before beginning **any** design or implementation work on a story, fetch and diff against `origin/develop`. If the branch is behind, rebase or update **first** — before a single design decision is made, not once the work is finished and the PR is being opened.
+
+Checking staleness at PR time catches the git conflict. That is the cheap failure, and it is not the one this rule exists for. What it does not catch is having independently reinvented something that already exists on `develop` — a helper, an abstraction, a requirement re-derived from scratch. That cost is incurred at design time, in the shape chosen and built against, and by the time a merge conflict surfaces it has already been paid in full: conflicts are resolved in minutes, whereas a duplicated abstraction is either found in review and rewritten, or not found and merged twice. Staleness is therefore a design-time input, not a merge-time chore.
 
 ---
 
