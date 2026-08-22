@@ -42,6 +42,7 @@ from cryptography.hazmat.primitives.asymmetric.ed25519 import Ed25519PrivateKey
 from sqlalchemy import select
 
 from sdk_python.evidence.bundle import assemble_bundle
+from sdk_python.evidence.canonical import canonicalize
 from sdk_python.evidence.schema import (
     ActionProposalRecord,
     AssuranceBoundaryRecord,
@@ -968,7 +969,7 @@ def generate(
         ),
         "failure_code": permission.failure_code,
     }
-    files: dict[str, object] = {
+    readable_files: dict[str, object] = {
         "01-permission-check.json": permission_json,
         "02-population-observation.json": {
             "body": population_observation.body.model_dump(
@@ -998,7 +999,6 @@ def generate(
             for result in reconciliation_results
         ],
         "07-coverage-report.json": coverage.to_payload(),
-        "08-attestation-window.json": _model_json(attestation.record),
         "10-qualification-record.json": _model_json(registered.qualification_record),
         "11-assurance-boundary.json": _model_json(registered.boundary_record),
         # The exact bytes the ledger holds, with the issuer receipts that bind
@@ -1006,8 +1006,14 @@ def generate(
         # believed.
         "13-ledger-evidence.json": [item.to_json() for item in ledger_records],
     }
-    for filename, value in files.items():
+    for filename, value in readable_files.items():
         _write_json(output_dir / filename, value)
+    # Artifact of record: the verifier consumes these exact canonical wire
+    # bytes. Never route a signed record through `_write_json`, because parsing
+    # and indenting it after signing produces semantically equivalent JSON but
+    # not the RFC 8785 wire artifact ES-001 requires a verifier to receive.
+    attestation_filename = "08-attestation-window.json"
+    (output_dir / attestation_filename).write_bytes(canonicalize(attestation.record))
     (output_dir / "12-bundle.json").write_bytes(bundle_bytes)
 
     manifest = {
@@ -1057,7 +1063,9 @@ def generate(
                 "public_key_base64url": _public_key_b64(issuer_key),
             },
         },
-        "files": [*files, "12-bundle.json"],
+        "files": sorted(
+            [*readable_files, attestation_filename, "12-bundle.json"]
+        ),
         "ledger_artifacts": {
             "file": "13-ledger-evidence.json",
             "contains": (

@@ -1,4 +1,4 @@
-.PHONY: dev features check test lint go-test typescript-vectors all
+.PHONY: dev features check test lint go-test fixture-records typescript-vectors all
 
 dev:
 	docker compose up -d
@@ -16,6 +16,13 @@ test:
 go-test:
 	cd verifier-go && go test ./... && go build ./...
 
+# The files a relying party invokes the verifier against must themselves be
+# valid wire artifacts. Signature-only tests do not catch a signed record that
+# was later pretty-printed, because its parsed content still reproduces the
+# signed digest while ES-001 correctly refuses its received bytes.
+fixture-records:
+	python tools/verify_committed_fixture_records.py
+
 # ES-029 vectors are normative for every implementation, not only the two with
 # their own CI job. Without this target a TypeScript operation can fall out of
 # conformance -- or never be built at all -- behind a green Python and Go run,
@@ -28,4 +35,4 @@ lint:
 	ruff check .
 	mypy services sdk_python
 
-all: check lint test go-test typescript-vectors
+all: check lint test go-test fixture-records typescript-vectors
