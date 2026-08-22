@@ -1,3 +1,5 @@
+export * from "./attestation.ts";
+export * from "./bundle.ts";
 export * from "./crypto.ts";
 export * from "./conformance.ts";
 export * from "./emitter.ts";
@@ -9,3 +11,4 @@ export * from "./schema.ts";
 export * from "./signing.ts";
 export * from "./types.ts";
 export * from "./verification.ts";
+export * from "./versions.ts";

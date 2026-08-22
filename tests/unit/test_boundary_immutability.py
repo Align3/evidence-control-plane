@@ -22,7 +22,12 @@ from sqlalchemy import Engine, text
 
 from sdk_python.evidence.signing import UnknownKeyError
 from services.admin import assert_admin_tables_protected
-from tests.admin_support import AdminActor, boundary_body, signed_boundary
+from tests.admin_support import (
+    AdminActor,
+    boundary_body,
+    constitutive_receipt,
+    signed_boundary,
+)
 from tests.ledger_support import CHECK_VIOLATION, TENANT_A, TENANT_B
 
 WINDOW_START = datetime(2026, 3, 1, tzinfo=UTC)
@@ -293,11 +298,14 @@ def test_a_boundary_declaring_no_family_at_all_is_refused(
             conn.execute(
                 text(
                     "INSERT INTO boundaries (boundary_ref, tenant_id, name, version,"
-                    " canonical_bytes, body, key_id, key_namespace, signature,"
-                    " window_start, window_end, recorded_at)"
+                        " canonical_bytes, body, key_id, key_namespace, signature,"
+                        " window_start, window_end, recorded_at, receipt_key_id,"
+                        " receipt_key_namespace, receipt_signature,"
+                        " receipt_canonical_bytes, received_wire_bytes)"
                     " VALUES (:tid || ':familyless:1', :tid, 'familyless', 1,"
                     "  :bytes, :body, :key_id, 'evidence', :sig,"
-                    "  :ws, :we, now())"
+                        "  :ws, :we, now(), :receipt_key_id, 'issuer',"
+                        "  :receipt_signature, :receipt_bytes, :received_wire)"
                 ),
                 {
                     "tid": TENANT_A,
@@ -307,6 +315,10 @@ def test_a_boundary_declaring_no_family_at_all_is_refused(
                     "sig": source["signature"],
                     "ws": WINDOW_START,
                     "we": WINDOW_END,
+                    "receipt_key_id": source["receipt_key_id"],
+                    "receipt_signature": source["receipt_signature"],
+                    "receipt_bytes": source["receipt_canonical_bytes"],
+                    "received_wire": source["received_wire_bytes"],
                 },
             )
             with pytest.raises(Exception) as caught:  # noqa: B017 -- SQLSTATE asserted
@@ -598,7 +610,12 @@ def test_a_boundary_cannot_use_another_tenants_key(
                     record=record,
                     canonical_bytes=canonical,
                     signature=signature,
-                    recorded_at=datetime(2026, 2, 1, tzinfo=UTC),
+                    receipt=constitutive_receipt(
+                        record,
+                        issuer_key_id=actor.issuer_key_id,
+                        issuer_private_key=actor.issuer_private_key,
+                        recorded_at=datetime(2026, 2, 1, tzinfo=UTC),
+                    ),
                 )
         finally:
             transaction.rollback()

@@ -57,15 +57,21 @@ from typing import Any
 
 from sqlalchemy import Connection, select
 
+from sdk_python.evidence.canonical import canonicalize
 from sdk_python.evidence.schema import QualificationRecord
 from sdk_python.evidence.signing import (
     InvalidSignatureError,
     record_signature_bytes,
     verify_record_signature_bytes,
 )
+from services.ingestion.receipts import (
+    SignedIngestionReceipt,
+    parse_timestamp,
+    verify_ingestion_receipt,
+)
 
 from .schema import qualification_records
-from .trust import registered_evidence_keyring
+from .trust import registered_evidence_keyring, registered_receipt_keyring
 
 #: The verifier failure string TM-S-005 asserts. Fixed here as a constant so
 #: the Python resolver, the conformance fixtures this story emits, and EV-19's
@@ -415,6 +421,7 @@ def record_qualification(
     record: QualificationRecord,
     canonical_bytes: bytes,
     signature: bytes,
+    receipt: SignedIngestionReceipt,
 ) -> str:
     """Store a signed `QualificationRecord`. Returns its `qualification_ref`.
 
@@ -438,6 +445,15 @@ def record_qualification(
         raise InvalidSignatureError(
             "detached signature does not match the supplied record"
         )
+    receipt_payload = verify_ingestion_receipt(
+        receipt,
+        record=record,
+        verification_keys=registered_receipt_keyring(
+            connection,
+            tenant_id=record.tenant_id,
+            key_id=receipt.key_id,
+        ),
+    )
     columns = projection(record)
     qualification_ref = record.record_id
     connection.execute(
@@ -455,6 +471,12 @@ def record_qualification(
             "key_namespace": "evidence",
             "signature": signature,
             "qualified_at": _parse_timestamp(record.body.qualified_at),
+            "recorded_at": parse_timestamp(receipt_payload.ingest_time),
+            "receipt_key_id": receipt.key_id,
+            "receipt_key_namespace": "issuer",
+            "receipt_signature": receipt.signature,
+            "receipt_canonical_bytes": receipt.canonical_bytes,
+            "received_wire_bytes": canonicalize(record),
             "revalidate_after": _revalidate_after(record),
         },
     )

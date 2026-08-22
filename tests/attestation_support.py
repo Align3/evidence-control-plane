@@ -44,6 +44,7 @@ def boundary_version(
     *,
     action_families: tuple[str, ...] = ("refund.issue",),
     recorded_at: datetime | None = None,
+    recording_time_attested: bool = True,
 ) -> BoundaryVersion:
     return BoundaryVersion(
         boundary_ref="acme:boundary:1",
@@ -53,6 +54,7 @@ def boundary_version(
         window_start=at(8),
         window_end=at(12),
         recorded_at=recorded_at or at(8),
+        recording_time_attested=recording_time_attested,
         families=tuple(
             DeclaredFamily(
                 action_family=family,
@@ -84,6 +86,8 @@ def attestation_request(
         boundary_versions=(version or boundary_version(),),
         action_families=action_families,
         operated_action_families=operated_action_families,
+        review_action_ids=(),
+        human_reviews=(),
         outcome_action_ids=("action-0",),
         authoritative_source=authoritative_source,
         outcome_records=(),

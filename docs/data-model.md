@@ -123,7 +123,7 @@ Supersession is derived from the version ordering instead. Version *n* is supers
 
 **DM-028 — `created_at` is replaced by `recorded_at`, and it is a hosted observation.** AR-027 floors a boundary version's effective interval at the later of its declared `window_start` and the time the hosted service observed it being recorded, so that a boundary written after the fact cannot be backdated into force. `created_at` with a `now()` default reads as a database convenience; `recorded_at` is a value the issuance rule depends on, is supplied by the service rather than by the signer, and is never read from the signed body — the same separation ES-019 makes between `source_time` and `ingest_time`, for the same reason.
 
-> **Open, and not resolved here.** AR-027 names this value "its signed envelope `clocks.ingest_time`". ES-019 forbids `ingest_time` from appearing in a customer-signed record and puts it in the ES-030 issuer-signed receipt. `recorded_at` is therefore a hosted observation stored beside the boundary but *not* itself under an issuer signature, because ES-030 receipts are defined for `evidence_records` and extending them to `boundaries` is EV-27's machinery, not this story's. Until that is done, a party who does not trust the vendor cannot independently check `recorded_at`, which weakens AR-027 by exactly that much. Recorded so it is not discovered late.
+Migration 0014 closes the original unsigned-observation gap: `recorded_at` is now the projection of the ES-032 issuer receipt's `ingest_time`, and both constitutive tables store `receipt_key_id`, the issuer namespace discriminator, the raw signature, the canonical receipt bytes, and the exact complete record bytes the receipt digest names. Historical rows remain null rather than receiving fabricated receipts. A `NOT VALID` check preserves those honest absences while requiring the complete receipt tuple on every new row; issuance re-verifies the stored receipt against the complete record, treats any absent or invalid receipt as an unattested recording time, and withholds A-02.
 
 **DM-029 — `boundary_ref`'s format is a CHECK, not a convention.** `boundary_ref = tenant_id || ':' || name || ':' || version::text`, with `name` restricted to an alphabet excluding `:`. A ref parsed anywhere in the system therefore decomposes to the row it names, and a row cannot claim a ref inside another tenant's namespace. `evidence_records` references `(tenant_id, boundary_ref)` compositely for DM-016's reason.
 
@@ -168,6 +168,11 @@ A boundary with *no* family rows at all is refused by a deferred constraint trig
 | `body` | jsonb | Full record per ES §5.2 |
 | `qualified_at` | timestamptz | |
 | `recorded_at` | timestamptz | Hosted insertion order used by the read guard |
+| `receipt_key_id` | text FK null | Issuer key authenticating the ES-032 receipt; null only for pre-0014 history |
+| `receipt_key_namespace` | key_namespace null | Fixed to `issuer` when a receipt exists |
+| `receipt_signature` | bytea null | Raw Ed25519 proof over `receipt_canonical_bytes` |
+| `receipt_canonical_bytes` | bytea null | Authoritative ES-032 hosted receipt |
+| `received_wire_bytes` | bytea null | Exact complete constitutive record bound by the receipt; null only for pre-0014 history |
 | `revalidate_after` | timestamptz | |
 | `signature` | bytea | |
 
@@ -388,6 +393,13 @@ Derived and rebuildable. Not evidence.
 | `notified_at` | timestamptz null | AR-012 |
 | `notification_status` | enum | |
 
+Revocation and supersession are committed first with notification status
+`pending`. Delivery happens only after that transaction commits, and its
+`notified` or `failed` outcome is appended as another issuer-signed
+`RevocationRecord` in the same lifecycle stream. The original transition and
+its notification history therefore remain immutable, and no relying party can
+receive a notice for a transition that later fails validation or rolls back.
+
 ### 2.12 `admin_audit_log`
 
 | Column | Type | Notes |
@@ -421,6 +433,8 @@ Claim a number here before writing the migration (DM-001).
 | 0011 | EV-07 | Collector-key binding, exact received wire retention, tenant-visible ingestion integrity events | applied |
 | 0012 | EV-12 | Boundaries, qualification records, `evidence_records.boundary_ref` FK | applied |
 | 0013 | EV-40 | Record-type signer-namespace pinning for issuer observations | applied |
+| 0014 | EV-31 | Issuer-signed receipts for boundaries and qualification records | applied |
+| 0015 | EV-18 | Immutable attestations, revocations, and live-attestation deletion guard | applied |
 
 ### §3 amendment 1 — register reconciliation (EV-12)
 

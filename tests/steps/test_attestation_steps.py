@@ -77,6 +77,14 @@ def test_es_s_006_attestation() -> None:
     """A signed C5 window serializes the explicit null field."""
 
 
+@scenario(
+    "evidence.feature",
+    "ES-S-017 An unattested recording time withholds the boundary assertion",
+)
+def test_es_s_017_constitutive_receipt() -> None:
+    """A stored timestamp has no standing without its issuer receipt."""
+
+
 @scenario("security.feature", "SE-S-001 Issuer cannot sign evidence records")
 def test_se_s_001_attestation() -> None:
     """The issuer key remains counter-signature-only for customer evidence."""
@@ -165,6 +173,7 @@ def boundary_only_x(attestation_context: dict[str, Any]) -> None:
 
 @when("an attestation is issued")
 @when("the attestation is generated")
+@when("an attestation referencing that boundary version is generated")
 def attestation_generated(attestation_context: dict[str, Any]) -> None:
     _issue(attestation_context)
 
@@ -185,6 +194,18 @@ def partial_boundary() -> dict[str, Any]:
     return {"request": attestation_request(version=boundary_version(recorded_at=at(9, 30)))}
 
 
+@given(
+    "an AssuranceBoundary recorded without an issuer-signed receipt",
+    target_fixture="attestation_context",
+)
+def boundary_without_receipt() -> dict[str, Any]:
+    return {
+        "request": attestation_request(
+            version=boundary_version(recording_time_attested=False)
+        )
+    }
+
+
 @given("an attestation window from W1 to W2 where W1 < B1 or W2 > B2")
 def window_extends_boundary(attestation_context: dict[str, Any]) -> None:
     request = attestation_context["request"]
@@ -203,6 +224,14 @@ def a02_withheld(attestation_context: dict[str, Any]) -> None:
 def uncovered_reported(attestation_context: dict[str, Any]) -> None:
     coverage = attestation_context["issued"].assembly.boundary_coverage
     assert coverage.uncovered == ((at(9), at(9, 30)),)
+
+
+@then("the effective interval is not computed from the stored recording time")
+def no_effective_interval_from_unattested_time(
+    attestation_context: dict[str, Any],
+) -> None:
+    coverage = attestation_context["issued"].assembly.boundary_coverage
+    assert coverage.effective is None
 
 
 @then("no narrower restatement of A-02 is emitted in its place")

@@ -183,6 +183,9 @@ Stated because an assurance practitioner will look for it, and because the credi
 5. **Semantic correctness of any action.** Out of scope by construction.
 6. **Competence of human reviewers.** We evidence that review occurred with recorded properties. Nothing about judgement quality.
 7. **A collector cleanly stopped at a stream boundary in a C4/C5 family.** Undetectable. This is the strongest argument in the document for refusing C4/C5 business at anything above `observed`.
+8. **An emitter that reconstructs `evidence_shown` server-side and does not say so.** ES-013 requires the digest to be of what was rendered client-side, and requires a server-side reconstruction to be labelled `evidence_shown_provenance: "server_reconstructed"`, which caps the oversight claim. Both obligations fall on the emitter. A digest computed from what the operator *believes* was on screen is byte-indistinguishable from one computed from what was actually on screen, so an unlabelled reconstruction reads as a conformant client-rendered review and collects full A-08 credit. The verifier can check that the label, where present, is honoured; it cannot check the claim the label is about.
+
+    This is the residual weakness in the field ES-014 calls the most consequential in the specification, and it is structural rather than a defect in any implementation: no signature over a digest can establish where the bytes behind the digest came from. Narrowing it needs the rendering surface itself inside the trust boundary — a signed client attestation over the rendered artifact, not a stronger check at issuance. Until then A-08 is an assertion that the emitter's own tooling was honest about its provenance, and A2 with control of the review surface can defeat it without producing anything a relying party could distinguish from effective oversight.
 
 ---
 

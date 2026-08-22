@@ -37,6 +37,7 @@ from tests.attestation_support import (
     coverage_report,
 )
 from tests.coverage_support import at
+from tests.unit.test_oversight import human_review
 
 CATALOGUE_TYPES = {
     A01EvidenceChainValid,
@@ -137,6 +138,89 @@ def test_a09_withheld_from_current_empty_outcome_record_set() -> None:
     )
     assert disclosure["authoritative_source"] == "payments-ledger"
     assert disclosure["confirmed_action_count"] == 0
+
+
+def test_committed_review_is_recorded_but_never_asserted_as_reversible() -> None:
+    request = replace(
+        attestation_request(),
+        review_action_ids=("action-1",),
+        human_reviews=(human_review(state="committed"),),
+    )
+    assembly = assemble_attestation(request)
+
+    recorded = next(item for item in assembly.assertions if isinstance(item, A07ReviewsRecorded))
+    assert recorded.review_record_count == 1
+    assert not any(isinstance(item, A08ReversibleReviews) for item in assembly.assertions)
+    assert {
+        "kind": "human_review_ineffective",
+        "record_id": "01890f47-2f58-7cc0-98c4-000000000311",
+        "action_id": "action-1",
+        "reason": "review after commitment",
+    } in assembly.exclusions
+
+
+def test_timely_review_selects_a08_once_per_action() -> None:
+    request = replace(
+        attestation_request(),
+        review_action_ids=("action-1",),
+        human_reviews=(
+            human_review(),
+            human_review(record_id="01890f47-2f58-7cc0-98c4-000000000312"),
+        ),
+    )
+    assembly = assemble_attestation(request)
+
+    recorded = next(item for item in assembly.assertions if isinstance(item, A07ReviewsRecorded))
+    reversible = next(
+        item for item in assembly.assertions if isinstance(item, A08ReversibleReviews)
+    )
+    assert recorded.review_record_count == 2
+    assert reversible.reversible_review_count == 1
+
+
+def test_server_reconstructed_review_caps_attestation_claim() -> None:
+    request = replace(
+        attestation_request(),
+        review_action_ids=("action-1",),
+        human_reviews=(human_review(provenance="server_reconstructed"),),
+    )
+    assembly = assemble_attestation(request)
+
+    assert any(isinstance(item, A07ReviewsRecorded) for item in assembly.assertions)
+    assert not any(isinstance(item, A08ReversibleReviews) for item in assembly.assertions)
+    assert any(
+        item.get("reason") == "server-reconstructed evidence"
+        for item in assembly.exclusions
+    )
+
+
+def test_missing_required_review_is_disclosed_without_oversight_assertions() -> None:
+    request = replace(attestation_request(), review_action_ids=("action-1",))
+    assembly = assemble_attestation(request)
+
+    assert not any(
+        isinstance(item, (A07ReviewsRecorded, A08ReversibleReviews))
+        for item in assembly.assertions
+    )
+    assert {"kind": "human_review_missing", "action_ids": ["action-1"]} in assembly.exclusions
+
+
+def test_issued_attestation_signs_late_review_reason() -> None:
+    evidence, issuer = _signers()
+    request = replace(
+        attestation_request(),
+        review_action_ids=("action-1",),
+        human_reviews=(human_review(state="committed"),),
+    )
+    body = issue_attestation(
+        request, evidence_signer=evidence, issuer_signer=issuer
+    ).record.body.model_dump(mode="json")
+
+    assert any(
+        item.get("kind") == "human_review_ineffective"
+        and item.get("reason") == "review after commitment"
+        for item in body["exclusions"]
+    )
 
 
 def test_future_outcome_population_uses_the_same_selector_without_empty_special_case() -> None:

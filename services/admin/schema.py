@@ -85,6 +85,16 @@ qualification_records = Table(
     Column("signature", LargeBinary, nullable=False),
     Column("qualified_at", TIMESTAMP(timezone=True), nullable=False),
     Column("recorded_at", TIMESTAMP(timezone=True), nullable=False),
+    Column("receipt_key_id", Text, nullable=True),
+    Column(
+        "receipt_key_namespace",
+        key_namespace,
+        nullable=True,
+        server_default="issuer",
+    ),
+    Column("receipt_signature", LargeBinary, nullable=True),
+    Column("receipt_canonical_bytes", LargeBinary, nullable=True),
+    Column("received_wire_bytes", LargeBinary, nullable=True),
     Column("revalidate_after", TIMESTAMP(timezone=True), nullable=False),
     ForeignKeyConstraint(
         ["tenant_id", "key_id", "key_namespace"],
@@ -93,9 +103,38 @@ qualification_records = Table(
         ondelete="RESTRICT",
         onupdate="RESTRICT",
     ),
+    ForeignKeyConstraint(
+        ["tenant_id", "receipt_key_id", "receipt_key_namespace"],
+        ["keys.tenant_id", "keys.key_id", "keys.namespace"],
+        name="fk_qualification_records_receipt_key",
+        ondelete="RESTRICT",
+        onupdate="RESTRICT",
+    ),
     CheckConstraint(
         "key_namespace = 'evidence'::key_namespace",
         name="ck_qualification_records_key_namespace_evidence",
+    ),
+    CheckConstraint(
+        "receipt_key_namespace = 'issuer'::key_namespace",
+        name="ck_qualification_records_receipt_key_namespace_issuer",
+    ),
+    CheckConstraint(
+        "octet_length(receipt_signature) = 64",
+        name="ck_qualification_records_receipt_signature_ed25519",
+    ),
+    CheckConstraint(
+        "octet_length(receipt_canonical_bytes) > 0",
+        name="ck_qualification_records_receipt_bytes_present",
+    ),
+    CheckConstraint(
+        "octet_length(received_wire_bytes) > 0",
+        name="ck_qualification_records_received_wire_bytes_present",
+    ),
+    CheckConstraint(
+        "receipt_key_id IS NOT NULL AND receipt_key_namespace IS NOT NULL "
+        "AND receipt_signature IS NOT NULL AND receipt_canonical_bytes IS NOT NULL "
+        "AND received_wire_bytes IS NOT NULL",
+        name="ck_qualification_records_receipt_required",
     ),
     UniqueConstraint(
         "tenant_id",
@@ -142,12 +181,51 @@ boundaries = Table(
     Column("window_end", TIMESTAMP(timezone=True), nullable=False),
     # Hosted observation, never read from the signed body (AR-027).
     Column("recorded_at", TIMESTAMP(timezone=True), nullable=False),
+    Column("receipt_key_id", Text, nullable=True),
+    Column(
+        "receipt_key_namespace",
+        key_namespace,
+        nullable=True,
+        server_default="issuer",
+    ),
+    Column("receipt_signature", LargeBinary, nullable=True),
+    Column("receipt_canonical_bytes", LargeBinary, nullable=True),
+    Column("received_wire_bytes", LargeBinary, nullable=True),
     ForeignKeyConstraint(
         ["tenant_id", "key_id", "key_namespace"],
         ["keys.tenant_id", "keys.key_id", "keys.namespace"],
         name="fk_boundaries_key",
         ondelete="RESTRICT",
         onupdate="RESTRICT",
+    ),
+    ForeignKeyConstraint(
+        ["tenant_id", "receipt_key_id", "receipt_key_namespace"],
+        ["keys.tenant_id", "keys.key_id", "keys.namespace"],
+        name="fk_boundaries_receipt_key",
+        ondelete="RESTRICT",
+        onupdate="RESTRICT",
+    ),
+    CheckConstraint(
+        "receipt_key_namespace = 'issuer'::key_namespace",
+        name="ck_boundaries_receipt_key_namespace_issuer",
+    ),
+    CheckConstraint(
+        "octet_length(receipt_signature) = 64",
+        name="ck_boundaries_receipt_signature_ed25519",
+    ),
+    CheckConstraint(
+        "octet_length(receipt_canonical_bytes) > 0",
+        name="ck_boundaries_receipt_bytes_present",
+    ),
+    CheckConstraint(
+        "octet_length(received_wire_bytes) > 0",
+        name="ck_boundaries_received_wire_bytes_present",
+    ),
+    CheckConstraint(
+        "receipt_key_id IS NOT NULL AND receipt_key_namespace IS NOT NULL "
+        "AND receipt_signature IS NOT NULL AND receipt_canonical_bytes IS NOT NULL "
+        "AND received_wire_bytes IS NOT NULL",
+        name="ck_boundaries_receipt_required",
     ),
     UniqueConstraint("tenant_id", "name", "version", name="uq_boundaries_version"),
     UniqueConstraint("tenant_id", "boundary_ref", name="uq_boundaries_tenant_ref"),

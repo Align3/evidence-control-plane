@@ -161,3 +161,33 @@ Arithmetically defensible and wrong as a claim. `"0.0000"` and `null` encode opp
 ES-018 has required `capped_by_class` since it was written; §5.13's body enumeration, the normative vector, the Python writer and the Go verifier all omitted it. Adding it to the enumeration makes those artifacts agree with ES-018.
 
 Requiring it at 1.0.0 would refuse every attestation already issued, and the normative vector along with them. ES-028 classes that as a breaking change needing a major version, so the obligation attaches at 2.0.0 — the version ES-035 already reserves — and the member is optional by presence at 1.0.0. The rejected alternative was requiring it now and reissuing the corpus, which buys immediate uniformity at the cost of invalidating history the specification promises stays verifiable.
+
+---
+
+## SE-019 — which capability governs supersession
+
+`console.py` routes five write operations across the four SE-019 capabilities. Four map one-to-one. Supersession does not, because it does two things: it records a replacement attestation through the same append path as any other issuance (AR-011), and it retires the original.
+
+### Rejected: `attestation.revoke` alone
+
+The shape the endpoint sits under — a transition on an existing attestation — and how it reads in the route table. Rejected because it is a separation-of-duty hole rather than a naming preference. `supersede_attestation` calls `record_attestation`, so a principal holding only `attestation.revoke` could cause a new attestation to be stored without `attestation.issue`. That is precisely the boundary SE-019 draws and SE-020 depends on, and the inversion ran the other way too: the attestation issuer was refused the operation that issues.
+
+The cryptographic control still held — `record_attestation` verifies both signatures against registered issuer-namespace keys, so the revoker needed a validly issuer-signed record — but an API that claims role separation must not depend on the layer beneath it to enforce the claim.
+
+### Rejected: a fifth `attestation.supersede` capability
+
+Reads cleanly and gives the operation its own grant. Rejected because SE-019 fixes the set at four distinct permissions, and a fifth grantable capability that implies issuance would let supersession be delegated to someone the issuance boundary excludes — reopening the same hole through the grant model instead of the route table.
+
+Requiring `attestation.issue` **and** `attestation.revoke` together keeps the set at four and makes the authority equal to the effect. Holding either half alone reaches nothing.
+
+---
+
+## SE-019 — the overview endpoint requires no capability
+
+`GET /api/admin/{tenant}/overview` authorizes on the exact tenant grant alone, so any principal with any administrative role on a tenant reads its coverage, gap, unmatched and attestation counts.
+
+This is deliberate and recorded here because it is otherwise invisible: SE-019 enumerates four *write* capabilities and says nothing about read, so the absence of a capability check on this route is not derivable from the requirement. Every administrative role already needs the operational picture to do its own job, and the counts carry no evidence content — no record bodies, no signatures, no bundle material, all of which stay behind SE-021's scoped verification links.
+
+### Rejected: gating overview behind any one write capability
+
+Would make the read incidental to a write grant, so a future read-only auditor role could not be expressed without also granting a write. If a narrower read is needed later it should arrive as its own capability with SE-019 amended to match, not by borrowing one that means something else.

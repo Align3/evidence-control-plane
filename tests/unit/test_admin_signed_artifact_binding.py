@@ -13,6 +13,7 @@ from services.admin import record_boundary, record_qualification
 from tests.admin_support import (
     AdminActor,
     boundary_body,
+    constitutive_receipt,
     qualification_body,
     signed_boundary,
     signed_qualification,
@@ -23,6 +24,15 @@ from tests.ledger_support import TENANT_A
 @pytest.fixture
 def actor(admin_actors: dict[str, AdminActor]) -> AdminActor:
     return admin_actors[TENANT_A]
+
+
+def _receipt(record: object, actor: AdminActor):
+    return constitutive_receipt(
+        record,  # type: ignore[arg-type]
+        issuer_key_id=actor.issuer_key_id,
+        issuer_private_key=actor.issuer_private_key,
+        recorded_at=datetime(2026, 2, 1, tzinfo=UTC),
+    )
 
 
 def test_qualification_refuses_a_model_different_from_the_signed_bytes(
@@ -53,6 +63,7 @@ def test_qualification_refuses_a_model_different_from_the_signed_bytes(
                     record=substituted,
                     canonical_bytes=canonical,
                     signature=signature,
+                    receipt=_receipt(substituted, actor),
                 )
         finally:
             transaction.rollback()
@@ -84,6 +95,7 @@ def test_qualification_refuses_a_detached_signature_substitution(
                     record=signed,
                     canonical_bytes=canonical,
                     signature=b"\x00" * 64,
+                    receipt=_receipt(signed, actor),
                 )
         finally:
             transaction.rollback()
@@ -117,6 +129,7 @@ def test_qualification_refuses_caller_key_material_substitution(
                     record=signed,
                     canonical_bytes=canonical,
                     signature=signature,
+                    receipt=_receipt(signed, actor),
                 )
         finally:
             transaction.rollback()
@@ -167,7 +180,7 @@ def test_boundary_refuses_a_model_different_from_the_signed_bytes(
                     record=substituted,
                     canonical_bytes=canonical,
                     signature=signature,
-                    recorded_at=datetime(2026, 2, 1, tzinfo=UTC),
+                    receipt=_receipt(substituted, actor),
                 )
         finally:
             transaction.rollback()
@@ -214,7 +227,7 @@ def test_boundary_refuses_a_detached_signature_substitution(
                     record=signed,
                     canonical_bytes=canonical,
                     signature=b"\x00" * 64,
-                    recorded_at=datetime(2026, 2, 1, tzinfo=UTC),
+                    receipt=_receipt(signed, actor),
                 )
         finally:
             transaction.rollback()
@@ -263,7 +276,7 @@ def test_boundary_refuses_caller_key_material_substitution(
                     record=signed,
                     canonical_bytes=canonical,
                     signature=signature,
-                    recorded_at=datetime(2026, 2, 1, tzinfo=UTC),
+                    receipt=_receipt(signed, actor),
                 )
         finally:
             transaction.rollback()

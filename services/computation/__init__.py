@@ -1,5 +1,12 @@
 """Hosted, replayable computation services."""
 
+from .oversight import (
+    OversightReason,
+    OversightReport,
+    ReviewEvaluation,
+    evaluate_oversight,
+    evaluate_review,
+)
 from .population import (
     ConnectorQualificationMismatchError,
     IssuerSigner,
@@ -34,10 +41,15 @@ __all__ = [
     "PopulationServiceError",
     "PopulationIdentifierDigestUnsupportedError",
     "PopulationIntegrityError",
+    "OversightReason",
+    "OversightReport",
     "ReconciliationError",
     "ReconciliationInvariantError",
     "ReconciliationResult",
     "ReconciliationStatus",
+    "ReviewEvaluation",
     "SettlementLagPendingError",
+    "evaluate_oversight",
+    "evaluate_review",
     "reconcile",
 ]

@@ -229,9 +229,9 @@ And the evidence key is not accepted as a fallback signer
 
 > **Verification for SE-016 — scenario-bearing; deferred EV-37.** This is externally observable runtime behaviour; EV-37 owns its missing Gherkin scenario and executable acceptance proof.
 
-> **Verification for SE-019 — otherwise-verified; deferred EV-38.** `pytest:tests/traceability/test_admin_rbac_controls.py::test_se_019_admin_permissions_are_four_distinct_capabilities` — This requirement is verified by a structural, database, CI, or artifact check rather than a Gherkin product scenario.
+> **Verification for SE-019 — otherwise-verified.** `pytest:tests/traceability/test_admin_rbac_controls.py::test_se_019_admin_permissions_are_four_distinct_capabilities` — This requirement is verified by a structural API-routing check rather than a Gherkin product scenario.
 
-> **Verification for SE-020 — otherwise-verified; deferred EV-38.** `pytest:tests/traceability/test_admin_rbac_controls.py::test_se_020_engineering_role_cannot_issue_or_revoke` — This requirement is verified by a structural, database, CI, or artifact check rather than a Gherkin product scenario.
+> **Verification for SE-020 — otherwise-verified.** `pytest:tests/traceability/test_admin_rbac_controls.py::test_se_020_engineering_role_cannot_issue_or_revoke` — This requirement is verified by an adversarial API authorization check rather than a Gherkin product scenario.
 
 > **Verification for SE-021 — scenario-bearing; deferred EV-37.** This is externally observable runtime behaviour; EV-37 owns its missing Gherkin scenario and executable acceptance proof.
 
