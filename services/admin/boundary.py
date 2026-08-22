@@ -108,7 +108,13 @@ class BoundaryVersion:
     window_end: datetime
     recorded_at: datetime
     families: tuple[DeclaredFamily, ...]
-    recording_time_attested: bool = True
+    #: Whether a stored ES-032 receipt was re-verified for this version.
+    #:
+    #: Defaults to False so a hand-constructed version is unattested unless
+    #: something explicitly claims otherwise. `boundary_versions` sets it from
+    #: `_recording_time_is_attested`, which re-checks the stored receipt
+    #: against the registered keys; nothing else should be setting it True.
+    recording_time_attested: bool = False
 
     @property
     def declared_families(self) -> frozenset[str]:

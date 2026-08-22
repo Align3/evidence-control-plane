@@ -1,0 +1,66 @@
+{
+  "body": {
+    "action_family": "record.create",
+    "assigned_class": "C1",
+    "class_evidence": {
+      "condition": "PermissionsCreateAuditFields held by no principal",
+      "probe": "docs/qualifications/salesforce-record-create.md"
+    },
+    "confirmation": {
+      "api": "SOQL Case retrieve by Id",
+      "capable": true,
+      "independent_of_enumeration": false
+    },
+    "destination_system": "salesforce",
+    "enumeration": {
+      "api": "SOQL Case query",
+      "capable": true,
+      "ordering": "CreatedDate ASC, Id ASC",
+      "pagination": "queryMore batchSize 2000",
+      "result_cap": null,
+      "scoping": "CreatedById plus half-open CreatedDate window"
+    },
+    "identity_isolation": {
+      "attribute": "CreatedById",
+      "conditional_on": "no principal holds PermissionsCreateAuditFields",
+      "partial_isolation_notes": "exact with the permission ungranted; forged records are indistinguishable per-record once it is granted",
+      "vendor_settable": false
+    },
+    "mutability": {
+      "deletion_possible": false,
+      "trace_available": true
+    },
+    "qualified_at": "2026-08-22T11:54:34.109Z",
+    "retention_period": "P180D",
+    "revalidation_cadence": "PT1H",
+    "temporal": {
+      "authoritative_timestamp_source": "Salesforce CreatedDate",
+      "measured_settlement_lag_s": 0
+    },
+    "trial": {
+      "match_rate": "1.0000",
+      "window_reconciled": "2026-08-22T00:00:00.000Z/2026-09-21T00:00:00.000Z"
+    }
+  },
+  "boundary_ref": "salesforce_probe:case-create:1",
+  "clocks": {
+    "source_time": "2026-08-22T11:54:34.109Z"
+  },
+  "prev_digest": null,
+  "record_id": "01a02952-98fd-78a6-bee9-f78c356b6a32",
+  "record_type": "QualificationRecord",
+  "schema_version": "1.0.0",
+  "sequence": 1,
+  "signature": {
+    "alg": "ed25519",
+    "key_id": "salesforce-live-evidence-dev-1",
+    "sig": "jX1_2SXFqQceHat8NxCUIHIt2pHVoRZkuz3sd9XyA2lF54Cxp_3kolUnwCc6M1jsvT_Lsl2DvPhadqXO8Mr2BA",
+    "signed_digest": "sha256:4bf3dc05933d6600be7df97ef98b98dd886172b65a61cdb64c92710e9ce7a5b6"
+  },
+  "source": {
+    "implementation": "salesforce-live-fixture-generator",
+    "version": "0.2.0"
+  },
+  "stream_id": "salesforce_probe:evidence:salesforce:qualification",
+  "tenant_id": "salesforce_probe"
+}

@@ -46,9 +46,12 @@ from __future__ import annotations
 
 import hmac
 import json
+import re
+from calendar import monthrange
 from collections.abc import Iterable, Mapping, Sequence
 from dataclasses import dataclass
 from datetime import datetime, timedelta
+from decimal import Decimal, InvalidOperation
 from enum import StrEnum
 from typing import Any
 
@@ -329,6 +332,89 @@ def _day_duration(value: object, *, label: str) -> int:
     return days
 
 
+_ISO_8601_DURATION = re.compile(
+    r"^P"
+    r"(?:(?P<years>[0-9]+)Y)?"
+    r"(?:(?P<months>[0-9]+)M)?"
+    r"(?:(?P<weeks>[0-9]+)W)?"
+    r"(?:(?P<days>[0-9]+)D)?"
+    r"(?:T"
+    r"(?:(?P<hours>[0-9]+)H)?"
+    r"(?:(?P<minutes>[0-9]+)M)?"
+    r"(?:(?P<seconds>[0-9]+(?:[.,][0-9]+)?)S)?"
+    r")?$"
+)
+
+
+def add_iso8601_duration(start: datetime, value: object, *, label: str) -> datetime:
+    """Add a positive ISO 8601 duration to an aware timestamp.
+
+    Supports the calendar and time forms in one grammar: years, months, weeks,
+    days, hours, minutes, and seconds. Calendar months and years are applied
+    before fixed-length components and clamp to the last valid day of the
+    target month. The week form is exclusive, as ISO 8601 requires.
+    """
+
+    if start.tzinfo is None or start.utcoffset() is None:
+        raise QualificationError(f"{label} start must be timezone-aware")
+    if not isinstance(value, str):
+        raise QualificationError(f"{label} must be a positive ISO-8601 duration")
+    match = _ISO_8601_DURATION.fullmatch(value)
+    if match is None:
+        raise QualificationError(
+            f"{label} must be a positive ISO-8601 duration, got {value!r}"
+        )
+    components = match.groupdict()
+    if not any(component is not None for component in components.values()):
+        raise QualificationError(f"{label} must be greater than zero")
+    if "T" in value and not any(
+        components[name] is not None for name in ("hours", "minutes", "seconds")
+    ):
+        raise QualificationError(
+            f"{label} must not contain an empty ISO-8601 time component"
+        )
+    if components["weeks"] is not None and any(
+        components[name] is not None
+        for name in ("years", "months", "days", "hours", "minutes", "seconds")
+    ):
+        raise QualificationError(
+            f"{label} ISO-8601 week form cannot be combined with other components"
+        )
+
+    whole = {
+        name: int(components[name] or "0")
+        for name in ("years", "months", "weeks", "days", "hours", "minutes")
+    }
+    try:
+        seconds = Decimal((components["seconds"] or "0").replace(",", "."))
+    except InvalidOperation as exc:  # defensive: the regex already constrains this
+        raise QualificationError(f"{label} has an invalid seconds component") from exc
+    if not any(whole.values()) and seconds == 0:
+        raise QualificationError(f"{label} must be greater than zero")
+
+    total_months = whole["years"] * 12 + whole["months"]
+    month_index = start.month - 1 + total_months
+    target_year = start.year + month_index // 12
+    target_month = month_index % 12 + 1
+    try:
+        target_day = min(start.day, monthrange(target_year, target_month)[1])
+        calendar_adjusted = start.replace(
+            year=target_year, month=target_month, day=target_day
+        )
+        # PostgreSQL timestamps and Python datetimes are microsecond-precision.
+        # Flooring a finer fractional second revalidates no later than declared.
+        microseconds = int(seconds * Decimal(1_000_000))
+        return calendar_adjusted + timedelta(
+            weeks=whole["weeks"],
+            days=whole["days"],
+            hours=whole["hours"],
+            minutes=whole["minutes"],
+            microseconds=microseconds,
+        )
+    except (OverflowError, ValueError) as exc:
+        raise QualificationError(f"{label} exceeds the supported timestamp range") from exc
+
+
 def record_qualification(
     connection: Connection,
     *,
@@ -409,10 +495,11 @@ def _revalidate_after(record: QualificationRecord) -> datetime:
     a staleness sweep would read.
     """
     qualified_at = _parse_timestamp(record.body.qualified_at)
-    cadence = _day_duration(
-        record.body.revalidation_cadence, label="revalidation_cadence"
+    return add_iso8601_duration(
+        qualified_at,
+        record.body.revalidation_cadence,
+        label="revalidation_cadence",
     )
-    return qualified_at + timedelta(days=cadence)
 
 
 def qualification_history(

@@ -98,9 +98,31 @@ Feature: Coverage and assurance methodology
     And it is not expressed as a reduction in the coverage percentage alone
 
   @CM-S-011 @CM-025
-  # source: coverage-methodology.md:388
+  # source: coverage-methodology.md:412
   Scenario: CM-S-011 An unimplemented methodology version is refused
     Given an attestation whose methodology_version is not in the CM-025 registry
     When the verifier validates it
     Then verification fails
     And the attestation is not recomputed under a different methodology version
+
+  @CM-S-012 @CM-004 @CM-016
+  # source: coverage-methodology.md:339
+  Scenario: CM-S-012 Conditional qualification failure is retroactive to the last clean check
+    Given the Salesforce audit-field permission was confirmed clean at T1
+    And the permission is confirmed granted at T2
+    When conditional denominator qualification is revalidated
+    Then the outcome is "confirmed-granted"
+    And the full interval T1 through T2 is marked unknown
+    And an issued attestation overlapping that interval requires revocation or supersession review
+    And the unknown interval does not begin merely at T2
+
+  @CM-S-013 @CM-004 @CM-016
+  # source: coverage-methodology.md:351
+  Scenario: CM-S-013 A failed qualification check remains unknown
+    Given the Salesforce audit-field permission was confirmed clean at T1
+    And the permission query fails at T2
+    When conditional denominator qualification is revalidated
+    Then the outcome is "check-failed"
+    And it is not reported as "confirmed-clean"
+    And it is not reported as "confirmed-granted"
+    And the full interval T1 through T2 is marked unknown

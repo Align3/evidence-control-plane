@@ -1,0 +1,58 @@
+{
+  "body": {
+    "action_families": [
+      {
+        "action_family": "record.create",
+        "destination_system": "salesforce",
+        "qualification_ref": "01a02952-98fd-78a6-bee9-f78c356b6a32"
+      }
+    ],
+    "agent_identities": [
+      "005ak00000fOIxxAAG"
+    ],
+    "boundary_version": "1",
+    "collection_modes": [
+      "inline"
+    ],
+    "deployment": "probe",
+    "destination_systems": [
+      "salesforce"
+    ],
+    "enforcement_points": [
+      "connector"
+    ],
+    "fail_behaviour": {
+      "record.create": "fail_closed"
+    },
+    "policy_refs": [
+      "demo-only:no-reliance"
+    ],
+    "qualification_refs": [
+      "01a02952-98fd-78a6-bee9-f78c356b6a32"
+    ],
+    "tenant": "salesforce_probe",
+    "window_end": "2026-09-21T00:00:00.000Z",
+    "window_start": "2026-08-22T00:00:00.000Z"
+  },
+  "boundary_ref": "salesforce_probe:case-create:1",
+  "clocks": {
+    "source_time": "2026-08-22T11:54:34.109Z"
+  },
+  "prev_digest": null,
+  "record_id": "01a02952-98fd-7105-aad8-c978cd8201d5",
+  "record_type": "AssuranceBoundary",
+  "schema_version": "1.0.0",
+  "sequence": 1,
+  "signature": {
+    "alg": "ed25519",
+    "key_id": "salesforce-live-evidence-dev-1",
+    "sig": "TEIUH81E7Z4xJeX2bQbtlrOnooSEOzFkwdJ0NWkstEVn011qmhZBWaNbgPWtp67aiyHu322e2FSyoNbzq2I3Aw",
+    "signed_digest": "sha256:9f004acfaf148728fdd420d76efa221e7d87fb7d33fd772314e879d064f4eaee"
+  },
+  "source": {
+    "implementation": "salesforce-live-fixture-generator",
+    "version": "0.2.0"
+  },
+  "stream_id": "salesforce_probe:evidence:salesforce:boundary",
+  "tenant_id": "salesforce_probe"
+}

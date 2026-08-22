@@ -1,0 +1,33 @@
+{
+  "boundary_ref": "salesforce_probe:case-create:1",
+  "capped_by_class": false,
+  "class_admissible_level": "reconciled",
+  "counts": {
+    "ambiguous": 0,
+    "duplicate": 0,
+    "matched": 1,
+    "out_of_scope": 0,
+    "unmatched_with_evidence": 0,
+    "unmatched_without_evidence": 0
+  },
+  "coverage_level": "reconciled",
+  "coverage_ratio": "1.0000",
+  "covered_intervals": [
+    {
+      "end": "2026-08-22T11:56:00.000+00:00",
+      "start": "2026-08-22T11:55:00.000+00:00"
+    }
+  ],
+  "denominator_class": "c1",
+  "denominator_count": 1,
+  "evidence_supported_level": "reconciled",
+  "gap_actions": [],
+  "gap_intervals": [],
+  "gaps": [],
+  "numerator_count": 1,
+  "population_independently_enumerable": true,
+  "population_ref": "01a02956-0047-7b15-a4d3-fea9756a5c3f",
+  "ratio_state": "available",
+  "window_end": "2026-08-22T11:56:00+00:00",
+  "window_start": "2026-08-22T11:55:00+00:00"
+}

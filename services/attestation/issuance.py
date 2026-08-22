@@ -2,12 +2,14 @@
 
 from __future__ import annotations
 
+from collections.abc import Sequence
 from dataclasses import dataclass
 from datetime import datetime
 from enum import StrEnum
 from typing import Any, Literal
 
 from cryptography.hazmat.primitives.asymmetric.ed25519 import Ed25519PrivateKey
+from sqlalchemy import Connection
 
 from sdk_python.evidence.schema import (
     AttestationWindowRecord,
@@ -16,7 +18,13 @@ from sdk_python.evidence.schema import (
     validate_record,
 )
 from sdk_python.evidence.signing import counter_sign_attestation, sign_record
-from services.admin.boundary import BoundaryVersion, IntervalCoverage, interval_coverage
+from services.admin.boundary import (
+    BoundaryVersion,
+    IntervalCoverage,
+    boundary_versions,
+    interval_coverage,
+    parse_boundary_ref,
+)
 from services.computation.coverage import CoverageReport, RatioState
 from services.computation.oversight import OversightReason, evaluate_oversight
 
@@ -100,7 +108,6 @@ class AttestationRequest:
     prev_digest: str | None
     source: AttestationSource
     coverage: CoverageReport
-    boundary_versions: tuple[BoundaryVersion, ...]
     action_families: tuple[str, ...]
     operated_action_families: tuple[str, ...]
     review_action_ids: tuple[str, ...]
@@ -203,21 +210,29 @@ def _outcome_assertion(
     )
 
 
-def assemble_attestation(request: AttestationRequest) -> AttestationAssembly:
-    """Select only supportable catalogue assertions, with no persistence or clock."""
+def _assemble(
+    request: AttestationRequest, versions: Sequence[BoundaryVersion]
+) -> AttestationAssembly:
+    """Select only supportable catalogue assertions from a loaded history.
+
+    Private, and deliberately so. `versions` decides A-02 through AR-027 and
+    ES-032, and a caller able to supply it can supply a fabricated
+    `BoundaryVersion(recording_time_attested=True)` with whatever window
+    bounds suit the claim. The public entry points load the history from the
+    ledger instead, so the attested flag is one this service re-derived by
+    verifying a stored issuer receipt rather than one it was handed.
+    """
 
     coverage = request.coverage
     action_families = _require_non_empty(request.action_families, label="action_families")
     operated = _require_non_empty(
         request.operated_action_families, label="operated_action_families"
     )
-    if coverage.boundary_ref not in {version.boundary_ref for version in request.boundary_versions}:
+    if coverage.boundary_ref not in {version.boundary_ref for version in versions}:
         raise AttestationInputError("coverage boundary is absent from boundary history")
 
     selected_boundary = next(
-        version
-        for version in request.boundary_versions
-        if version.boundary_ref == coverage.boundary_ref
+        version for version in versions if version.boundary_ref == coverage.boundary_ref
     )
     undeclared = set(action_families) - selected_boundary.declared_families
     if undeclared:
@@ -231,7 +246,7 @@ def assemble_attestation(request: AttestationRequest) -> AttestationAssembly:
         )
 
     boundary_result = interval_coverage(
-        request.boundary_versions,
+        versions,
         boundary_ref=coverage.boundary_ref,
         window_start=coverage.window.start,
         window_end=coverage.window.end,
@@ -244,6 +259,18 @@ def assemble_attestation(request: AttestationRequest) -> AttestationAssembly:
     )
     counts = _assertion_counts(coverage)
     assertions: list[CatalogueAssertion] = []
+    # AR-027 decides whether the referenced version enclosed the window, and
+    # ES-032 decides whether the recording time that determination rests on is
+    # attested at all. Both live in `interval_coverage`: EV-31 derives
+    # `recording_time_attested` by re-verifying the stored issuer receipt
+    # against the registered `keys`, so an unattested recording time yields an
+    # unresolved interval and the whole window uncovered.
+    #
+    # Nothing here takes the caller's word for any of it. There is deliberately
+    # no request field carrying a receipt, a keyring, or an assurance that one
+    # exists: a caller-supplied trust root proves only that the caller's
+    # signature matches the caller's key, and a caller-supplied boundary
+    # projection could be timestamped by a receipt for a different body.
     if boundary_result.covered:
         assertions.append(A02BoundaryInForce(scope=scope, counts=counts))
     assertions.extend(
@@ -385,13 +412,68 @@ def assemble_attestation(request: AttestationRequest) -> AttestationAssembly:
     )
 
 
+def load_boundary_history(
+    connection: Connection, request: AttestationRequest
+) -> tuple[BoundaryVersion, ...]:
+    """Read the boundary's version history for this attestation's scope.
+
+    The only sanctioned source. `boundary_versions` re-verifies each stored
+    ES-032 receipt against the registered keys before reporting a recording
+    time as attested, so the flag AR-027 depends on is derived here rather
+    than accepted from a caller.
+    """
+
+    tenant_id, name, _ = parse_boundary_ref(request.coverage.boundary_ref)
+    if tenant_id != request.tenant_id:
+        raise AttestationInputError(
+            f"boundary_ref names tenant {tenant_id!r} but the request declares "
+            f"{request.tenant_id!r}"
+        )
+    return boundary_versions(connection, tenant_id=tenant_id, name=name)
+
+
+def assemble_attestation(
+    request: AttestationRequest, *, connection: Connection
+) -> AttestationAssembly:
+    """Select only supportable catalogue assertions, with no persistence or clock.
+
+    The connection is required, not optional: whether A-02 is supportable is a
+    question about what the ledger recorded and when, and it cannot be answered
+    from the request alone.
+    """
+
+    return _assemble(request, load_boundary_history(connection, request))
+
+
 def issue_attestation(
     request: AttestationRequest,
+    *,
+    connection: Connection,
+    evidence_signer: EvidenceSigner,
+    issuer_signer: IssuerSigner,
+) -> IssuedAttestation:
+    """Assemble, customer-sign, then issuer-counter-sign an AttestationWindow.
+
+    The boundary history is loaded here, from the ledger, and never accepted
+    from the caller.
+    """
+
+    return _sign_assembly(
+        request,
+        _assemble(request, load_boundary_history(connection, request)),
+        evidence_signer=evidence_signer,
+        issuer_signer=issuer_signer,
+    )
+
+
+def _sign_assembly(
+    request: AttestationRequest,
+    assembly: AttestationAssembly,
     *,
     evidence_signer: EvidenceSigner,
     issuer_signer: IssuerSigner,
 ) -> IssuedAttestation:
-    """Assemble, customer-sign, then issuer-counter-sign an AttestationWindow."""
+    """Serialize and sign an assembly that has already been decided."""
 
     if not isinstance(evidence_signer, EvidenceSigner):
         raise AttestationInputError("AttestationWindow primary proof requires evidence signer")
@@ -402,7 +484,6 @@ def issue_attestation(
     if request.sequence < 1:
         raise AttestationInputError("sequence must be positive")
 
-    assembly = assemble_attestation(request)
     coverage_payload = request.coverage.to_payload()
     unsigned = validate_record(
         {

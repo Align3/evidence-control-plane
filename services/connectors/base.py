@@ -38,6 +38,21 @@ class AttributionSurface(StrEnum):
     ENUMERATION_UNAVAILABLE = "enumeration_unavailable"
 
 
+class ConfirmationAccessPath(StrEnum):
+    """Whether confirmation has an access path distinct from enumeration.
+
+    ``confirmation=True`` only says that a record can be retrieved.  It does
+    not say that retrieval survives loss of the enumeration API or credential.
+    Qualification records need both facts; collapsing them would overstate a
+    connector such as Salesforce, where the operations are different SOQL
+    query shapes on the same REST surface under the same credential.
+    """
+
+    INDEPENDENT = "independent"
+    SHARED_WITH_ENUMERATION = "shared_with_enumeration"
+    NOT_AVAILABLE = "not_available"
+
+
 @dataclass(frozen=True, slots=True)
 class ConnectorCapabilities:
     enumeration: bool
@@ -45,6 +60,7 @@ class ConnectorCapabilities:
     authoritative_time: bool
     settlement_lag: timedelta | None
     attribution_surface: AttributionSurface
+    confirmation_access: ConfirmationAccessPath
 
     def __post_init__(self) -> None:
         if self.settlement_lag is not None and self.settlement_lag < timedelta(0):
@@ -60,6 +76,22 @@ class ConnectorCapabilities:
         elif self.attribution_surface is AttributionSurface.ENUMERATION_UNAVAILABLE:
             raise ValueError(
                 "an enumerating connector must describe the observed attribution surface"
+            )
+        if not self.confirmation:
+            if self.confirmation_access is not ConfirmationAccessPath.NOT_AVAILABLE:
+                raise ValueError(
+                    "confirmation access must be not_available when confirmation is absent"
+                )
+        elif self.confirmation_access is ConfirmationAccessPath.NOT_AVAILABLE:
+            raise ValueError(
+                "confirmation access must be described when confirmation is available"
+            )
+        if (
+            self.confirmation_access is ConfirmationAccessPath.SHARED_WITH_ENUMERATION
+            and not self.enumeration
+        ):
+            raise ValueError(
+                "confirmation access cannot be shared when enumeration is unavailable"
             )
 
 

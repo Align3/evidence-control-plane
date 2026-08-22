@@ -17,7 +17,7 @@ substitute for it.
 | `destination_system` | Salesforce (Developer Edition; production orgs may differ — see Open Items) |
 | `deployment` | Standalone Case object, no managed package customisation |
 | `qualified_at` | 2026-08-18 |
-| `revalidation_cadence` | **Not yet decided — open item, see below** |
+| `revalidation_cadence` | `PT1H`, plus an uncached preflight before every enumeration/attestation window |
 
 ---
 
@@ -56,7 +56,7 @@ substitute for it.
   ```
   confirmed working against the live trial org, correctly returning the one user holding the grant.
 
-**Consequence for CM-005/CM-006:** the isolation attribute is forgeable, but the forgery *capability* is monitorable. This is not the unconditional pass Phase A hoped for, and it is not a fallback to C3 — it's C1 with a standing precondition: **the integration user must not hold `PermissionsCreateAuditFields`, checked at qualification and re-checked on a cadence.**
+**Consequence for CM-005/CM-006:** the isolation attribute is forgeable, but the forgery *capability* is monitorable. This is not the unconditional pass Phase A hoped for, and it is not a fallback to C3 — it's C1 with a standing precondition: **no Case-creating principal may hold `PermissionsCreateAuditFields`, checked at qualification and re-checked on a cadence.**
 
 ---
 
@@ -66,7 +66,7 @@ substitute for it.
 |---|---|
 | API | SOQL retrieve by `Id` — same endpoint family as enumeration |
 | Permission required | Standard object read access; nothing beyond enumeration |
-| Independent of enumeration? | **No** — flagged as a deviation from the abstract two-capability model. For this connector, enumeration and confirmation share one API surface and one credential; they differ only in query shape, not in access path. Worth noting explicitly rather than silently claiming independence the architecture assumed but this destination doesn't provide. |
+| Independent of enumeration? | **No.** The connector reports confirmation as supported with `confirmation_access = shared_with_enumeration`; enumeration and confirmation share one API surface and credential and differ only in query shape. |
 
 ---
 
@@ -93,9 +93,12 @@ substitute for it.
 
 ## 6. Assigned class
 
-**C1, conditional on `PermissionsCreateAuditFields` not being granted to the integration user.**
+**C1, conditional on `PermissionsCreateAuditFields` not being granted to any
+principal that can create a Case.** A different user holding the permission
+can set `CreatedById` to the integration user's Id, so checking only the
+integration user's assignments does not protect the isolation attribute.
 
-Per §6's admissibility lattice: this class permits `reconciled` coverage and a coverage ratio, same as an unconditional C1. The condition does not weaken the *class*, it constrains the *population of valid deployments* — any deployment where the integration user holds the permission must downgrade immediately, not at the next scheduled check.
+Per §6's admissibility lattice: this class permits `reconciled` coverage and a coverage ratio, same as an unconditional C1. The condition does not weaken the *class*, it constrains the *population of valid deployments* — any deployment where a Case-creating principal holds the permission must downgrade immediately, not at the next scheduled check.
 
 ---
 
@@ -103,9 +106,9 @@ Per §6's admissibility lattice: this class permits `reconciled` coverage and a 
 
 | Metric | Value |
 |---|---|
-| Trial window | Single day, 2026-08-18 |
-| Population | 20 records (10 agent, 10 human), plus 3 forged/probe records excluded from the isolation count |
-| Match rate | 100% — isolation query returned exactly the agent-created 10, zero false positives, zero false negatives |
+| Trial window | Clean fixture window `[2026-08-18T08:55Z, 08:56Z)`; broader probe day 2026-08-18 |
+| Population | Clean window: 10 agent Cases. Broader day: 20 controlled Cases plus 3 forged/probe Cases and one lag probe. |
+| Isolation result | Clean window: exactly 10 agent Cases. Broader-day `CreatedById` query: 13 rows because it correctly demonstrates that the three forged creators are indistinguishable without the permission condition. |
 | Unmatched explanations | N/A — controlled trial, not a production reconciliation run |
 
 ---
@@ -113,6 +116,10 @@ Per §6's admissibility lattice: this class permits `reconciled` coverage and a 
 ## Open items — the connector story should resolve these, not assume them
 
 1. **`CreatedDate`/`SystemModstamp` override under the audit-fields permission** — untested. If either is forgeable alongside `CreatedById`, the temporal-authority claim in §4 needs the same conditional treatment as identity isolation.
-2. **Revalidation cadence** — not decided. Given the permission check is a single cheap SOQL query, a short cadence (daily, or even per-attestation-window) is architecturally free to run. This is a real design choice, not a default to inherit silently.
-3. **Production org differences** — this trial ran against a Developer Edition org. Governor limits, `SLA`/workflow trigger behaviour (visible in the trial's debug logs, e.g. `WF_RULE_EVAL_BEGIN`), and permission-set behaviour may differ in a real customer's production org. Do not treat this qualification as portable without re-verification against the first real design partner's org.
-4. **Confirmation independence** — §3's finding that enumeration and confirmation share one API surface should be checked against whether this matters for the coverage engine's admissibility logic, or whether it's a distinction without a difference for Salesforce specifically.
+2. **Production org differences** — this trial ran against a Developer Edition org. Governor limits, `SLA`/workflow trigger behaviour (visible in the trial's debug logs, e.g. `WF_RULE_EVAL_BEGIN`), and permission-set behaviour may differ in a real customer's production org. Do not treat this qualification as portable without re-verification against the first real design partner's org.
+
+### Resolved by EV-42
+
+- **Revalidation cadence:** `PT1H`, with an additional uncached permission preflight before every enumeration/attestation window. A grant or failed check at T2 after a clean check at T1 makes T1–T2 unknown and triggers review of overlapping issued attestations.
+- **Permission outcome:** `confirmed-clean`, `confirmed-granted`, and `check-failed` remain three distinct values. Only the first is C1-eligible; the second caps at C5; the third is unqualified rather than being mislabeled as either definite state.
+- **Confirmation independence:** confirmation remains a supported capability, but its access relationship is explicitly `shared_with_enumeration`.

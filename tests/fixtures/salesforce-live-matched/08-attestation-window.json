@@ -1,0 +1,180 @@
+{
+  "body": {
+    "assertions": [
+      {
+        "assertion_id": "A-02",
+        "boundary_in_force": true,
+        "counts": {
+          "ambiguous": 0,
+          "duplicate": 0,
+          "matched": 1,
+          "out_of_scope": 0,
+          "unmatched_with_evidence": 0,
+          "unmatched_without_evidence": 0
+        },
+        "scope": {
+          "action_families": [
+            "record.create"
+          ],
+          "boundary_ref": "salesforce_probe:case-create:1",
+          "window_end": "2026-08-22T11:56:00+00:00",
+          "window_start": "2026-08-22T11:55:00+00:00"
+        }
+      },
+      {
+        "assertion_id": "A-03",
+        "counts": {
+          "ambiguous": 0,
+          "duplicate": 0,
+          "matched": 1,
+          "out_of_scope": 0,
+          "unmatched_with_evidence": 0,
+          "unmatched_without_evidence": 0
+        },
+        "denominator_class": "C1",
+        "scope": {
+          "action_families": [
+            "record.create"
+          ],
+          "boundary_ref": "salesforce_probe:case-create:1",
+          "window_end": "2026-08-22T11:56:00+00:00",
+          "window_start": "2026-08-22T11:55:00+00:00"
+        }
+      },
+      {
+        "assertion_id": "A-04",
+        "counts": {
+          "ambiguous": 0,
+          "duplicate": 0,
+          "matched": 1,
+          "out_of_scope": 0,
+          "unmatched_with_evidence": 0,
+          "unmatched_without_evidence": 0
+        },
+        "coverage_level": "reconciled",
+        "matched_count": 1,
+        "population_count": 1,
+        "scope": {
+          "action_families": [
+            "record.create"
+          ],
+          "boundary_ref": "salesforce_probe:case-create:1",
+          "window_end": "2026-08-22T11:56:00+00:00",
+          "window_start": "2026-08-22T11:55:00+00:00"
+        }
+      },
+      {
+        "assertion_id": "A-06",
+        "capped_by_class": false,
+        "claimed_level": "reconciled",
+        "class_admissible_level": "reconciled",
+        "counts": {
+          "ambiguous": 0,
+          "duplicate": 0,
+          "matched": 1,
+          "out_of_scope": 0,
+          "unmatched_with_evidence": 0,
+          "unmatched_without_evidence": 0
+        },
+        "evidence_supported_level": "reconciled",
+        "scope": {
+          "action_families": [
+            "record.create"
+          ],
+          "boundary_ref": "salesforce_probe:case-create:1",
+          "window_end": "2026-08-22T11:56:00+00:00",
+          "window_start": "2026-08-22T11:55:00+00:00"
+        }
+      }
+    ],
+    "boundary_ref": "salesforce_probe:case-create:1",
+    "capped_by_class": false,
+    "counts": {
+      "ambiguous": 0,
+      "duplicate": 0,
+      "matched": 1,
+      "out_of_scope": 0,
+      "unmatched_with_evidence": 0,
+      "unmatched_without_evidence": 0
+    },
+    "coverage_level": "reconciled",
+    "coverage_ratio": "1.0000",
+    "denominator_class": "C1",
+    "exclusions": [
+      {
+        "claim": "semantic_appropriateness",
+        "kind": "standing_exclusion"
+      },
+      {
+        "claim": "human_judgement_quality",
+        "kind": "standing_exclusion"
+      },
+      {
+        "claim": "outside_declared_boundary",
+        "kind": "standing_exclusion"
+      },
+      {
+        "claim": "destination_system_integrity",
+        "kind": "standing_exclusion"
+      },
+      {
+        "claim": "outside_attestation_window",
+        "kind": "standing_exclusion"
+      },
+      {
+        "claim": "compliance_or_certification",
+        "kind": "standing_exclusion"
+      }
+    ],
+    "gaps": [],
+    "issued_at": "2026-08-22T11:58:17.157+00:00",
+    "issuer": {
+      "identifier": "salesforce-probe",
+      "name": "Evidence Control Plane demo"
+    },
+    "liability_ref": "demo-only:no-reliance",
+    "methodology_version": "1.0.0",
+    "population_record_refs": [
+      "01a02956-0047-7b15-a4d3-fea9756a5c3f"
+    ],
+    "relying_parties": [
+      {
+        "name": "demo fixture evaluator",
+        "relationship": "evaluation"
+      }
+    ],
+    "validity_from": "2026-08-22T11:58:17.157+00:00",
+    "validity_until": "2026-09-21T11:58:17.157+00:00",
+    "verification_status": "self_computed",
+    "verifier_version": "0.1.0",
+    "window_end": "2026-08-22T11:56:00.000+00:00",
+    "window_start": "2026-08-22T11:55:00.000+00:00"
+  },
+  "boundary_ref": "salesforce_probe:case-create:1",
+  "clocks": {
+    "source_time": "2026-08-22T11:58:17.157+00:00"
+  },
+  "prev_digest": null,
+  "record_id": "01a02956-0049-70a3-aedb-00ce7e8657c8",
+  "record_type": "AttestationWindow",
+  "schema_version": "1.0.0",
+  "sequence": 1,
+  "signature": {
+    "alg": "ed25519",
+    "issuer": {
+      "alg": "ed25519",
+      "key_id": "salesforce-live-issuer-dev-1",
+      "sig": "kp7uW_7Pga1z9xv9rA1CSUPkc2zZPtEaZm5O1WxlWrLSYx9nwglfuW_cUPx_MzItoCBS2iZ3oJeqlS3uPuOtDQ",
+      "signed_digest": "sha256:a7c3a5514e3ff22ddfbf1a7709913079416e817eb755deb7339021e3aa11b9dd"
+    },
+    "key_id": "salesforce-live-evidence-dev-1",
+    "sig": "8nU58e6RlcAzp9vqZtcmv4kjTVSWjl6G2DBQQbMjqNwx3GKseUb2Ijf3zD5HnaKzwDVmJ5vqMug855qgMnnaAg",
+    "signed_digest": "sha256:75fe8414255c6e59363ce29facb6737de660bb40571491f4304d83e24d224341"
+  },
+  "source": {
+    "service": "salesforce-live-fixture-generator",
+    "version": "0.2.0"
+  },
+  "stream_id": "salesforce_probe:attestation:salesforce-live",
+  "tenant_id": "salesforce_probe"
+}

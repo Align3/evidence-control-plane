@@ -19,17 +19,20 @@ from tests.admin_support import (
     qualification_body,
     signed_qualification,
 )
-from tests.attestation_support import attestation_request, boundary_version
+from tests.attestation_support import (
+    assemble_with,
+    attestation_request,
+    boundary_version,
+)
 from tests.coverage_support import at
 from tests.ledger_support import CHECK_VIOLATION, TENANT_A
 
 
 def test_unattested_stored_time_cannot_support_a02() -> None:
-    request = attestation_request(
-        version=boundary_version(recording_time_attested=False)
-    )
+    request = attestation_request()
+    version = boundary_version(recording_time_attested=False)
 
-    assembly = assemble_attestation(request)
+    assembly = assemble_with(request, version)
 
     assert assembly.boundary_coverage.effective is None
     assert not any(
@@ -365,3 +368,58 @@ def test_invalid_stored_receipt_cannot_make_recording_time_attested(
             assert result.uncovered == ((at(9), at(10)),)
         finally:
             transaction.rollback()
+
+
+def test_a02_is_emitted_through_the_database_backed_issuance_path(
+    owner_engine: Engine,
+    admin_actors: dict[str, AdminActor],
+) -> None:
+    """The positive control, taken through production issuance end to end.
+
+    A genuinely signed boundary and a genuinely signed ES-032 receipt are
+    recorded, then `assemble_attestation` loads the history itself and
+    re-verifies that receipt before AR-027 uses its instant. Nothing in the
+    request says the recording time is attested; the service concludes it.
+
+    Without this, every A-02 test in the suite asserts absence, and a change
+    that withheld the assertion unconditionally would pass all of them while
+    silently removing it from every attestation the product issues.
+    """
+    actor = admin_actors[TENANT_A]
+    # Recorded before the attested window opens, so AR-027's floor -- taken
+    # from the receipt -- sits at or before window_start.
+    recorded_at = datetime(2026, 8, 11, 8, tzinfo=UTC)
+    family = "refund.issue"
+    with owner_engine.begin() as connection:
+        qualification_ref = actor.write_qualification(
+            connection,
+            action_family=family,
+            destination_system="payments-core",
+            assigned_class="C1",
+            qualified_at=datetime(2026, 1, 1, tzinfo=UTC),
+        )
+        actor.write_boundary(
+            connection,
+            name="boundary",
+            version=1,
+            window_start=recorded_at,
+            window_end=datetime(2027, 1, 1, tzinfo=UTC),
+            families=[
+                {
+                    "action_family": family,
+                    "destination_system": "payments-core",
+                    "qualification_ref": qualification_ref,
+                }
+            ],
+            recorded_at=recorded_at,
+        )
+
+    # The default request is scoped to `acme:boundary:1` over 09:00-11:00.
+    request = attestation_request()
+    with owner_engine.begin() as connection:
+        assembly = assemble_attestation(request, connection=connection)
+
+    assert assembly.boundary_coverage.covered
+    assert any(
+        isinstance(assertion, A02BoundaryInForce) for assertion in assembly.assertions
+    )

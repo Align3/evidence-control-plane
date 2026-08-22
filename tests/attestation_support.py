@@ -8,11 +8,16 @@ from datetime import datetime, timedelta
 from services.admin.boundary import BoundaryVersion, DeclaredFamily
 from services.admin.qualification import DenominatorClass
 from services.attestation import (
+    AttestationAssembly,
     AttestationRequest,
     AttestationSource,
+    EvidenceSigner,
+    IssuedAttestation,
     IssuerIdentity,
+    IssuerSigner,
     RelyingParty,
 )
+from services.attestation.issuance import _assemble
 from services.computation.coverage import CoverageReport, compute_coverage
 from services.computation.reconciliation import ReconciliationStatus
 from tests.coverage_support import (
@@ -70,7 +75,6 @@ def boundary_version(
 def attestation_request(
     *,
     report: CoverageReport | None = None,
-    version: BoundaryVersion | None = None,
     action_families: tuple[str, ...] = ("refund.issue",),
     operated_action_families: tuple[str, ...] = ("refund.issue",),
     authoritative_source: str | None = "payments-ledger",
@@ -83,7 +87,6 @@ def attestation_request(
         prev_digest=None,
         source=AttestationSource(service="attestation", version="0.1.0"),
         coverage=report or coverage_report(),
-        boundary_versions=(version or boundary_version(),),
         action_families=action_families,
         operated_action_families=operated_action_families,
         review_action_ids=(),
@@ -100,6 +103,42 @@ def attestation_request(
         liability_ref="terms:standard:1",
         issued_at=at(11),
         issuer=IssuerIdentity(name="Evidence Control Plane"),
+    )
+
+
+def assemble_with(
+    request: AttestationRequest, version: BoundaryVersion | None = None
+) -> AttestationAssembly:
+    """Assemble against an explicitly supplied boundary history.
+
+    Reaches past the database-backed public entry point deliberately, which is
+    why it names the private assembler rather than hiding the fact. Production
+    callers cannot do this: `assemble_attestation` and `issue_attestation`
+    load the history from the ledger, so the attested flag AR-027 depends on is
+    one the service re-derived rather than one a caller supplied. Tests that
+    exercise A-02's *identity* must therefore go through the database; these
+    exist to exercise everything else without one.
+    """
+
+    return _assemble(request, (version or boundary_version(),))
+
+
+def issue_with(
+    request: AttestationRequest,
+    *,
+    evidence_signer: EvidenceSigner,
+    issuer_signer: IssuerSigner,
+    version: BoundaryVersion | None = None,
+) -> IssuedAttestation:
+    """Sign against an explicitly supplied history. See `assemble_with`."""
+
+    from services.attestation.issuance import _sign_assembly
+
+    return _sign_assembly(
+        request,
+        _assemble(request, (version or boundary_version(),)),
+        evidence_signer=evidence_signer,
+        issuer_signer=issuer_signer,
     )
 
 

@@ -1,0 +1,41 @@
+[
+  {
+    "body": {
+      "action_id": "unmatched-probe:a7a7efe5-6ebe-4238-935a-38bd603d0cd7",
+      "authoritative_timestamp": "2026-08-22T11:56:04.000Z",
+      "destination_record_digest": "sha256:0e651c0deebd3de9541cb707601364af8a04865f1747847abceb0dcc7ba420d9",
+      "destination_record_id": "500ak000039TKhNAAW",
+      "destination_system": "salesforce",
+      "reconciliation_status": "matched",
+      "retrieved_at": "2026-08-22T11:58:24.027Z"
+    },
+    "boundary_ref": "salesforce_probe:case-create:1",
+    "clocks": {
+      "authoritative_time": "2026-08-22T11:56:04.000Z",
+      "source_time": "2026-08-22T11:58:24.027Z"
+    },
+    "prev_digest": null,
+    "record_id": "01a02956-1f12-7f7d-a086-44b1a0d682fa",
+    "record_type": "ExternalConfirmation",
+    "schema_version": "1.0.0",
+    "sequence": 1,
+    "signature": {
+      "alg": "ed25519",
+      "key_id": "salesforce-live-issuer-dev-1",
+      "sig": "TbnXfGaSVKovJYSYzogTAYcvRl1wtlq28ddoHQCrTbX9D0qfd9oPWhdUawNFVIVjXx31AolYEQf2Cu067RDqAA",
+      "signed_digest": "sha256:4600c3506c242c3a34e0ea2d982b66eb39b3e6133fb0660727ead5124a06173b"
+    },
+    "source": {
+      "connector": {
+        "api_version": "v67.0",
+        "connector": "salesforce",
+        "destination_system": "salesforce",
+        "sobject": "Case"
+      },
+      "implementation": "salesforce-live-fixture-generator",
+      "version": "0.2.0"
+    },
+    "stream_id": "salesforce_probe:issuer:salesforce:confirmation",
+    "tenant_id": "salesforce_probe"
+  }
+]

@@ -141,6 +141,8 @@ Body: `action_family`, `destination_system`, `enumeration` (api, scoping params,
 
 **ES-010** — `assigned_class` MUST NOT be increased by amending an existing record. A stronger class requires a new `QualificationRecord` with a later `qualified_at`, and per CM-004 applies only to windows beginning after that date.
 
+**ES-037** — `revalidation_cadence` MUST be a strictly positive ISO 8601 duration. Implementations MUST accept the date-and-time component grammar (`PnYnMnDTnHnMnS`, including date-only values such as `P1D` and time-only values such as `PT1H`) and the exclusive week form (`PnW`); they MUST NOT maintain separate day and hour parsers whose accepted languages can drift. `revalidate_after` is derived by adding that duration to `qualified_at`, never supplied as an unsigned second value. Calendar years and months use calendar arithmetic, clamping to the final valid day of the target month; sub-second precision beyond the stored timestamp precision is rounded toward earlier revalidation.
+
 ### 5.3 PopulationRecord
 
 The enumeration snapshot from the destination system. **This is the denominator, and it is a distinct record type precisely because the methodology forbids conflating it with the population** (CM-002).
@@ -336,6 +338,17 @@ Scenario: Assertion routing agrees across implementations
   Given a signed bundle carrying an assertion_id outside the catalogue
   When the same bundle bytes are verified by the Python and Go entry points
   Then both refuse with assertion.outside_catalogue
+```
+
+### ES-S-026 — Qualification cadence uses one ISO 8601 grammar *(ES-037)*
+
+```gherkin
+Given two QualificationRecords qualified at the same instant
+And their revalidation cadences are "PT1H" and "P1D"
+When each revalidation deadline is derived
+Then the first deadline is exactly one hour after qualification
+And the second deadline is exactly one day after qualification
+And neither cadence is rejected by a unit-specific parser
 ```
 
 ---
@@ -617,3 +630,5 @@ And the attestation is not verified under another version's rules
 > **Verification for ES-026 — scenario-bearing; deferred EV-37.** This is externally observable runtime behaviour; EV-37 owns its missing Gherkin scenario and executable acceptance proof.
 
 > **Verification for ES-029 — otherwise-verified.** `pytest:tests/vectors/test_vectors.py::test_es_029_vector_manifest_is_closed_and_attack_complete` — This requirement is verified by a structural, database, CI, or artifact check rather than a Gherkin product scenario.
+
+> **Verification for ES-037 — scenario-bearing; ES-S-026.** The qualification parser derives both time-only and date-only cadences through one ISO 8601 grammar.

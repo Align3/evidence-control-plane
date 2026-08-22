@@ -1,0 +1,82 @@
+{
+  "bundle": {
+    "file": "12-bundle.json",
+    "records": [
+      "AssuranceBoundary",
+      "QualificationRecord",
+      "PopulationRecord",
+      "ExternalConfirmation",
+      "ActionProposal",
+      "ExecutionReceipt",
+      "AttestationWindow"
+    ],
+    "verify_with": "verifier-go/cmd/verify -mode bundle -offline -keyring <keyring.json> -as-of <RFC3339> 12-bundle.json"
+  },
+  "computation": {
+    "confirmations_with_ledger_derived_action_id": 1,
+    "confirmed_count": 1,
+    "coverage": "EV-16 compute_coverage",
+    "coverage_ratio": "1.0000",
+    "issuance": "EV-17 issue_attestation",
+    "matched_count": 1,
+    "population_count": 1,
+    "ratio_state": "available",
+    "reconciliation": "EV-15 reconcile over live population and ledger evidence"
+  },
+  "evidence_ledger": {
+    "action_proposals": 1,
+    "execution_receipts": 1,
+    "partition": "evidence_records_salesforce_probe",
+    "queried": true,
+    "record_types": [
+      "ActionProposal",
+      "ExecutionReceipt"
+    ],
+    "rows_returned": 2,
+    "tenant_id": "salesforce_probe",
+    "with_ingestion_receipt": 2
+  },
+  "files": [
+    "01-permission-check.json",
+    "02-population-observation.json",
+    "03-population-record.json",
+    "04-confirmation-observations.json",
+    "05-external-confirmations.json",
+    "06-reconciliation-results.json",
+    "07-coverage-report.json",
+    "08-attestation-window.json",
+    "10-qualification-record.json",
+    "11-assurance-boundary.json",
+    "13-ledger-evidence.json",
+    "12-bundle.json"
+  ],
+  "fixture_set": "salesforce-live-case-create",
+  "generated_at": "2026-08-22T11:58:17.157Z",
+  "generator_version": "0.2.0",
+  "ledger_artifacts": {
+    "contains": "the received wire bytes and ES-030 ingestion receipt for every evidence record the reconciliation read",
+    "file": "13-ledger-evidence.json"
+  },
+  "live_source": {
+    "api_version": "v67.0",
+    "destination_system": "salesforce",
+    "integration_user_id": "005ak00000fOIxxAAG",
+    "integration_username": "agent@probe.local",
+    "organization_id": "00Dak0000198dePEAQ",
+    "sobject": "Case",
+    "window_end": "2026-08-22T11:56:00.000Z",
+    "window_start": "2026-08-22T11:55:00.000Z"
+  },
+  "methodology_version": "1.0.0",
+  "schema_version": "1.0.0",
+  "verification_keys": {
+    "salesforce-live-evidence-dev-1": {
+      "namespace": "evidence",
+      "public_key_base64url": "mt9T-NwrfDD3BJrNsYmAorbZDzBmXD6074TCr2M0soM"
+    },
+    "salesforce-live-issuer-dev-1": {
+      "namespace": "issuer",
+      "public_key_base64url": "t1ol-F9-KB5YNTaxhoswARTQVkag2Lz3Mi_dPaygLwM"
+    }
+  }
+}

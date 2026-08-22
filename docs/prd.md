@@ -476,6 +476,18 @@ Replace the false two-category assumption that every evidence record is customer
 **Satisfies:** ES-033, SE-001, SE-002, SE-003, DM-008
 **Acceptance:** ES-S-019, SE-S-008
 
+#### EV-42 — Salesforce conditional-C1 connector
+Implement the first real EV-13 destination connector for Salesforce `record.create` on the Case object, using the standard REST/SOQL API and OAuth 2.0 JWT bearer flow through an External Client App. Enumeration is scoped in one query by `CreatedDate` and the integration user's `CreatedById`, follows every `nextRecordsUrl`, and reports `totalSize`, `done`, `pagination_complete`, and `result_cap_hit` without converting an incomplete query into a denominator. Confirmation retrieves one Case by Id. The capability description records that confirmation and enumeration share the same API surface and credential rather than presenting confirmation as operationally independent.
+
+Salesforce's `PermissionsCreateAuditFields` capability makes C1 conditional: a user holding it can forge the identity and authoritative-time fields on insert without a per-record trace. Qualification and revalidation therefore use a first-class, repeatable permission-state check. A current grant, an indeterminate permission result, or loss of permission-query access refuses C1 and downgrades the connector to C5; a later clean result cannot upgrade an earlier window retroactively. The connector exposes the check and its observation time for monitoring, but IN-017/IN-018 scheduling and alert delivery remain separate infrastructure work.
+
+Authentication uses an injected JWT-signing capability. The connector does not generate or persist an RSA private key and does not silently default to hosted key custody; client-held custody is the default posture, while any hosted KMS signer is an explicit P1 deployment choice that must be disclosed consistently with SE-006.
+
+**Touches:** `services/connectors/`, `services/admin/qualification.py`, evidence and coverage methodology documentation, connector and qualification tests, Salesforce qualification documentation
+**Depends on:** EV-13, EV-40
+**Satisfies:** AC-008, CM-004, CM-005, CM-006, CM-010, CM-016, DP-003, ES-037
+**Acceptance:** CM-S-012, CM-S-013, ES-S-026; against the qualified Salesforce Developer Edition org, a real API integration test isolates the known agent-created Cases from human-created Cases, retrieves a Case independently by Id, and exercises multi-page traversal with honest completion metadata; qualification and repeatable revalidation refuse C1 when the integration user holds `PermissionsCreateAuditFields` and preserve a failed query as an unknown third state; capability output records the shared Salesforce access path; JWT authentication accepts a client-held signer without connector-side private-key generation or persistence.
+
 ---
 
 ## 4. Build order

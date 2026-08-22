@@ -13,6 +13,7 @@ from sdk_python.evidence.schema import ClocksModel
 from services.connectors import (
     ActionReference,
     AttributionSurface,
+    ConfirmationAccessPath,
     ConfirmationConnector,
     ConfirmationObservation,
     ConnectorCapabilities,
@@ -126,6 +127,7 @@ class _LyingConnector:
             authoritative_time=True,
             settlement_lag=timedelta(0),
             attribution_surface=AttributionSurface.RECORD_FIELD,
+            confirmation_access=ConfirmationAccessPath.NOT_AVAILABLE,
         )
 
 
@@ -149,6 +151,47 @@ def test_capabilities_preserve_distinct_attribution_failure_shapes(
     assert connector.capabilities().attribution_surface is attribution_surface
     # There is intentionally no "identity_isolated" connector capability.
     assert not hasattr(connector.capabilities(), "identity_isolated")
+
+
+def test_capabilities_record_shared_confirmation_access_honestly() -> None:
+    connector, _ = _mock(
+        MockConnectorConfig(
+            confirmation_access=ConfirmationAccessPath.SHARED_WITH_ENUMERATION
+        )
+    )
+
+    assert (
+        connector.capabilities().confirmation_access
+        is ConfirmationAccessPath.SHARED_WITH_ENUMERATION
+    )
+
+
+@pytest.mark.parametrize(
+    ("enumeration", "confirmation", "access"),
+    [
+        (True, False, ConfirmationAccessPath.INDEPENDENT),
+        (True, True, ConfirmationAccessPath.NOT_AVAILABLE),
+        (False, True, ConfirmationAccessPath.SHARED_WITH_ENUMERATION),
+    ],
+)
+def test_impossible_confirmation_access_descriptions_are_refused(
+    enumeration: bool,
+    confirmation: bool,
+    access: ConfirmationAccessPath,
+) -> None:
+    with pytest.raises(ValueError, match="confirmation access"):
+        ConnectorCapabilities(
+            enumeration=enumeration,
+            confirmation=confirmation,
+            authoritative_time=enumeration,
+            settlement_lag=timedelta(0) if enumeration else None,
+            attribution_surface=(
+                AttributionSurface.RECORD_FIELD
+                if enumeration
+                else AttributionSurface.ENUMERATION_UNAVAILABLE
+            ),
+            confirmation_access=access,
+        )
 
 
 @pytest.mark.parametrize(
@@ -474,4 +517,5 @@ def test_enumeration_capability_metadata_rejects_impossible_combinations() -> No
             authoritative_time=True,
             settlement_lag=timedelta(seconds=1),
             attribution_surface=AttributionSurface.ENUMERATION_UNAVAILABLE,
+            confirmation_access=ConfirmationAccessPath.INDEPENDENT,
         )

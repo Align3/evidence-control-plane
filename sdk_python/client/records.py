@@ -19,8 +19,14 @@ from sdk_python.client.identity import SigningIdentity, SigningUnavailableError
 from sdk_python.evidence.canonical import canonical_digest
 from sdk_python.evidence.schema import serialize_record, validate_record
 from sdk_python.evidence.signing import sign_record
+from sdk_python.evidence.versions import require_published_schema_version
 
-SCHEMA_VERSION = "0.1.0"
+#: ES-035's published set is the only thing a conformant verifier will accept,
+#: so it is read from the registry rather than restated here. Emitting under an
+#: unpublished version produces records that are individually well-formed,
+#: correctly signed, and refused by every verifier -- a failure that surfaces
+#: only once someone tries to rely on them.
+SCHEMA_VERSION = require_published_schema_version("1.0.0")
 #: EV-07 checks this against the collector's registration row, so it names the
 #: SDK as the rest of the repository already registers it. A separate identifier
 #: for the client package would make every record this SDK emits fail collector
