@@ -1,29 +1,29 @@
 [
   {
     "body": {
-      "action_id": "584753ab-70c2-4e6d-834c-4ec2fa1658de",
-      "authoritative_timestamp": "2026-08-22T10:28:01.000Z",
-      "destination_record_digest": "sha256:29d54e2c46f3d058f3150211f4bec24fea96d681ed5a007ebb03cbca32d45adb",
-      "destination_record_id": "500ak000039SA7OAAW",
+      "action_id": "ac9e9e7f-9514-4ba2-8452-5f3ad5ce3fb3",
+      "authoritative_timestamp": "2026-08-22T11:55:01.000Z",
+      "destination_record_digest": "sha256:807d61fcd595f09a8796ad9be41e119d3265a87dee7dc2e390152f76df5b666e",
+      "destination_record_id": "500ak000039TJoYAAW",
       "destination_system": "salesforce",
       "reconciliation_status": "matched",
-      "retrieved_at": "2026-08-22T10:29:46.113Z"
+      "retrieved_at": "2026-08-22T11:58:16.343Z"
     },
     "boundary_ref": "salesforce_probe:case-create:1",
     "clocks": {
-      "authoritative_time": "2026-08-22T10:28:01.000Z",
-      "source_time": "2026-08-22T10:29:46.113Z"
+      "authoritative_time": "2026-08-22T11:55:01.000Z",
+      "source_time": "2026-08-22T11:58:16.343Z"
     },
     "prev_digest": null,
-    "record_id": "01a02904-f969-70f4-b51c-4c2745e90160",
+    "record_id": "01a02956-0048-76fc-9c29-33c54a5b0507",
     "record_type": "ExternalConfirmation",
     "schema_version": "1.0.0",
     "sequence": 1,
     "signature": {
       "alg": "ed25519",
       "key_id": "salesforce-live-issuer-dev-1",
-      "sig": "3c2mLWoOcQiSj93SOWlesz8oIeu7mwJjdoLFftqUtWmSHZHCgb88tEgF3zuxeFOSct_zqeX-AZcJwgNAmh7dAw",
-      "signed_digest": "sha256:44e2292f10b48521a9632961f449f8440502e235cc45cae75c0f9238b87573c2"
+      "sig": "y-W6ecNXz01JHeaFwvwRxQFSLlUpsADn3Kse84FGT3L_-4r7QYGvhi7s1uZUJovqCHO-fyUfgYosL1JVZypIDQ",
+      "signed_digest": "sha256:d257f8644f2d01e7e2743b90b65cb3ebd17d6822a6e5cde6a2cf1a161f433fdb"
     },
     "source": {
       "connector": {

@@ -1,7 +1,7 @@
 {
   "c1_eligible": true,
-  "checked_at": "2026-08-22T10:29:49.482Z",
+  "checked_at": "2026-08-22T11:58:20.000Z",
   "failure_code": null,
-  "last_confirmed_clean_at": "2026-08-22T10:29:49.482Z",
+  "last_confirmed_clean_at": "2026-08-22T11:58:20.000Z",
   "outcome": "confirmed-clean"
 }

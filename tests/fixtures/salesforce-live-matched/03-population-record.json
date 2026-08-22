@@ -4,12 +4,12 @@
     "attribution_observations": [
       {
         "actor_attribute": "005ak00000fOIxxAAG",
-        "record_identifier": "500ak000039SA7OAAW"
+        "record_identifier": "500ak000039TJoYAAW"
       }
     ],
     "authoritative_timestamps": {
-      "max": "2026-08-22T10:28:01.000Z",
-      "min": "2026-08-22T10:28:01.000Z"
+      "max": "2026-08-22T11:55:01.000Z",
+      "min": "2026-08-22T11:55:01.000Z"
     },
     "count": 1,
     "destination_system": "salesforce",
@@ -18,37 +18,37 @@
         "created_by_id": "005ak00000fOIxxAAG",
         "sobject": "Case"
       },
-      "soql": "SELECT Id, CreatedById, CreatedDate, LastModifiedById, OwnerId FROM Case WHERE CreatedById = '005ak00000fOIxxAAG' AND CreatedDate >= 2026-08-22T10:28:00.000Z AND CreatedDate < 2026-08-22T10:29:00.000Z ORDER BY CreatedDate ASC, Id ASC",
-      "window_end": "2026-08-22T10:29:00.000Z",
-      "window_start": "2026-08-22T10:28:00.000Z"
+      "soql": "SELECT Id, CreatedById, CreatedDate, LastModifiedById, OwnerId FROM Case WHERE CreatedById = '005ak00000fOIxxAAG' AND CreatedDate >= 2026-08-22T11:55:00.000Z AND CreatedDate < 2026-08-22T11:56:00.000Z ORDER BY CreatedDate ASC, Id ASC",
+      "window_end": "2026-08-22T11:56:00.000Z",
+      "window_start": "2026-08-22T11:55:00.000Z"
     },
     "observed_settlement_lag_ms": 0,
     "pagination_complete": true,
     "qualification_condition": "confirmed-clean",
     "record_identifiers": [
-      "500ak000039SA7OAAW"
+      "500ak000039TJoYAAW"
     ],
     "result_cap_hit": false,
-    "retrieved_at": "2026-08-22T10:29:45.132Z",
+    "retrieved_at": "2026-08-22T11:58:14.978Z",
     "total_size_matches": true,
-    "window_end": "2026-08-22T10:29:00.000Z",
-    "window_start": "2026-08-22T10:28:00.000Z"
+    "window_end": "2026-08-22T11:56:00.000Z",
+    "window_start": "2026-08-22T11:55:00.000Z"
   },
   "boundary_ref": "salesforce_probe:case-create:1",
   "clocks": {
-    "authoritative_time": "2026-08-22T10:28:01.000Z",
-    "source_time": "2026-08-22T10:29:45.132Z"
+    "authoritative_time": "2026-08-22T11:55:01.000Z",
+    "source_time": "2026-08-22T11:58:14.978Z"
   },
   "prev_digest": null,
-  "record_id": "01a02904-f968-7534-bd8f-ce09ec53db82",
+  "record_id": "01a02956-0047-7b15-a4d3-fea9756a5c3f",
   "record_type": "PopulationRecord",
   "schema_version": "1.0.0",
   "sequence": 1,
   "signature": {
     "alg": "ed25519",
     "key_id": "salesforce-live-issuer-dev-1",
-    "sig": "Jd9FZv-F91NZwOtYyz1u7cp1DyguXvhwIys4SNEh7OEvEsmcjNKvP0GoKUA7-cT1q-aEC1KNE2rDCgyca_N8BA",
-    "signed_digest": "sha256:8d8d3fd674c2a761b194d8b5a88e5cba54bec4ccb33577e5fd328f44051f8c63"
+    "sig": "fbqsRXbjoG70XGzntYPK5RYgXMsEeSuAvvSd3ZAr4W4k8irG-ICk2mJ8uZQBmzc0VWyDyloKu9ohTfqw_Pr7BA",
+    "signed_digest": "sha256:4ff7165b2a8df1e9491bd1bfce1fd1925e5f8128ee5a2890d4b989db74e39812"
   },
   "source": {
     "connector": {

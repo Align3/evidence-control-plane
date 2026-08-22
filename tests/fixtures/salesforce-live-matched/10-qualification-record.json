@@ -30,7 +30,7 @@
       "deletion_possible": false,
       "trace_available": true
     },
-    "qualified_at": "2026-08-22T10:27:25.768Z",
+    "qualified_at": "2026-08-22T11:54:34.109Z",
     "retention_period": "P180D",
     "revalidation_cadence": "PT1H",
     "temporal": {
@@ -44,18 +44,18 @@
   },
   "boundary_ref": "salesforce_probe:case-create:1",
   "clocks": {
-    "source_time": "2026-08-22T10:27:25.768Z"
+    "source_time": "2026-08-22T11:54:34.109Z"
   },
   "prev_digest": null,
-  "record_id": "01a02902-d1c8-767f-843d-c8f653167537",
+  "record_id": "01a02952-98fd-78a6-bee9-f78c356b6a32",
   "record_type": "QualificationRecord",
   "schema_version": "1.0.0",
   "sequence": 1,
   "signature": {
     "alg": "ed25519",
     "key_id": "salesforce-live-evidence-dev-1",
-    "sig": "pO7lJ6B4P5q0S1EmFzszgSf0d9CSG4FCIAFb6U6z8_6xE6-wVlA66DlhIX0BHxCOEAHtYFI2qtqlzQFA3Z-1DA",
-    "signed_digest": "sha256:efe94b0a4895db969a7a11ebc1785f3bd0f847840c710334c10ac448398c5501"
+    "sig": "jX1_2SXFqQceHat8NxCUIHIt2pHVoRZkuz3sd9XyA2lF54Cxp_3kolUnwCc6M1jsvT_Lsl2DvPhadqXO8Mr2BA",
+    "signed_digest": "sha256:4bf3dc05933d6600be7df97ef98b98dd886172b65a61cdb64c92710e9ce7a5b6"
   },
   "source": {
     "implementation": "salesforce-live-fixture-generator",

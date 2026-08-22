@@ -2,6 +2,26 @@
   "body": {
     "assertions": [
       {
+        "assertion_id": "A-02",
+        "boundary_in_force": true,
+        "counts": {
+          "ambiguous": 0,
+          "duplicate": 0,
+          "matched": 0,
+          "out_of_scope": 0,
+          "unmatched_with_evidence": 0,
+          "unmatched_without_evidence": 1
+        },
+        "scope": {
+          "action_families": [
+            "record.create"
+          ],
+          "boundary_ref": "salesforce_probe:case-create:1",
+          "window_end": "2026-08-22T11:57:00+00:00",
+          "window_start": "2026-08-22T11:56:00+00:00"
+        }
+      },
+      {
         "assertion_id": "A-03",
         "counts": {
           "ambiguous": 0,
@@ -17,8 +37,8 @@
             "record.create"
           ],
           "boundary_ref": "salesforce_probe:case-create:1",
-          "window_end": "2026-08-22T10:30:00+00:00",
-          "window_start": "2026-08-22T10:29:00+00:00"
+          "window_end": "2026-08-22T11:57:00+00:00",
+          "window_start": "2026-08-22T11:56:00+00:00"
         }
       },
       {
@@ -39,8 +59,8 @@
             "record.create"
           ],
           "boundary_ref": "salesforce_probe:case-create:1",
-          "window_end": "2026-08-22T10:30:00+00:00",
-          "window_start": "2026-08-22T10:29:00+00:00"
+          "window_end": "2026-08-22T11:57:00+00:00",
+          "window_start": "2026-08-22T11:56:00+00:00"
         }
       },
       {
@@ -62,8 +82,8 @@
             "record.create"
           ],
           "boundary_ref": "salesforce_probe:case-create:1",
-          "window_end": "2026-08-22T10:30:00+00:00",
-          "window_start": "2026-08-22T10:29:00+00:00"
+          "window_end": "2026-08-22T11:57:00+00:00",
+          "window_start": "2026-08-22T11:56:00+00:00"
         }
       }
     ],
@@ -107,7 +127,7 @@
       }
     ],
     "gaps": [],
-    "issued_at": "2026-08-22T10:29:53.520+00:00",
+    "issued_at": "2026-08-22T11:58:25.039+00:00",
     "issuer": {
       "identifier": "salesforce-probe",
       "name": "Evidence Control Plane demo"
@@ -115,7 +135,7 @@
     "liability_ref": "demo-only:no-reliance",
     "methodology_version": "1.0.0",
     "population_record_refs": [
-      "01a02905-12f2-7828-aa07-72477d6aa083"
+      "01a02956-1f11-75b6-b655-3d9c676e452a"
     ],
     "relying_parties": [
       {
@@ -123,19 +143,19 @@
         "relationship": "evaluation"
       }
     ],
-    "validity_from": "2026-08-22T10:29:53.520+00:00",
-    "validity_until": "2026-09-21T10:29:53.520+00:00",
+    "validity_from": "2026-08-22T11:58:25.039+00:00",
+    "validity_until": "2026-09-21T11:58:25.039+00:00",
     "verification_status": "self_computed",
     "verifier_version": "0.1.0",
-    "window_end": "2026-08-22T10:30:00.000+00:00",
-    "window_start": "2026-08-22T10:29:00.000+00:00"
+    "window_end": "2026-08-22T11:57:00.000+00:00",
+    "window_start": "2026-08-22T11:56:00.000+00:00"
   },
   "boundary_ref": "salesforce_probe:case-create:1",
   "clocks": {
-    "source_time": "2026-08-22T10:29:53.520+00:00"
+    "source_time": "2026-08-22T11:58:25.039+00:00"
   },
   "prev_digest": null,
-  "record_id": "01a02905-12f4-7aa9-b9e7-47e91ddf3076",
+  "record_id": "01a02956-1f13-78ad-b508-a782284930d4",
   "record_type": "AttestationWindow",
   "schema_version": "1.0.0",
   "sequence": 1,
@@ -144,12 +164,12 @@
     "issuer": {
       "alg": "ed25519",
       "key_id": "salesforce-live-issuer-dev-1",
-      "sig": "g0vqFMIhXXAh0PyjCd3Q3JcHPQ9NriLVlRuu_8jW1GzjCN9g7dkKy12vnUBFm25U--LJ1VVlX3OPQWusmV8DCQ",
-      "signed_digest": "sha256:fb40187406ed34f217163d66e769dd51a54c1eae613e29549a88741f21f668f7"
+      "sig": "c3pj4gjsS8IG8a2_QpiaoMwg9NQrWF6E2cKoh7JNJW28QXAuOIU7Fu3WAImlopK8fqPx5TMCH725nqrkp61KAw",
+      "signed_digest": "sha256:b02aebe18ed09e331fd0cd6755e89a6f02b81aacfcf5cbf66549321c62c797af"
     },
     "key_id": "salesforce-live-evidence-dev-1",
-    "sig": "txB19as1baRVWYQDE4JQhHeRPfs6MzoNftE-C187lGGuD8CgJivQZbRZoADUgVQAj21RQ_N_8Prk-fE8dr01Ag",
-    "signed_digest": "sha256:4bcfd9c44ad4d070430306546352285f637496c09c394357be29f4d314886b09"
+    "sig": "rmeP_cbonprS0qqzF47hFF5KmZ5hoOKFJb7ePbYbFbnGIgekK33Z31tOTlF6MX5hI4RFJtKS7jidzYEJ0m3wCw",
+    "signed_digest": "sha256:8f4d0d0a119c66532091bae1a34f58175053c07e769a0b4ffb0bd409fe5547d3"
   },
   "source": {
     "service": "salesforce-live-fixture-generator",

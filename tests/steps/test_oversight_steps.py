@@ -8,8 +8,11 @@ from typing import Any
 from cryptography.hazmat.primitives.asymmetric.ed25519 import Ed25519PrivateKey
 from pytest_bdd import given, parsers, scenario, then, when
 
-from services.attestation import EvidenceSigner, IssuerSigner, issue_attestation
-from tests.attestation_support import attestation_request
+from services.attestation import EvidenceSigner, IssuerSigner
+from tests.attestation_support import (
+    attestation_request,
+    issue_with,
+)
 from tests.unit.test_oversight import human_review
 
 
@@ -42,7 +45,7 @@ def evaluate(oversight_context: dict[str, Any]) -> None:
         review_action_ids=(review.body.action_id,),
         human_reviews=(review,),
     )
-    oversight_context["issued"] = issue_attestation(
+    oversight_context["issued"] = issue_with(
         request,
         evidence_signer=EvidenceSigner("evidence-key", Ed25519PrivateKey.generate()),
         issuer_signer=IssuerSigner("issuer-key", Ed25519PrivateKey.generate()),

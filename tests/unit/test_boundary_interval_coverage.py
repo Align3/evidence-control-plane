@@ -53,6 +53,10 @@ def version(
         window_end=window_end,
         recorded_at=recorded_at,
         families=(FAMILY,),
+        # Stated rather than inherited: these exercise AR-027's arithmetic, so
+        # the ES-032 precondition is deliberately satisfied and the tests that
+        # care about it withholding say so themselves.
+        recording_time_attested=True,
     )
 
 

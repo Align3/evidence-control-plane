@@ -4,12 +4,12 @@
     "attribution_observations": [
       {
         "actor_attribute": "005ak00000fOIxxAAG",
-        "record_identifier": "500ak000039SA7OAAW"
+        "record_identifier": "500ak000039TJoYAAW"
       }
     ],
     "authoritative_timestamps": {
-      "max": "2026-08-22T10:28:01.000Z",
-      "min": "2026-08-22T10:28:01.000Z"
+      "max": "2026-08-22T11:55:01.000Z",
+      "min": "2026-08-22T11:55:01.000Z"
     },
     "count": 1,
     "destination_system": "salesforce",
@@ -18,25 +18,25 @@
         "created_by_id": "005ak00000fOIxxAAG",
         "sobject": "Case"
       },
-      "soql": "SELECT Id, CreatedById, CreatedDate, LastModifiedById, OwnerId FROM Case WHERE CreatedById = '005ak00000fOIxxAAG' AND CreatedDate >= 2026-08-22T10:28:00.000Z AND CreatedDate < 2026-08-22T10:29:00.000Z ORDER BY CreatedDate ASC, Id ASC",
-      "window_end": "2026-08-22T10:29:00.000Z",
-      "window_start": "2026-08-22T10:28:00.000Z"
+      "soql": "SELECT Id, CreatedById, CreatedDate, LastModifiedById, OwnerId FROM Case WHERE CreatedById = '005ak00000fOIxxAAG' AND CreatedDate >= 2026-08-22T11:55:00.000Z AND CreatedDate < 2026-08-22T11:56:00.000Z ORDER BY CreatedDate ASC, Id ASC",
+      "window_end": "2026-08-22T11:56:00.000Z",
+      "window_start": "2026-08-22T11:55:00.000Z"
     },
     "observed_settlement_lag_ms": 0,
     "pagination_complete": true,
     "qualification_condition": "confirmed-clean",
     "record_identifiers": [
-      "500ak000039SA7OAAW"
+      "500ak000039TJoYAAW"
     ],
     "result_cap_hit": false,
-    "retrieved_at": "2026-08-22T10:29:45.132Z",
+    "retrieved_at": "2026-08-22T11:58:14.978Z",
     "total_size_matches": true,
-    "window_end": "2026-08-22T10:29:00.000Z",
-    "window_start": "2026-08-22T10:28:00.000Z"
+    "window_end": "2026-08-22T11:56:00.000Z",
+    "window_start": "2026-08-22T11:55:00.000Z"
   },
   "clocks": {
-    "authoritative_time": "2026-08-22T10:28:01.000Z",
-    "source_time": "2026-08-22T10:29:45.132Z"
+    "authoritative_time": "2026-08-22T11:55:01.000Z",
+    "source_time": "2026-08-22T11:58:14.978Z"
   },
   "source": {
     "api_version": "v67.0",

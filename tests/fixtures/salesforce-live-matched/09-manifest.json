@@ -51,7 +51,7 @@
     "12-bundle.json"
   ],
   "fixture_set": "salesforce-live-case-create",
-  "generated_at": "2026-08-22T10:29:46.982Z",
+  "generated_at": "2026-08-22T11:58:17.157Z",
   "generator_version": "0.2.0",
   "ledger_artifacts": {
     "contains": "the received wire bytes and ES-030 ingestion receipt for every evidence record the reconciliation read",
@@ -64,8 +64,8 @@
     "integration_username": "agent@probe.local",
     "organization_id": "00Dak0000198dePEAQ",
     "sobject": "Case",
-    "window_end": "2026-08-22T10:29:00.000Z",
-    "window_start": "2026-08-22T10:28:00.000Z"
+    "window_end": "2026-08-22T11:56:00.000Z",
+    "window_start": "2026-08-22T11:55:00.000Z"
   },
   "methodology_version": "1.0.0",
   "schema_version": "1.0.0",

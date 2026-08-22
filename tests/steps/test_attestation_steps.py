@@ -19,9 +19,7 @@ from services.attestation import (
     CatalogueAssertion,
     EvidenceSigner,
     IssuerSigner,
-    assemble_attestation,
     assertion_payload,
-    issue_attestation,
 )
 from services.ingestion.receipts import (
     KeyNamespaceError,
@@ -29,9 +27,11 @@ from services.ingestion.receipts import (
     verify_canonical_evidence_record,
 )
 from tests.attestation_support import (
+    assemble_with,
     attestation_request,
     boundary_version,
     coverage_report,
+    issue_with,
 )
 from tests.coverage_support import at
 
@@ -93,10 +93,11 @@ def test_se_s_001_attestation() -> None:
 def _issue(context: dict[str, Any]) -> None:
     evidence_key = Ed25519PrivateKey.generate()
     issuer_key = Ed25519PrivateKey.generate()
-    context["issued"] = issue_attestation(
+    context["issued"] = issue_with(
         context["request"],
         evidence_signer=EvidenceSigner("evidence-key", evidence_key),
         issuer_signer=IssuerSigner("issuer-key", issuer_key),
+        version=context.get("version"),
     )
 
 
@@ -107,7 +108,9 @@ def generation_request() -> dict[str, Any]:
 
 @when("the assertion set is assembled")
 def assertion_set_assembled(attestation_context: dict[str, Any]) -> None:
-    attestation_context["assembly"] = assemble_attestation(attestation_context["request"])
+    attestation_context["assembly"] = assemble_with(
+        attestation_context["request"], attestation_context.get("version")
+    )
 
 
 @then("every assertion maps to a catalogue ID")
@@ -161,14 +164,16 @@ def three_operated_families() -> dict[str, Any]:
         "request": attestation_request(
             action_families=("X",),
             operated_action_families=("X", "Y", "Z"),
-            version=boundary_version(action_families=("X",)),
-        )
+        ),
+        "version": boundary_version(
+            action_families=("X",), recording_time_attested=True
+        ),
     }
 
 
 @given("a boundary covering only [X]")
 def boundary_only_x(attestation_context: dict[str, Any]) -> None:
-    assert attestation_context["request"].boundary_versions[0].declared_families == {"X"}
+    assert attestation_context["version"].declared_families == {"X"}
 
 
 @when("an attestation is issued")
@@ -191,7 +196,10 @@ def other_families_disclosed(attestation_context: dict[str, Any]) -> None:
     target_fixture="attestation_context",
 )
 def partial_boundary() -> dict[str, Any]:
-    return {"request": attestation_request(version=boundary_version(recorded_at=at(9, 30)))}
+    return {
+        "request": attestation_request(),
+        "version": boundary_version(recorded_at=at(9, 30), recording_time_attested=True),
+    }
 
 
 @given(
@@ -200,16 +208,15 @@ def partial_boundary() -> dict[str, Any]:
 )
 def boundary_without_receipt() -> dict[str, Any]:
     return {
-        "request": attestation_request(
-            version=boundary_version(recording_time_attested=False)
-        )
+        "request": attestation_request(),
+        "version": boundary_version(recording_time_attested=False),
     }
 
 
 @given("an attestation window from W1 to W2 where W1 < B1 or W2 > B2")
 def window_extends_boundary(attestation_context: dict[str, Any]) -> None:
     request = attestation_context["request"]
-    assert request.coverage.window.start < request.boundary_versions[0].recorded_at
+    assert request.coverage.window.start < attestation_context["version"].recorded_at
 
 
 @then("A-02 is withheld")
@@ -275,7 +282,7 @@ def outcome_source_identified(attestation_context: dict[str, Any]) -> None:
 def absent_source_withholds_a09(attestation_context: dict[str, Any]) -> None:
     request = replace(attestation_context["request"], authoritative_source=None)
     assert not any(
-        isinstance(item, A09OutcomesConfirmed) for item in assemble_attestation(request).assertions
+        isinstance(item, A09OutcomesConfirmed) for item in assemble_with(request).assertions
     )
 
 

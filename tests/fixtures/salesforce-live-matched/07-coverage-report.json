@@ -14,8 +14,8 @@
   "coverage_ratio": "1.0000",
   "covered_intervals": [
     {
-      "end": "2026-08-22T10:29:00.000+00:00",
-      "start": "2026-08-22T10:28:00.000+00:00"
+      "end": "2026-08-22T11:56:00.000+00:00",
+      "start": "2026-08-22T11:55:00.000+00:00"
     }
   ],
   "denominator_class": "c1",
@@ -26,8 +26,8 @@
   "gaps": [],
   "numerator_count": 1,
   "population_independently_enumerable": true,
-  "population_ref": "01a02904-f968-7534-bd8f-ce09ec53db82",
+  "population_ref": "01a02956-0047-7b15-a4d3-fea9756a5c3f",
   "ratio_state": "available",
-  "window_end": "2026-08-22T10:29:00+00:00",
-  "window_start": "2026-08-22T10:28:00+00:00"
+  "window_end": "2026-08-22T11:56:00+00:00",
+  "window_start": "2026-08-22T11:55:00+00:00"
 }

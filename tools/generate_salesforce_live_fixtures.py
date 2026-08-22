@@ -42,7 +42,6 @@ from cryptography.hazmat.primitives.asymmetric.ed25519 import Ed25519PrivateKey
 from sqlalchemy import select
 
 from sdk_python.evidence.bundle import assemble_bundle
-from sdk_python.evidence.canonical import canonicalize
 from sdk_python.evidence.schema import (
     ActionProposalRecord,
     AssuranceBoundaryRecord,
@@ -104,8 +103,6 @@ from services.ingestion.receipts import (
 from services.ledger import (
     LedgerConfig,
     TenantEngines,
-    digest_bytes,
-    digest_ref,
     evidence_partition,
     migrator_engine,
     tenant_connection,
@@ -357,28 +354,6 @@ def read_ledger_evidence(
     return evidence, provenance
 
 
-def _resigned(row: Any) -> bytes:
-    """Reattach the stored signature to the bytes it covered.
-
-    ES-021 makes `sig` cover the record *excluding* its own signature member,
-    so that is what the ledger stores and what the key actually signed. The
-    complete wire record is that payload with the signature put back -- and
-    reassembling it here rather than storing it twice keeps one authoritative
-    copy of the signed bytes.
-    """
-
-    payload = json.loads(bytes(row["canonical_bytes"]))
-    payload["signature"] = {
-        "alg": "ed25519",
-        "key_id": row["key_id"],
-        "sig": base64.urlsafe_b64encode(bytes(row["signature"]))
-        .rstrip(b"=")
-        .decode("ascii"),
-        "signed_digest": digest_ref(digest_bytes(bytes(row["canonical_bytes"]))),
-    }
-    return canonicalize(payload)
-
-
 @dataclass(frozen=True, slots=True)
 class RegisteredScope:
     """The boundary and qualification as the ledger recorded them.
@@ -393,7 +368,8 @@ class RegisteredScope:
 
     boundary_version: BoundaryVersion
     qualifications: tuple[Qualification, ...]
-    #: The hosted observation, unsigned: ES-032's receipt does not exist yet.
+    #: The recording instant, derived from the ES-032 issuer receipt that
+    #: `boundary_versions` re-verifies against the registered keys.
     recorded_at: datetime
     #: The exact signed records the ledger holds, republished verbatim.
     boundary_record: AssuranceBoundaryRecord
@@ -420,30 +396,25 @@ def read_registered_scope(
             # The authoritative bytes (ES-021, DM-023): every projected column
             # above is rebuildable from these, and only these carry the
             # signature a relying party can check.
+            # EV-31 stores the complete wire artifact for constitutive
+            # records, so the fixture republishes exactly what the ledger
+            # holds rather than reassembling a look-alike from its parts.
             boundary_row = connection.execute(
-                select(
-                    boundaries.c.canonical_bytes,
-                    boundaries.c.key_id,
-                    boundaries.c.signature,
-                )
+                select(boundaries.c.received_wire_bytes)
                 .where(
                     boundaries.c.tenant_id == tenant_id,
                     boundaries.c.name == name,
                 )
                 .order_by(boundaries.c.version.desc())
                 .limit(1)
-            ).mappings().one()
+            ).scalar_one()
             qualification_rows = connection.execute(
-                select(
-                    qualification_records.c.canonical_bytes,
-                    qualification_records.c.key_id,
-                    qualification_records.c.signature,
-                ).where(
+                select(qualification_records.c.received_wire_bytes).where(
                     qualification_records.c.tenant_id == tenant_id,
                     qualification_records.c.action_family == action_family,
                     qualification_records.c.destination_system == destination_system,
                 )
-            ).mappings().all()
+            ).scalars().all()
     finally:
         engine.dispose()
     if not versions:
@@ -456,8 +427,8 @@ def read_registered_scope(
             f"no QualificationRecord for {action_family}/{destination_system}"
         )
     latest = versions[-1]
-    boundary = parse_record(_resigned(boundary_row))
-    qualification = parse_record(_resigned(qualification_rows[-1]))
+    boundary = parse_record(bytes(boundary_row))
+    qualification = parse_record(bytes(qualification_rows[-1]))
     assert isinstance(boundary, AssuranceBoundaryRecord)
     assert isinstance(qualification, QualificationRecord)
     return RegisteredScope(
@@ -898,42 +869,57 @@ def generate(
         qualification_history=registered.qualifications,
         action_evidence=action_evidence,
     )
-    boundary_version = registered.boundary_version
-    attestation = issue_attestation(
-        AttestationRequest(
-            tenant_id=TENANT_ID,
-            record_id=_uuid7(generated_at + timedelta(milliseconds=4)),
-            stream_id=f"{TENANT_ID}:attestation:salesforce-live",
-            sequence=1,
-            prev_digest=None,
-            source=AttestationSource(
-                service="salesforce-live-fixture-generator", version=GENERATOR_VERSION
-            ),
-            coverage=coverage,
-            boundary_versions=(boundary_version,),
-            action_families=(config.action_family,),
-            operated_action_families=(config.action_family,),
-            outcome_action_ids=(),
-            authoritative_source=None,
-            outcome_records=(),
-            methodology_version=METHODOLOGY_VERSION,
-            verifier_version=VERIFIER_VERSION,
-            verification_status="self_computed",
-            relying_parties=(
-                RelyingParty(name="demo fixture evaluator", relationship="evaluation"),
-            ),
-            validity_from=generated_at,
-            validity_until=generated_at + timedelta(days=30),
-            liability_ref="demo-only:no-reliance",
-            issued_at=generated_at,
-            issuer=IssuerIdentity(
-                name="Evidence Control Plane demo",
-                identifier="salesforce-probe",
-            ),
+    request = AttestationRequest(
+        tenant_id=TENANT_ID,
+        record_id=_uuid7(generated_at + timedelta(milliseconds=4)),
+        stream_id=f"{TENANT_ID}:attestation:salesforce-live",
+        sequence=1,
+        prev_digest=None,
+        source=AttestationSource(
+            service="salesforce-live-fixture-generator", version=GENERATOR_VERSION
         ),
-        evidence_signer=EvidenceSigner(EVIDENCE_KEY_ID, evidence_key),
-        issuer_signer=IssuerSigner(ISSUER_KEY_ID, issuer_key),
+        coverage=coverage,
+        action_families=(config.action_family,),
+        operated_action_families=(config.action_family,),
+        outcome_action_ids=(),
+        # No human review was in scope for a record-create probe, so the
+        # A-07/A-08 inputs are empty rather than absent -- EV-11 withholds
+        # those assertions from an empty set rather than assuming none
+        # were required.
+        review_action_ids=(),
+        human_reviews=(),
+        authoritative_source=None,
+        outcome_records=(),
+        methodology_version=METHODOLOGY_VERSION,
+        verifier_version=VERIFIER_VERSION,
+        verification_status="self_computed",
+        relying_parties=(
+            RelyingParty(name="demo fixture evaluator", relationship="evaluation"),
+        ),
+        validity_from=generated_at,
+        validity_until=generated_at + timedelta(days=30),
+        liability_ref="demo-only:no-reliance",
+        issued_at=generated_at,
+        issuer=IssuerIdentity(
+        name="Evidence Control Plane demo",
+        identifier="salesforce-probe",
+        ),
     )
+    # Issued through the ledger-backed path: `issue_attestation` loads the
+    # boundary history itself and re-verifies each stored ES-032 receipt, so
+    # A-02 rests on a recording time this tool cannot influence and could not
+    # fabricate by handing over a BoundaryVersion of its own construction.
+    engine = migrator_engine(LedgerConfig.from_env())
+    try:
+        with engine.begin() as connection:
+            attestation = issue_attestation(
+                request,
+                connection=connection,
+                evidence_signer=EvidenceSigner(EVIDENCE_KEY_ID, evidence_key),
+                issuer_signer=IssuerSigner(ISSUER_KEY_ID, issuer_key),
+            )
+    finally:
+        engine.dispose()
 
     verification_keys = {
         EVIDENCE_KEY_ID: RegisteredPublicKey(

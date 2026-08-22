@@ -57,6 +57,7 @@ from services.connectors import (
     exchange_jwt_bearer,
 )
 from services.ingestion.api import create_app
+from services.ingestion.receipts import create_ingestion_receipt
 from services.ingestion.service import IngestionService, IssuerSigningKey
 from services.ledger import (
     LedgerConfig,
@@ -198,6 +199,15 @@ def register_scope(
                 record=qualification,
                 canonical_bytes=canonical,
                 signature=signature,
+                # ES-032: the recording time is derived from this receipt and
+                # from nothing else, so it is minted here by the hosted side
+                # rather than supplied as a timestamp the signer chose.
+                receipt=create_ingestion_receipt(
+                    qualification,
+                    ingest_time=datetime.now(UTC),
+                    issuer_key_id=ISSUER_KEY_ID,
+                    issuer_private_key=issuer_key,
+                ),
             )
             boundary: AssuranceBoundaryRecord = build_boundary_record(
                 config=config,
@@ -208,17 +218,21 @@ def register_scope(
                 window_end=window_end,
             )
             canonical, signature = _unsigned_bytes_and_signature(boundary)
-            # The hosted observation time, not a value the signer chose.
-            # AR-027 floors the boundary's effective interval at this instant
-            # precisely so a boundary cannot be backdated into force; handing
-            # it a signer-supplied instant hands the party the attestation is
-            # about the power to decide when its own boundary took effect.
+            # AR-027 floors the boundary's effective interval at its recording
+            # time precisely so a boundary cannot be backdated into force, and
+            # ES-032 makes that instant the receipt's -- there is no longer a
+            # `recorded_at` parameter for a caller to supply.
             record_boundary(
                 connection,
                 record=boundary,
                 canonical_bytes=canonical,
                 signature=signature,
-                recorded_at=datetime.now(UTC),
+                receipt=create_ingestion_receipt(
+                    boundary,
+                    ingest_time=datetime.now(UTC),
+                    issuer_key_id=ISSUER_KEY_ID,
+                    issuer_private_key=issuer_key,
+                ),
             )
             print(f"  scope declared: {BOUNDARY_REF} -> {qualification_ref}")
     finally:
