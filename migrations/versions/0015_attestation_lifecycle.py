@@ -8,7 +8,7 @@ exists (DM-012).
 
 This migration does not implement the SE-017 / DM-014 retention floor --
 attestation validity plus the dispute window.  The trigger stops refusing at
-expiry, so nothing here retains evidence *after* an attestation lapses.  EV-42
+expiry, so nothing here retains evidence *after* an attestation lapses.  EV-43
 owns that.
 
 Revision ID: 0015

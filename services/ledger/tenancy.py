@@ -218,7 +218,7 @@ def deprovision_tenant(connection: Connection, *, tenant_id: str) -> None:
     plus the dispute window, which DM-014 puts at a configurable 12 months
     by default. That half is not implemented here or anywhere else yet: the
     moment an attestation expires this guard stops refusing, so expiry --
-    not the retention floor -- is currently what bounds deletion. EV-42
+    not the retention floor -- is currently what bounds deletion. EV-43
     owns closing it. Do not read this function as satisfying SE-017 whole.
     """
     validate_tenant_id(tenant_id)
