@@ -127,21 +127,26 @@ Following the DamDam convention, and for the same reason: a self-report is not e
 
 **AG-009 — Review is a fresh session in the main clone** that **reproduces the claims with real commands**. Not reading the diff and agreeing. Run the tests, inspect the database, verify the chain, confirm the migration applied. The reviewer must not inherit the builder's session context or reasoning — doing so discards the independence the cross-model rule buys.
 
-**AG-009a — The docs-only exemption, and its limits.** A documentation change that adds no obligation to the product may merge on CI and the author's disclosure alone, without the reproduction session AG-009 requires. There are no claims to reproduce: a reviewer would run the same extractor and matrix checks CI has already run, and reading the prose a second time is not the independent verification AG-009 exists to buy.
+**AG-009a — What a documentation change is exempt from, and what it is not.** AG-009 requires two different things at once: an **independent reading** by a different model, and a **reproduction session** that re-runs the claims with real commands. A documentation change can be exempt from the second without being exempt from the first, and confusing the two is how a review gets skipped by accident.
 
-The exemption is narrow, and — as in AG-018a — it is defined by what the change **does**, not by which files it touches. It applies only when every one of these holds:
+**Reproduction is exempt when there is nothing to reproduce. Independent reading is not exempt.** A change that alters no product behaviour has no claims for a reviewer to re-run: they would execute the same extractor and matrix checks CI has already executed, against the same commit. That session may be skipped when all three of these mechanical conditions hold, each of which CI establishes and none of which depends on the author's judgement:
 
-- Every requirement added or amended is classified **non-testable** (process, governance, or documentation) under QA-018. The exemption never reaches scenario-bearing or otherwise-verified text.
 - Regenerating features produces no delta: `extract_features.py --check` passes and the scenario count is unchanged. A `.md`-only diff that alters a scenario is not a documentation change; it is a change to the acceptance suite wearing a documentation diff (AG-001, AG-002).
 - The traceability matrix has no orphans (`EV-22`).
 - Nothing outside `docs/` is touched — fixtures included. A change under `tests/traceability/fixtures/` is test data pinned to a known state, not documentation.
-- The change **adds** an obligation or records a decision. It does not remove a rule, narrow one, or add an exception to one.
 
-The last condition is the load-bearing one. A change that subtracts an obligation is exactly the change whose author is least able to see what it now lets through, and it is the cheapest kind of change to review, because it is short and its consequences are argued rather than executed. Nothing is saved by exempting it and the specific thing AG-009 protects is what is lost.
+**AG-008 stands unchanged.** A different model still reads the change and forms its own view of whether the project should be bound by it. Whether the text is genuinely non-testable, and whether it is genuinely additive, are **findings the reviewer reaches**, not certifications the author supplies to unlock a merge. That distinction is the whole of this clause: a semantic claim asserted by the author of the change is a self-report, and §5 opens by rejecting self-reports as evidence.
 
-**This clause does not qualify under itself.** It adds an exception to a rule, so it takes an independent review. A self-amendment that authorised its own unreviewed merge would be worth no more than the self-report AG-008 opens this section by rejecting. Any later amendment to AG-009a is subject to the same bar.
+**AG-009b — CI-only self-merge is for editorial changes only.** A documentation change may merge on CI and the author's disclosure alone, with no independent reading, only when it carries **no normative and no decision-making delta**: a typo, a broken link, a formatting or markdown-structure repair, a rewording that changes no obligation. The test is not size and not confidence. It is whether a reader's obligations are different afterwards, or a decision has been recorded that was not recorded before.
 
-Claiming the exemption is disclosed in the PR under AG-015, naming it and stating that the conditions hold. An exemption taken silently is indistinguishable from a review that was skipped.
+Two guards, because "immaterial" is precisely the judgement an author is worst placed to make about their own writing — the blind spot AG-008 and AG-016 both exist to route around:
+
+- The editorial path never applies to a diff that adds, removes, or renumbers a requirement ID, or that alters any sentence carrying normative force — MUST, MUST NOT, never, only, before, first.
+- **Where there is any doubt, the change is not editorial.** The cost of reading a docs diff that turned out not to need it is a few minutes. The cost of the other error is a governance rule that no one but its author ever read.
+
+**Why the first draft of AG-009a was wrong, recorded because the error is a natural one.** It allowed CI-only self-merge for any change that was additive and non-testable, treating those two properties as mechanical conditions. They are not: both are semantic assertions, and CI can establish neither. Review falsified the draft with a rule that satisfied every condition it named — *a security fix must sit public and unmodified for thirty days before it may merge* — which is additive, non-testable, orphan-free, confined to `docs/`, and obviously something no project should adopt without a second reader. Restricting the exemption to particular sections would not have closed it. Harmful additive governance can be written anywhere, and a condition that only a semantic reading can check must be routed to a semantic reader rather than to CI.
+
+Claiming either exemption is disclosed in the PR under AG-015, naming which one and stating the ground for it. An exemption taken silently is indistinguishable from a review that was skipped.
 
 **AG-010 — Read the requirement before the diff.** Form an expectation of what a correct implementation looks like from the requirement text alone, then compare against what was built. Reading the diff first anchors you to the author's framing, which is exactly what the review exists to escape.
 
