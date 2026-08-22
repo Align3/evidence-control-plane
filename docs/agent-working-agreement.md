@@ -127,6 +127,22 @@ Following the DamDam convention, and for the same reason: a self-report is not e
 
 **AG-009 — Review is a fresh session in the main clone** that **reproduces the claims with real commands**. Not reading the diff and agreeing. Run the tests, inspect the database, verify the chain, confirm the migration applied. The reviewer must not inherit the builder's session context or reasoning — doing so discards the independence the cross-model rule buys.
 
+**AG-009a — The docs-only exemption, and its limits.** A documentation change that adds no obligation to the product may merge on CI and the author's disclosure alone, without the reproduction session AG-009 requires. There are no claims to reproduce: a reviewer would run the same extractor and matrix checks CI has already run, and reading the prose a second time is not the independent verification AG-009 exists to buy.
+
+The exemption is narrow, and — as in AG-018a — it is defined by what the change **does**, not by which files it touches. It applies only when every one of these holds:
+
+- Every requirement added or amended is classified **non-testable** (process, governance, or documentation) under QA-018. The exemption never reaches scenario-bearing or otherwise-verified text.
+- Regenerating features produces no delta: `extract_features.py --check` passes and the scenario count is unchanged. A `.md`-only diff that alters a scenario is not a documentation change; it is a change to the acceptance suite wearing a documentation diff (AG-001, AG-002).
+- The traceability matrix has no orphans (`EV-22`).
+- Nothing outside `docs/` is touched — fixtures included. A change under `tests/traceability/fixtures/` is test data pinned to a known state, not documentation.
+- The change **adds** an obligation or records a decision. It does not remove a rule, narrow one, or add an exception to one.
+
+The last condition is the load-bearing one. A change that subtracts an obligation is exactly the change whose author is least able to see what it now lets through, and it is the cheapest kind of change to review, because it is short and its consequences are argued rather than executed. Nothing is saved by exempting it and the specific thing AG-009 protects is what is lost.
+
+**This clause does not qualify under itself.** It adds an exception to a rule, so it takes an independent review. A self-amendment that authorised its own unreviewed merge would be worth no more than the self-report AG-008 opens this section by rejecting. Any later amendment to AG-009a is subject to the same bar.
+
+Claiming the exemption is disclosed in the PR under AG-015, naming it and stating that the conditions hold. An exemption taken silently is indistinguishable from a review that was skipped.
+
 **AG-010 — Read the requirement before the diff.** Form an expectation of what a correct implementation looks like from the requirement text alone, then compare against what was built. Reading the diff first anchors you to the author's framing, which is exactly what the review exists to escape.
 
 **AG-011** — For anything touching the evidence schema, signing, canonicalisation, or coverage computation, the review must include the Go verifier independently reproducing Python output. This is the check that catches the class of bug nothing else will.
