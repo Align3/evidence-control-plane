@@ -1,0 +1,58 @@
+[
+  {
+    "body": {
+      "action_id": "2276cbeb-927a-498e-a30d-a74e73df9cc0",
+      "action_state_at_review": "proposed",
+      "decided_at": "2026-08-22T16:10:28.433Z",
+      "decision": "approve",
+      "evidence_shown": "sha256:1c2c7164d191472591c73c0557bd36c35d42d200afc53c7d433f9d4f03ac493d",
+      "evidence_shown_refs": [
+        "action:2276cbeb-927a-498e-a30d-a74e73df9cc0"
+      ],
+      "modifications": null,
+      "options_offered": [
+        "approve",
+        "deny",
+        "modify",
+        "escalate"
+      ],
+      "reviewer_authority": {
+        "limit": {
+          "amount": "500.00",
+          "currency": "GBP"
+        },
+        "role": "refunds-approver"
+      },
+      "reviewer_identity": "reviewer:demo-1",
+      "surface": {
+        "implementation": "oversight-contrast-fixture-generator",
+        "rendered": "canonical JSON, digested from the rendered bytes"
+      },
+      "time_available_ms": 600000,
+      "time_taken_ms": 4000
+    },
+    "boundary_ref": "oversight_intime_7b4e0ce5:refund-issue:1",
+    "clocks": {
+      "source_time": "2026-08-22T16:10:28.433Z"
+    },
+    "prev_digest": "sha256:8564aa9199b08a022b5ed668ec59302747e3c0cc183fea2b98e5f5cf2609caae",
+    "record_id": "01a02a3c-e2d1-7297-9f83-a622bf6f31ff",
+    "record_type": "HumanReview",
+    "schema_version": "1.0.0",
+    "sequence": 2,
+    "signature": {
+      "alg": "ed25519",
+      "key_id": "oversight_intime_7b4e0ce5-evidence-dev-1",
+      "sig": "9qc6-sXM5Ze7EoRMzusmgNB9LHp0TzW6EjLzUqVjoXz0uAMJqWkRdbTq6GPnvJJ_i-LiukxDOxdakBufJwjvDg",
+      "signed_digest": "sha256:eecfd61f0658c7bbc7204235ddc97886eace8ab01aafbf6deebba468ff2860f0"
+    },
+    "source": {
+      "collector_id": "oversight_intime_7b4e0ce5-collector-1",
+      "deployment": "demo",
+      "implementation": "sdk-python",
+      "version": "0.1.0"
+    },
+    "stream_id": "oversight_intime_7b4e0ce5:oversight_intime_7b4e0ce5-collector-1:1",
+    "tenant_id": "oversight_intime_7b4e0ce5"
+  }
+]

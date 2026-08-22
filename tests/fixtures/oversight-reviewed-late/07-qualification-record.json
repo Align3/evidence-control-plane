@@ -1,0 +1,66 @@
+{
+  "body": {
+    "action_family": "refund.issue",
+    "assigned_class": "C1",
+    "class_evidence": {
+      "condition": "mock destination; no live org was probed",
+      "probe": "tools/generate_oversight_contrast_fixtures.py"
+    },
+    "confirmation": {
+      "api": "mock destination retrieve by record id",
+      "capable": true,
+      "independent_of_enumeration": true
+    },
+    "destination_system": "mock-refunds",
+    "enumeration": {
+      "api": "mock destination enumeration",
+      "capable": true,
+      "ordering": "authoritative_timestamp ASC, record_id ASC",
+      "pagination": "single batch",
+      "result_cap": null,
+      "scoping": "actor attribute plus half-open window"
+    },
+    "identity_isolation": {
+      "attribute": "actor_attribute",
+      "conditional_on": null,
+      "partial_isolation_notes": "exact: the mock destination attributes every record to the acting principal and offers no override",
+      "vendor_settable": false
+    },
+    "mutability": {
+      "deletion_possible": false,
+      "trace_available": true
+    },
+    "qualified_at": "2026-08-22T16:10:28.655Z",
+    "retention_period": "P180D",
+    "revalidation_cadence": "PT1H",
+    "temporal": {
+      "authoritative_timestamp_source": "mock destination commit time",
+      "measured_settlement_lag_s": 0
+    },
+    "trial": {
+      "match_rate": "1.0000",
+      "window_reconciled": "2026-08-22T00:00:00.000Z/2026-09-21T00:00:00.000Z"
+    }
+  },
+  "boundary_ref": "oversight_late_7b4e0ce5:refund-issue:1",
+  "clocks": {
+    "source_time": "2026-08-22T16:10:28.655Z"
+  },
+  "prev_digest": null,
+  "record_id": "01a02a3c-e3af-787b-bdb3-00b19b6025a8",
+  "record_type": "QualificationRecord",
+  "schema_version": "1.0.0",
+  "sequence": 1,
+  "signature": {
+    "alg": "ed25519",
+    "key_id": "oversight_late_7b4e0ce5-evidence-dev-1",
+    "sig": "0QX0FEQMUkGk2WslV2NjDoOju7kdO6bnLP9gQ2U2lsUPnP8iYRD8woiySCio-oNGREDDiFDXoL7SO5Z-YjnhDQ",
+    "signed_digest": "sha256:9eefd0e919f1db994ed671b966c9f4cf3eee8d55fd9373397cfed2fb4b71127a"
+  },
+  "source": {
+    "implementation": "oversight-contrast-fixture-generator",
+    "version": "0.1.0"
+  },
+  "stream_id": "oversight_late_7b4e0ce5:evidence:mock:qualification",
+  "tenant_id": "oversight_late_7b4e0ce5"
+}

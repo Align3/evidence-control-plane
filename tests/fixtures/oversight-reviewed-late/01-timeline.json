@@ -1,0 +1,23 @@
+{
+  "action_id": "a47211df-5763-47db-ba6a-c0a206788492",
+  "action_state_at_review": "committed",
+  "committed_at": "2026-08-22T16:10:28.802Z",
+  "destination_record_id": "mock-d608142d1dc9",
+  "ledger_provenance": {
+    "action_proposals": 1,
+    "execution_receipts": 1,
+    "partition": "evidence_records_oversight_late_7b4e0ce5",
+    "queried": true,
+    "record_types": [
+      "ActionProposal",
+      "ExecutionReceipt"
+    ],
+    "rows_returned": 2,
+    "tenant_id": "oversight_late_7b4e0ce5",
+    "with_ingestion_receipt": 2
+  },
+  "proposed_at": "2026-08-22T16:10:28.762Z",
+  "review_point": "after_commitment",
+  "review_record_id": "01a02a3c-e44c-7af0-baa0-aad644e59b57",
+  "reviewed_at": "2026-08-22T16:10:28.812Z"
+}

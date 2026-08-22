@@ -1,0 +1,18 @@
+{
+  "effective_action_ids": [],
+  "evaluations": [
+    {
+      "action_id": "a47211df-5763-47db-ba6a-c0a206788492",
+      "effective": false,
+      "reason": "review after commitment",
+      "record_id": "01a02a3c-e44c-7af0-baa0-aad644e59b57"
+    }
+  ],
+  "missing_action_ids": [],
+  "required_action_ids": [
+    "a47211df-5763-47db-ba6a-c0a206788492"
+  ],
+  "reviewed_action_ids": [
+    "a47211df-5763-47db-ba6a-c0a206788492"
+  ]
+}

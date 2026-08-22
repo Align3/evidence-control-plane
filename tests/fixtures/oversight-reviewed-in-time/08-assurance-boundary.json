@@ -1,0 +1,58 @@
+{
+  "body": {
+    "action_families": [
+      {
+        "action_family": "refund.issue",
+        "destination_system": "mock-refunds",
+        "qualification_ref": "01a02a3c-e214-78c9-8c21-766857776660"
+      }
+    ],
+    "agent_identities": [
+      "mock-agent"
+    ],
+    "boundary_version": "1",
+    "collection_modes": [
+      "inline"
+    ],
+    "deployment": "demo",
+    "destination_systems": [
+      "mock-refunds"
+    ],
+    "enforcement_points": [
+      "connector"
+    ],
+    "fail_behaviour": {
+      "refund.issue": "fail_closed"
+    },
+    "policy_refs": [
+      "demo-only:no-reliance"
+    ],
+    "qualification_refs": [
+      "01a02a3c-e214-78c9-8c21-766857776660"
+    ],
+    "tenant": "oversight_intime_7b4e0ce5",
+    "window_end": "2026-09-21T00:00:00.000Z",
+    "window_start": "2026-08-22T00:00:00.000Z"
+  },
+  "boundary_ref": "oversight_intime_7b4e0ce5:refund-issue:1",
+  "clocks": {
+    "source_time": "2026-08-22T16:10:28.244Z"
+  },
+  "prev_digest": null,
+  "record_id": "01a02a3c-e214-7722-acff-72ed938b1187",
+  "record_type": "AssuranceBoundary",
+  "schema_version": "1.0.0",
+  "sequence": 1,
+  "signature": {
+    "alg": "ed25519",
+    "key_id": "oversight_intime_7b4e0ce5-evidence-dev-1",
+    "sig": "AvknyPEHfh91H6zTZ40erw7FpsXlK_TkfXNzdqScFv3O-2I_isFuMq6XUOf4yVILzP1_4yzEkwXTTWXNrW1qCQ",
+    "signed_digest": "sha256:6558f5c9bb491ef29f58c6d282d52ffe47cee49d3f52798c0c85750b16870609"
+  },
+  "source": {
+    "implementation": "oversight-contrast-fixture-generator",
+    "version": "0.1.0"
+  },
+  "stream_id": "oversight_intime_7b4e0ce5:evidence:mock:boundary",
+  "tenant_id": "oversight_intime_7b4e0ce5"
+}

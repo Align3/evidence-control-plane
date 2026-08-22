@@ -1,0 +1,58 @@
+{
+  "body": {
+    "action_family": "refund.issue",
+    "attribution_observations": [
+      {
+        "actor_attribute": "mock-agent",
+        "record_identifier": "mock-d608142d1dc9"
+      }
+    ],
+    "authoritative_timestamps": {
+      "max": "2026-08-22T16:10:28.802Z",
+      "min": "2026-08-22T16:10:28.802Z"
+    },
+    "count": 1,
+    "destination_system": "mock-refunds",
+    "enumeration_query": {
+      "scope": {},
+      "window_end": "2026-08-22T16:10:28.824Z",
+      "window_start": "2026-08-22T16:10:28.761Z"
+    },
+    "observed_settlement_lag_ms": 0,
+    "pagination_complete": true,
+    "record_identifiers": [
+      "mock-d608142d1dc9"
+    ],
+    "result_cap_hit": false,
+    "retrieved_at": "2026-08-22T16:10:28.824Z",
+    "window_end": "2026-08-22T16:10:28.824Z",
+    "window_start": "2026-08-22T16:10:28.761Z"
+  },
+  "boundary_ref": "oversight_late_7b4e0ce5:refund-issue:1",
+  "clocks": {
+    "authoritative_time": "2026-08-22T16:10:28.802Z",
+    "source_time": "2026-08-22T16:10:28.824Z"
+  },
+  "prev_digest": null,
+  "record_id": "01a02a3c-e458-71d3-a002-a739edfcba49",
+  "record_type": "PopulationRecord",
+  "schema_version": "0.1.0",
+  "sequence": 1,
+  "signature": {
+    "alg": "ed25519",
+    "key_id": "oversight_late_7b4e0ce5-issuer-dev-1",
+    "sig": "10YP3M0pGugm2qBIL-xxDP74tXJDdf1LbNoy27xd2q9gSVZQ_gk_yl7-QLJE-knFK4v_O40g6ykV58YQGfmaDw",
+    "signed_digest": "sha256:39e7814efc675adb17cb54cdf19fdb0556dd3e6b21da218389b93f0210873f94"
+  },
+  "source": {
+    "connector": {
+      "connector": "mock",
+      "destination_system": "mock-refunds",
+      "version": "0.1.0"
+    },
+    "implementation": "population-service",
+    "version": "0.1.0"
+  },
+  "stream_id": "oversight_late_7b4e0ce5:population:oversight_late_7b4e0ce5:refund-issue:1:refund.issue:mock-refunds",
+  "tenant_id": "oversight_late_7b4e0ce5"
+}

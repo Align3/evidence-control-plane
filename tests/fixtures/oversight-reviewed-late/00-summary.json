@@ -1,0 +1,31 @@
+{
+  "action_state_at_review": "committed",
+  "assertion_ids": [
+    "A-02",
+    "A-03",
+    "A-04",
+    "A-06",
+    "A-07"
+  ],
+  "counts": {
+    "ambiguous": 0,
+    "duplicate": 0,
+    "matched": 1,
+    "out_of_scope": 0,
+    "unmatched_with_evidence": 0,
+    "unmatched_without_evidence": 0
+  },
+  "coverage_ratio": "1.0000",
+  "effective_action_ids": [],
+  "oversight_exclusions": [
+    {
+      "action_id": "a47211df-5763-47db-ba6a-c0a206788492",
+      "kind": "human_review_ineffective",
+      "reason": "review after commitment",
+      "record_id": "01a02a3c-e44c-7af0-baa0-aad644e59b57"
+    }
+  ],
+  "review_point": "after_commitment",
+  "tenant_id": "oversight_late_7b4e0ce5",
+  "variant": "oversight-reviewed-late"
+}

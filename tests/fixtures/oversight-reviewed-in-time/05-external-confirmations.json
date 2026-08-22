@@ -1,0 +1,40 @@
+[
+  {
+    "body": {
+      "action_id": "2276cbeb-927a-498e-a30d-a74e73df9cc0",
+      "authoritative_timestamp": "2026-08-22T16:10:28.445Z",
+      "destination_record_digest": "sha256:14c6bfcfd0330f271b4cc7584d23d0590f0db4b94f5709151310fe2ee5d5f0e6",
+      "destination_record_id": "mock-6421e2595ecc",
+      "destination_system": "mock-refunds",
+      "reconciliation_status": "matched",
+      "retrieved_at": "2026-08-22T16:10:28.457Z"
+    },
+    "boundary_ref": "oversight_intime_7b4e0ce5:refund-issue:1",
+    "clocks": {
+      "authoritative_time": "2026-08-22T16:10:28.445Z",
+      "source_time": "2026-08-22T16:10:28.457Z"
+    },
+    "prev_digest": null,
+    "record_id": "01a02a3c-e32f-7234-9539-ea22873e4e17",
+    "record_type": "ExternalConfirmation",
+    "schema_version": "1.0.0",
+    "sequence": 1,
+    "signature": {
+      "alg": "ed25519",
+      "key_id": "oversight_intime_7b4e0ce5-issuer-dev-1",
+      "sig": "rsKRH6A5K3sVco5K8JuCiFJn5lyzOvSySm9AZrkAB2vzbUaJEiPECrwGInz72CEzQbcwoOI2fxUi1Eg5DrvXBQ",
+      "signed_digest": "sha256:6fbd5b14576641d4471f58cd336bdc4f8a320bdd0d8ee7a3ef30bed130d5df97"
+    },
+    "source": {
+      "connector": {
+        "connector": "mock",
+        "destination_system": "mock-refunds",
+        "version": "0.1.0"
+      },
+      "implementation": "oversight-contrast-fixture-generator",
+      "version": "0.1.0"
+    },
+    "stream_id": "oversight_intime_7b4e0ce5:issuer:mock:confirmation",
+    "tenant_id": "oversight_intime_7b4e0ce5"
+  }
+]
