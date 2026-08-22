@@ -64,7 +64,7 @@ Sizing target: one to five days for a competent agent with review. Anything larg
 
 ### Story-ID allocation register
 
-Story IDs are claimed in integer order by the commit that adds the complete story below. An ID is never reserved, pre-allocated, or held for a branch: concurrent authors rebase and claim the next integer above the current head. The last ID claimed in this document is EV-43; the next author computes its successor only when adding that story's full purpose, Touches, dependencies, Satisfies, and Acceptance record.
+Story IDs are claimed in integer order by the commit that adds the complete story below. An ID is never reserved, pre-allocated, or held for a branch: concurrent authors rebase and claim the next integer above the current head. The last ID claimed in this document is EV-46; the next author computes its successor only when adding that story's full purpose, Touches, dependencies, Satisfies, and Acceptance record.
 
 ---
 
@@ -487,6 +487,51 @@ Authentication uses an injected JWT-signing capability. The connector does not g
 **Depends on:** EV-13, EV-40
 **Satisfies:** AC-008, CM-004, CM-005, CM-006, CM-010, CM-016, DP-003, ES-037
 **Acceptance:** CM-S-012, CM-S-013, ES-S-026; against the qualified Salesforce Developer Edition org, a real API integration test isolates the known agent-created Cases from human-created Cases, retrieves a Case independently by Id, and exercises multi-page traversal with honest completion metadata; qualification and repeatable revalidation refuse C1 when the integration user holds `PermissionsCreateAuditFields` and preserve a failed query as an unknown third state; capability output records the shared Salesforce access path; JWT authentication accepts a client-held signer without connector-side private-key generation or persistence.
+
+#### EV-44 — Normative payload schemas for A-02, A-03, A-04, and A-06
+Replace ES-036's provisional presence-only routing with versioned normative payload schemas for the four assertions the current attestation service issues. Define every required and optional member, its type, its relationship to the enclosing attestation scope and counts, and the refusal behaviour for an in-catalogue assertion whose payload is malformed or contradicts the bundle. Implement the schemas independently in Python and Go and publish cross-implementation vectors; recognizing an `assertion_id` without checking the assertion's content is not completion.
+
+**Evidence from the committed-fixture demo transcript.** The Go bundle verifier ran against both `tests/fixtures/salesforce-live/12-bundle.json` and `tests/fixtures/salesforce-live-matched/12-bundle.json` and printed these literal lines for each:
+
+```text
+NOT CHECKED      coverage: assertions: assertion payload A-02 has no normative scope-and-count schema
+NOT CHECKED      coverage: assertions: assertion payload A-03 has no normative scope-and-count schema
+NOT CHECKED      coverage: assertions: assertion payload A-04 has no normative scope-and-count schema
+NOT CHECKED      coverage: assertions: assertion payload A-06 has no normative scope-and-count schema
+```
+
+**Touches:** `docs/evidence-spec.md`, `docs/attestation-reliance.md`, assertion payload models and issuance, Python and Go bundle verification, `tests/vectors/`, assertion conformance and adversarial tests
+**Depends on:** EV-17, EV-19, EV-41
+**Satisfies:** ES-036, AR-003
+**Acceptance:** the Go and Python bundle verifiers independently reproduce the scope and counts of A-02, A-03, A-04, and A-06 from the carried bundle; each refuses a normative vector whose assertion payload has a missing, mistyped, out-of-scope, or count-contradicting member; neither committed Salesforce bundle emits any of the four transcript findings above.
+
+#### EV-45 — Normative `action_families[]` qualification-reference encoding
+Make one specification decision for how each declared action family binds to its `QualificationRecord`, then apply that encoding consistently to boundary issuance, storage, schemas, fixtures, and both independent verifiers. The decision must remove the current divergence in which the admin service accepts a structured family entry while ES-009 does not determine an encoding a third-party verifier can implement. A verifier must be able to establish, for every family in attestation scope, which qualification governed it and whether that qualification was in force; a top-level list that merely contains some qualification references is not sufficient.
+
+**Evidence from the committed-fixture demo transcript.** The Go verifier recomputed both committed Salesforce bundles and printed this literal limitation for each:
+
+```text
+NOT CHECKED      per-family qualification coverage (ES-009): action_families[] has no determined encoding for its qualification_ref, so this verifier does not check which family a qualification covers
+```
+
+**Touches:** `docs/evidence-spec.md`, boundary and qualification models, `services/admin/`, Python and Go bundle verification, committed fixtures, `tests/vectors/`, boundary and qualification acceptance tests
+**Depends on:** EV-12, EV-19, EV-41, EV-44
+**Satisfies:** ES-009
+**Acceptance:** the normative encoding has a cross-implementation vector; Python and Go both bind every declared family to the same carried `QualificationRecord`; a missing, duplicate, wrong-family, wrong-destination, or not-yet-effective reference is refused; neither committed Salesforce bundle emits the transcript finding above.
+
+#### EV-46 — Bundle-derived `evidence_supported_level` and class-cap verification
+Define a deterministic derivation of `evidence_supported_level` from authenticated records and reconciliation facts carried in the bundle. Use that derived value—not an issuer-authored assertion taken on trust—to re-check `coverage_level = min(evidence_supported_level, class_admissible_level)` and the strict `capped_by_class` predicate in both independent verifiers. The derivation must distinguish an exact meeting of the class ceiling from a ceiling that actually reduced the evidence-supported level.
+
+**Evidence from the committed-fixture demo transcript.** On the honest-match bundle, where the claimed level sits exactly at the C1 ceiling, the Go verifier printed this literal limitation:
+
+```text
+NOT CHECKED      coverage: capped_by_class: the claim sits exactly at the class-admissible level, and the evidence-supported level is not derivable from the bundle, so whether the cap bound cannot be recomputed
+```
+
+**Touches:** `docs/coverage-methodology.md`, `docs/evidence-spec.md`, coverage report and attestation inputs, Python and Go bundle verification, `tests/vectors/`, lattice and class-cap acceptance tests
+**Depends on:** EV-16, EV-19, EV-41, EV-44, EV-45
+**Satisfies:** CM-008, CM-009, ES-018
+**Acceptance:** Python and Go independently derive the same `evidence_supported_level` from every normative bundle; both accept the exact-ceiling case only with `capped_by_class: false`, require `true` only when the class ceiling strictly lowers the claim, and refuse tampering with either the level or flag; the honest-match Salesforce bundle no longer emits the transcript finding above.
 
 ---
 
