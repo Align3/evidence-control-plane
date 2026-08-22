@@ -63,6 +63,21 @@ jobs:
         with: {go-version: "1.23"}
       - run: cd verifier-go && go build ./... && go test ./...
 
+  fixture-artifacts:
+    name: Committed fixture records are VALID
+    runs-on: ubuntu-latest
+    needs: spec-drift
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with: {go-version: "1.23"}
+      - uses: actions/setup-python@v5
+        with: {python-version: "3.12"}
+      # Runs the shipped Go CLI over every tracked live attestation artifact.
+      # A signature test over a reparsed model cannot replace this: the CLI
+      # also enforces that the received file itself is RFC 8785 canonical.
+      - run: python tools/verify_committed_fixture_records.py
+
   traceability:
     name: Traceability matrix (QA-011 staged)
     runs-on: ubuntu-latest

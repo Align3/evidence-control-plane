@@ -27,6 +27,7 @@ import pytest
 from cryptography.hazmat.primitives.asymmetric.ed25519 import Ed25519PublicKey
 
 from sdk_python.evidence.bundle import parse_bundle
+from sdk_python.evidence.canonical import canonicalize
 from sdk_python.evidence.schema import (
     AssuranceBoundaryRecord,
     AttestationWindowRecord,
@@ -204,6 +205,21 @@ def test_live_signed_records_verify_with_published_fixture_keys(fixtures: str) -
         evidence_public_keys={EVIDENCE_KEY_ID: evidence_key},
         issuer_public_keys={ISSUER_KEY_ID: issuer_key},
     ) == (EVIDENCE_KEY_ID, ISSUER_KEY_ID)
+
+
+def test_live_attestation_is_the_exact_canonical_wire_artifact(fixtures: str) -> None:
+    """The committed verifier input is signed wire, not display JSON.
+
+    Signature verification alone is insufficient here: reparsing a signed
+    record and writing it with indentation preserves its semantic content and
+    signed digest, but ES-001 correctly makes the independent verifier refuse
+    those different received bytes as non-canonical.
+    """
+    received = _bytes(fixtures, "08-attestation-window.json")
+    record = parse_record(received)
+
+    assert isinstance(record, AttestationWindowRecord)
+    assert received == canonicalize(record)
 
 
 def test_live_bundle_parses_as_an_es_034_container(fixtures: str) -> None:
