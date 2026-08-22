@@ -41,6 +41,11 @@ def test_committed_evidence_pipeline_demo_is_literal_and_fast() -> None:
     assert completed.stdout.count("VERDICT unchecked_revocation") == 2
     assert completed.stdout.count("checks run       [coverage]") == 2
     assert (
+        "the verifier cannot determine whether the cap bound applied"
+        in completed.stdout
+    )
+    assert "whether the cap bound cannot be recomputed" not in completed.stdout
+    assert (
         "This pair runs against a mock destination, not the live Salesforce org used in "
         "Stages 1 and 2."
         in completed.stdout
